@@ -2,9 +2,12 @@ import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { Role } from "@transit-agents/contracts";
 import { mkdirSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { createApp, type Actor } from "./app.ts";
+import { Collector, loadSchedule } from "./collector.ts";
 import { watchInbox } from "./inbox.ts";
 import { Service } from "./service.ts";
+import { buildTimeline } from "./timeline.ts";
 import { Webhooks } from "./webhooks.ts";
 
 const root = resolve(import.meta.dirname, "../../..");
@@ -28,6 +31,10 @@ mkdirSync(dataDir, { recursive: true });
 const service = new Service(join(dataDir, "log.db"));
 const webhooks = new Webhooks(service, process.env.PUBLIC_URL);
 const stopInbox = watchInbox(service, join(dataDir, "inbox"));
+// Measurements live apart from the log, so a demo can reset one without losing the other.
+const measurements = new DatabaseSync(join(dataDir, "measurements.db"));
+const collector = new Collector(measurements, loadSchedule(join(import.meta.dirname, "../assets/departures.json.gz")));
+if (process.env.LIVE_FEED !== "off") collector.start();
 
 const app = createApp({
   service,
@@ -35,6 +42,8 @@ const app = createApp({
   tokens: parseTokens(process.env.TRANSIT_TOKENS),
   openAccess: process.env.AUTH !== "required",
   staticDir: join(root, "apps/display/dist"),
+  live: collector,
+  timeline: (id) => buildTimeline(service, collector, id),
 });
 
 const server = serve({ fetch: app.fetch, port, hostname: host }, () => {
@@ -43,6 +52,7 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, () => {
 
 const shutdown = () => {
   stopInbox();
+  collector.stop();
   webhooks.stop();
   server.close(() => service.close());
 };

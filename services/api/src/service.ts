@@ -403,6 +403,8 @@ export class Service {
       routes: study.routes,
       ...(study.line ? { line: study.line } : {}),
       ...(study.trial ? { trial: study.trial } : {}),
+      watch: study.watch,
+      project: study.project,
       figures: viewFigures(study, values),
       checks,
       findings: [...study.findings.values()],

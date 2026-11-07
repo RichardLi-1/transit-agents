@@ -96,6 +96,8 @@ export const LAWRENCE: StudySeed = {
     routes: ["52", "11"],
     line: "lawrence-sunnybrook",
     trial: { startedOn: "2026-11-01", reviewOn: "2027-11-01" },
+    watch: ["52F", "11B"],
+    project: ["riders", "hours", "time-saved"],
   },
   assumptions: [
     { key: RIDERS, label: "Ridership against forecast", value: 1, unit: "share", reason: "Published forecast, unadjusted" },

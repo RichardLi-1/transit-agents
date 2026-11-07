@@ -24,6 +24,8 @@ export type Study = {
   routes: string[];
   line?: string;
   trial?: { startedOn: string; reviewOn: string };
+  watch: string[];
+  project: string[];
   figures: Map<string, Figure>;
   checks: Map<string, Check>;
   findings: Map<string, FindingView>;
@@ -199,9 +201,11 @@ export function apply(state: State, entry: Entry): void {
       return;
 
     case "study.opened": {
-      const opened = data as unknown as Pick<Study, "id" | "title" | "brief" | "routes" | "line" | "trial">;
+      const opened = data as unknown as Pick<Study, "id" | "title" | "brief" | "routes" | "line" | "trial" | "watch" | "project">;
       state.studies.set(opened.id, {
         ...opened,
+        watch: opened.watch ?? [],
+        project: opened.project ?? [],
         figures: new Map(),
         checks: new Map(),
         findings: new Map(),

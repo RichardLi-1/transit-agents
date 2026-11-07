@@ -148,6 +148,9 @@ export const NewStudy = z.object({
   routes: z.array(z.string()).default([]),
   line: z.string().optional(),
   trial: z.object({ startedOn: z.iso.date(), reviewOn: z.iso.date() }).optional(),
+  // Service patterns to measure, such as 52F, and weekly figures to project.
+  watch: z.array(z.string()).default([]),
+  project: z.array(slug).default([]),
 });
 export type NewStudy = z.input<typeof NewStudy>;
 
@@ -190,6 +193,19 @@ export type CheckView = {
 
 export type FindingView = z.infer<typeof NewFinding>;
 
+export type DayResult = { date: string; departures: number; onTimeStandard: number; onTimeReported: number };
+
+// Measured and forecast are kept apart on purpose. `measured` is what the live feed
+// recorded. `forecast` is a published weekly figure at current assumptions: a claim,
+// not a result, and it stays flat because no one has published how it will change.
+export type Timeline = {
+  today: string;
+  reviewOn: string | null;
+  measured: { patterns: string[]; days: DayResult[] };
+  network: { days: DayResult[] };
+  forecast: { figure: string; label: string; unit: string; perWeek: number }[];
+};
+
 export type StudyView = {
   id: string;
   title: string;
@@ -197,6 +213,8 @@ export type StudyView = {
   routes: string[];
   line?: string;
   trial?: { startedOn: string; reviewOn: string };
+  watch: string[];
+  project: string[];
   figures: FigureView[];
   checks: CheckView[];
   findings: FindingView[];
