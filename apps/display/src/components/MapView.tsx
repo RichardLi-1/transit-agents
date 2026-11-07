@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { StudyView } from "@transit-agents/contracts";
 import { api } from "../api.ts";
-import { MapEngine, type Camera, type NetworkData, type Point } from "../map/engine.ts";
+import type { Camera, NetworkData, Point } from "../map/engine.ts";
 import { FlatMap } from "../map/flat.ts";
+import { createRenderer, type MapRenderer } from "../map/renderer.ts";
 import { ScheduledVehicles, type StudyLine } from "../map/vehicles.ts";
 import type { Simulator } from "../simulator.ts";
 import { clockAt, dateToMs, DAY_MS } from "../time.ts";
@@ -31,7 +32,8 @@ const describe = (study: StudyView | null) => {
 };
 
 type Live = { pattern: string; lat: number; lon: number };
-type Renderer = MapEngine | FlatMap;
+type Renderer = MapRenderer | FlatMap;
+const isFlat = (map: Renderer | null): map is FlatMap => map instanceof FlatMap;
 
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -56,7 +58,7 @@ export function MapView({ study, simulator }: { study: StudyView | null; simulat
     map.setStudyLines(line?.lines ?? []);
     map.setStudyFailing(failing);
     scheduled.current = line ? new ScheduledVehicles(line) : null;
-    if (map instanceof MapEngine) {
+    if (!isFlat(map)) {
       map.flyTo(line ? (VIEWS[lineKey as string] ?? OVERVIEW) : OVERVIEW, animate ? CAMERA_MS : 0);
       if (line) map.drawStudyLine(animate ? LINE_DRAW_MS : 0);
     }
@@ -75,18 +77,14 @@ export function MapView({ study, simulator }: { study: StudyView | null; simulat
   useEffect(() => {
     const element = glCanvas.current as HTMLCanvasElement;
     try {
-      renderer.current = new MapEngine(element);
+      renderer.current = createRenderer(element, fallBack);
     } catch {
       fallBack();
     }
-    element.addEventListener("webglcontextlost", (event) => {
-      event.preventDefault();
-      fallBack();
-    });
     const resize = () => {
       const map = renderer.current;
-      if (map instanceof MapEngine) map.resize();
-      else map?.draw();
+      if (isFlat(map)) map.draw();
+      else map?.resize(element.clientWidth, element.clientHeight, window.devicePixelRatio);
     };
     resize();
     const observer = new ResizeObserver(resize);
@@ -104,7 +102,7 @@ export function MapView({ study, simulator }: { study: StudyView | null; simulat
       lines.current = studies as Record<string, StudyLine>;
       const map = renderer.current;
       map?.setNetwork(network.current);
-      if (map instanceof MapEngine) map.setCamera(OVERVIEW);
+      if (map && !isFlat(map)) map.setCamera(OVERVIEW);
       setReady(true);
     };
     const idle = window.requestIdleCallback ?? ((fn: () => void) => window.setTimeout(fn, 1));
@@ -129,7 +127,7 @@ export function MapView({ study, simulator }: { study: StudyView | null; simulat
       if (!map || !ready) return;
       const covered = ms <= serviceUntil.current;
       const clock = clockAt(ms);
-      if (map instanceof MapEngine) map.setClock(covered ? clock.dayType : null, clock.hour);
+      if (!isFlat(map)) map.setClock(covered ? clock.dayType : null, clock.hour);
       if (simulator.live && liveVehicles.current.length) map.setVehicles(liveVehicles.current);
       else map.setVehicles(covered ? (scheduled.current?.at(clock.dayType, clock.seconds) ?? new Float32Array()) : new Float32Array());
     };

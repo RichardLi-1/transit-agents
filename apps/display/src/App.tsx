@@ -104,9 +104,13 @@ export function App() {
 
   return (
     <>
-      <h1 class="sr-only">Transit Agents</h1>
-      <MapView study={shown} simulator={simulator} />
-      <div class="fade" aria-hidden="true" />
+      <header>
+        <h1 class="sr-only">Transit Agents</h1>
+      </header>
+      <section aria-label="Map">
+        <MapView study={shown} simulator={simulator} />
+        <div class="fade" aria-hidden="true" />
+      </section>
       <Shelf contexts={store.contexts} reading={store.reading} highlight={targetFolder ?? null} />
       <main class="stage">
         {shown && (

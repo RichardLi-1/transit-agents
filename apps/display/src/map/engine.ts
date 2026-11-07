@@ -17,6 +17,12 @@ export type NetworkRoute = { id: string; type: number; color: string; service: n
 export type Polyline = { route: number; start: number; count: number };
 export type NetworkData = { coordinates: Int16Array; polylines: Polyline[]; routes: NetworkRoute[]; unitMetres: number };
 
+// Workers in some browsers have no requestAnimationFrame, so fall back to a timer.
+const nextFrame: (callback: (time: number) => void) => number =
+  typeof requestAnimationFrame === "function"
+    ? (callback) => requestAnimationFrame(callback)
+    : (callback) => setTimeout(() => callback(performance.now()), 16) as unknown as number;
+
 const MAGENTA: Vec3 = [176 / 255, 52 / 255, 136 / 255];
 const SLATE: Vec3 = [0.42, 0.45, 0.5];
 const GREY: Vec3 = [0.58, 0.6, 0.63];
@@ -133,7 +139,7 @@ void main() {
   vKind = aVehicle.z;
   vFade = 1.0;
   gl_Position = uViewProjection * vec4(ground, 0.0, 1.0);
-  gl_PointSize = clamp(uScale / gl_Position.w, 3.0, 22.0);
+  gl_PointSize = clamp(uScale / gl_Position.w, 9.0, 26.0);
 }`;
 
 const VEHICLE_FRAGMENT = `#version 300 es
@@ -144,11 +150,15 @@ uniform vec3 uColor;
 out vec4 color;
 void main() {
   float r = length(gl_PointCoord - 0.5) * 2.0;
-  float disc = 1.0 - smoothstep(0.82, 1.0, r);
-  // Live vehicles are solid. Scheduled vehicles are rings.
-  float ring = disc * smoothstep(0.42, 0.58, r);
-  float alpha = (vKind > 0.5 ? disc : ring) * vFade;
-  color = vec4(uColor * alpha, alpha);
+  float outer = 1.0 - smoothstep(0.88, 1.0, r);
+  // A white halo keeps every vehicle visible on top of the line. Live vehicles
+  // are solid; scheduled ones are white with a coloured outline.
+  float core = 1.0 - smoothstep(0.62, 0.72, r);
+  float hole = 1.0 - smoothstep(0.34, 0.44, r);
+  float tint = vKind > 0.5 ? core : core - hole;
+  vec3 rgb = mix(vec3(1.0), uColor, tint);
+  float alpha = outer * vFade;
+  color = vec4(rgb * alpha, alpha);
 }`;
 
 function compile(gl: WebGL2RenderingContext, vertex: string, fragment: string): WebGLProgram {
@@ -212,7 +222,7 @@ function ribbon(points: Point[], width: number, color: Vec3, out: number[], alon
 
 export class MapEngine {
   private readonly gl: WebGL2RenderingContext;
-  private readonly canvas: HTMLCanvasElement;
+  private readonly canvas: HTMLCanvasElement | OffscreenCanvas;
   private readonly network: WebGLProgram;
   private readonly ribbons: WebGLProgram;
   private readonly vehicles: WebGLProgram;
@@ -235,8 +245,8 @@ export class MapEngine {
   camera: Camera = { x: 0, y: 0, distance: 16000, pitch: 1.1, bearing: 0 };
   private frame = 0;
 
-  constructor(canvas: HTMLCanvasElement) {
-    const gl = canvas.getContext("webgl2", { antialias: true, alpha: true, premultipliedAlpha: true });
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
+    const gl = canvas.getContext("webgl2", { antialias: true, alpha: true, premultipliedAlpha: true }) as WebGL2RenderingContext | null;
     if (!gl) throw new Error("WebGL2 is not available");
     this.gl = gl;
     this.canvas = canvas;
@@ -404,9 +414,9 @@ export class MapEngine {
       const t = Math.min((now - start) / duration, 1);
       step(t);
       this.requestDraw();
-      if (t < 1) requestAnimationFrame(tick);
+      if (t < 1) nextFrame(tick);
     };
-    requestAnimationFrame(tick);
+    nextFrame(tick);
   }
 
   // Each vehicle is x, y, kind: 1 for live, 0 for scheduled.
@@ -424,10 +434,11 @@ export class MapEngine {
     this.requestDraw();
   }
 
-  resize() {
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    const width = Math.round(this.canvas.clientWidth * ratio);
-    const height = Math.round(this.canvas.clientHeight * ratio);
+  // Sizes come from the page, because a canvas in a worker can't measure itself.
+  resize(cssWidth: number, cssHeight: number, devicePixelRatio: number) {
+    const ratio = Math.min(devicePixelRatio || 1, 2);
+    const width = Math.round(cssWidth * ratio);
+    const height = Math.round(cssHeight * ratio);
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;
@@ -437,7 +448,7 @@ export class MapEngine {
 
   requestDraw() {
     if (!this.frame) {
-      this.frame = requestAnimationFrame(() => {
+      this.frame = nextFrame(() => {
         this.frame = 0;
         this.draw();
       });
@@ -493,7 +504,7 @@ export class MapEngine {
     if (this.vehicleCount) {
       shared(this.vehicles);
       gl.uniform3fv(gl.getUniformLocation(this.vehicles, "uColor"), MAGENTA);
-      gl.uniform1f(gl.getUniformLocation(this.vehicles, "uScale"), 60000 * (canvas.height / 1000));
+      gl.uniform1f(gl.getUniformLocation(this.vehicles, "uScale"), 140000 * (canvas.height / 1000));
       gl.bindVertexArray(this.vehicleVao);
       gl.drawArrays(gl.POINTS, 0, this.vehicleCount);
     }
