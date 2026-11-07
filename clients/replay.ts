@@ -1,11 +1,11 @@
-// Plays a scripted run of a study through the public API. It stands in for a real
-// agent until one is connected: the display can't tell them apart, and the log
-// records the actor as agent:replay. It reports no tokens or cost, because it
-// spends none.
+// Plays a scripted run of a study through the public API, with an agent's token.
+// It stands in for a real agent until one is connected, and the log records the
+// actor as agent:replay. It reports no tokens or cost, because it spends none.
+// Its consultation findings are proposals: a planner rates them in decide.ts.
 import { ApiClient } from "./api.ts";
 import { LAWRENCE, ROSEDALE, type StudySeed } from "./seed-data.ts";
 
-const api = new ApiClient();
+const api = new ApiClient("agent");
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const gap = Number(process.env.REPLAY_GAP_MS ?? 900);
 
@@ -14,7 +14,6 @@ async function run(seed: StudySeed, script: { sub: string; question: string; fig
   const activity = (body: unknown) => api.post(`/v1/studies/${id}/activity`, body);
 
   await api.post("/v1/studies", seed.study);
-  for (const { key, ...assumption } of seed.assumptions) await api.put(`/v1/assumptions/${key}`, assumption);
   await activity({ kind: "run.started" });
   await activity({ kind: "message", text: seed.study.brief });
   await pause(gap);

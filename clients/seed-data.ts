@@ -52,6 +52,14 @@ export const RULES: (NewAssumption & { key: string })[] = [
     citation: cite(115, "gain at least 11 new customers per $100 spent"),
   },
   {
+    key: "ttc.max-customer-minutes",
+    label: "Change in weighted customer travel time, maximum",
+    value: 0,
+    unit: "minutes/week",
+    reason: "A change passes when customers save time overall",
+    citation: cite(114, "Comparison of effect on customers is evaluated based on net change of weighted customer travel time"),
+  },
+  {
     key: "ttc.min-boardings-local-peak",
     label: "Boardings per hour, local bus peak minimum",
     value: 20,
@@ -104,12 +112,12 @@ export const LAWRENCE: StudySeed = {
     { key: HOURS, label: "Service hours against forecast", value: 1, unit: "share", reason: "Published forecast, unadjusted" },
   ],
   figures: [
-    figure("riders-forecast", "Weekly riders, forecast", "riders/week", 1680, 118, "weekly system ridership increase of 1,680 customers"),
+    figure("riders-forecast", "System riders gained per week, forecast", "riders/week", 1680, 118, "weekly system ridership increase of 1,680 customers"),
     figure("hours-forecast", "Weekly service hours, forecast", "hours/week", 25, 118, "cost 25 weekly service hours"),
     figure("per-100-forecast", "Riders per $100, forecast", "riders", 40, 118, "gain 40 riders per $100 spent"),
     figure("net-cost", "Net cost per passenger", "$", 1.29, 118, "net cost per passenger gained of $1.29"),
     figure("time-saved", "Weekly travel time", "minutes/week", -50470, 117, "net savings in weighted customer travel time of 50,470 weekly minutes"),
-    derived("riders", "Weekly riders", "riders/week", "forecast * realised", { forecast: { figure: "riders-forecast" }, realised: { assumption: RIDERS } }),
+    derived("riders", "System riders gained per week", "riders/week", "forecast * realised", { forecast: { figure: "riders-forecast" }, realised: { assumption: RIDERS } }),
     derived("hours", "Weekly service hours", "hours/week", "forecast * realised", { forecast: { figure: "hours-forecast" }, realised: { assumption: HOURS } }),
     derived("boardings-per-hour", "Boardings per hour", "boardings/hour", "riders / hours", { riders: { figure: "riders" }, hours: { figure: "hours" } }),
     derived("riders-per-100", "Riders per $100", "riders", "forecast * riders / hours", {
@@ -119,7 +127,7 @@ export const LAWRENCE: StudySeed = {
     }),
   ],
   checks: [
-    { id: "customer-time", label: "Customer time", figure: "time-saved", op: "<", threshold: { value: 0 } },
+    { id: "customer-time", label: "Customer time", figure: "time-saved", op: "<", threshold: { assumption: "ttc.max-customer-minutes" } },
     {
       id: "productivity",
       label: "Boardings per hour",
@@ -149,14 +157,14 @@ export const LAWRENCE: StudySeed = {
       id: "reliability-risk",
       label: "Risk",
       text: "Reliability issues on the 52 could spread to Sunnybrook.",
-      tone: "mixed",
+      tone: "neutral",
       citation: cite(117, "service reliability issues on the 52 Lawrence West could be expanded to affect customers travelling to Sunnybrook Hospital"),
     },
   ],
   decision: {
     outcome: "adopt",
     reason: "Passes the tests, and feedback was positive.",
-    decidedBy: "TTC, 2026 Annual Network Plan",
+    decidedBy: "TTC staff recommendation, 2026 Annual Network Plan",
     citation: cite(118, "The final recommendation is to formally adopt this as part of the TTC network"),
   },
 };
@@ -172,12 +180,11 @@ export const ROSEDALE: StudySeed = {
   assumptions: [],
   figures: [
     figure("time-saved", "Weekly travel time", "minutes/week", -25270, 127, "net reduction in weighted customer travel time of 25,270 weekly minutes"),
-    figure("riders", "Weekly riders", "riders/week", 560, 128, "weekly system ridership increase of 560 customers"),
+    figure("riders", "System riders gained per week", "riders/week", 560, 128, "weekly system ridership increase of 560 customers"),
     figure("net-cost", "Net cost per passenger", "$", -1.2, 128, "net cost per passenger gained of ($1.20)"),
   ],
   checks: [
-    { id: "customer-time", label: "Customer time", figure: "time-saved", op: "<", threshold: { value: 0 } },
-    { id: "riders-gained", label: "Riders gained", figure: "riders", op: ">", threshold: { value: 0 } },
+    { id: "customer-time", label: "Customer time", figure: "time-saved", op: "<", threshold: { assumption: "ttc.max-customer-minutes" } },
   ],
   findings: [
     {
@@ -198,7 +205,7 @@ export const ROSEDALE: StudySeed = {
   decision: {
     outcome: "reject",
     reason: "Public engagement results.",
-    decidedBy: "TTC, 2026 Annual Network Plan",
+    decidedBy: "TTC staff recommendation, 2026 Annual Network Plan",
     citation: cite(128, "public engagement results has led to the conclusion that this service change should not move forward"),
   },
 };
