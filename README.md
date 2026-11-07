@@ -62,7 +62,7 @@ curl -X POST localhost:4100/v1/studies -H 'authorization: Bearer SECRET1' \
 # Report activity and spend
 curl -X POST localhost:4100/v1/studies/my-study/activity -H 'authorization: Bearer SECRET1' \
   -H 'content-type: application/json' \
-  -d '{"kind":"usage","model":"claude-opus-5-5","inputTokens":1200,"outputTokens":300,"costUsd":0.04}'
+  -d '{"kind":"usage","model":"gemini-3.8-flash","inputTokens":1200,"outputTokens":300,"costUsd":0.01}'
 
 # Add a figure: rejected unless the quote is on that page and contains the value
 curl -X POST localhost:4100/v1/studies/my-study/figures -H 'authorization: Bearer SECRET1' \
