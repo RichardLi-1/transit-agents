@@ -11,6 +11,9 @@ sources where they could be reached.
 | AAAM simulates 0.5 to 3 million daily riders in 10–30 minutes on a laptop | The README describes a 7-hour simulation with 500k–3M trips. The repo has no benchmark. | [AAAM](https://github.com/Smart-Railway/AAAM) |
 | AAAM and similar simulators give ground truth | Validated on rail travel times only. It is rail-only, needs passenger-level demand, and its real data isn't in the repo. Drop "ground truth". | [Paper abstract](https://doi.org/10.1016/j.jrtpm.2026.100586) |
 | The metro flooding study's code is at `cb-cities/transit_sim` | That repo is gone. | |
+| PNNL built narrow tools for 19 agencies | 19 is the lead agencies whose reviews supplied benchmark cases. Tools are a federal beta. | [PNNL](https://www.pnnl.gov/news-media/permitai-public-private-partnership-speeds-environmental-review-drafting-tasks), [apps](https://www.pnnl.gov/projects/permitai/ai-applications) |
+| PNNL built foundations first, then tools | SearchNEPA, in late 2024, predates DraftNEPABench, in February 2026. | |
+| 120,000+ standardized environmental reviews | 120,000+ documents, across about 60,000 projects. | [NEPATEC 2.0](https://huggingface.co/datasets/PNNL/NEPATEC2.0) |
 
 ## Too strong
 
