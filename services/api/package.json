@@ -1,0 +1,17 @@
+{
+  "name": "@transit-agents/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --disable-warning=ExperimentalWarning src/main.ts",
+    "start": "node --disable-warning=ExperimentalWarning src/main.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1",
+    "@transit-agents/contracts": "*",
+    "gtfs-realtime-bindings": "^1",
+    "hono": "^4",
+    "zod": "^4"
+  }
+}
