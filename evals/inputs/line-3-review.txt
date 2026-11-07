@@ -1,0 +1,53 @@
+Line 3 Scarborough Bus Replacement Service
+Post-Implementation Review
+
+City Wards: Ward 20 Scarborough Southwest, Ward 23 Scarborough North, Ward 24 Scarborough-Guildwood Note: Metric 1 (change in ridership per $100 spent) in the below analysis isolates the data on the impacted routes to a change on the bus network only and does not fully encompass the change in network ridership compared to when Line 3 Scarborough was in operation. As such, net cost per passenger and overall service productivity will be the main factors in assessing potential changes to the service.
+In November 2023, the TTC extended service on routes 38 Highland Creek, 129 McCowan North, 131 Nugget, 133 Neilson, 904 Sheppard-Kennedy Express (previously known as 985 Sheppard East Express), and 938 Highland Creek Express from Scarborough Centre Station to Kennedy Station. New service was also implemented on route 903 Kennedy Stn-Scarborough Express. These changes were made in response to the decommissioning of train service on Line 3 Scarborough, to ensure that frequent bus replacement service was provided for customers connecting between important nodes such as Scarborough Centre Station and Kennedy Station, and to provide direct connections for Scarborough transit riders to other rapid transit stations on Line 2 Bloor- Danforth, Line 4 Sheppard and the GO Transit rail network. While various options were studied, this route extension service concept was ultimately recommended given the transit travel time savings and customer experience benefits associated with this plan.
+Further details regarding the service planning history and implementation strategy associated with these changes can be found in the Line 3 Bus Replacement Study Final Recommendations, while additional information regarding the reporting and/or refinement of the bus replacement plan can be found in the TTC’s 2024 & 2025 Annual Service Plans.
+
+Several assumptions were made when completing this analysis, including:
+• For existing routes that were extended from Scarborough Centre Station to Kennedy Station, change in ridership, service hour expenditure, and associated service productivity metrics were only calculated for the change in ridership along the extended portion. Ridership and service hour expenditure for each route’s unique portion north of Scarborough Centre Station was not considered in order to isolate the impact of these changes.
+• Change in ridership refers to the change in ridership on the eight bus routes mentioned above and does not account for change in network ridership resulting from customers shifting from Line 3 SRT to the various bus replacement routes as outlined.
+
+Approximately 21,395 new customer trips were generated on the bus network by this change on weekdays, with 14,040 trips generated on Saturdays, and 10,452 trips generated on Sundays. This growth comes at a cost of 702.66 weekday service hours, 574.55 Saturday service hours, and 510 Sunday service hours. This amounts to a change in ridership per service hour of 30, 24, and 20 customers, on weekdays, Saturdays, and Sundays, respectively. This is relatively like ridership figures that were compiled when the change was first implemented. Based on the data, this change passes the standard of 11 new customer trips generated per service hour spent, with the caveat that these trips are on the bus network and not net new to the system.
+
+Table 14: Change in Ridership per Service Hour for extensions of Routes 38 Highland Creek, 129 McCowan North, 131 Milner, 133 Neilson, 904 Sheppard-Kennedy Express, 939 Highland Creek Express, 939 Finch Express, and new route 903 Kennedy Stn- Scarborough Express
+
+  Change in Ridership/$100 Spent           Weekday            Saturday   Sunday   Weekly
+            Standard                         11                  11        11      11
+           Spring 2024                       29                  24        21      28
+             Fall 2024                       37                  31        26      32
+           Spring 2024                       30                  24        29      28
+
+Net cost per passenger has an inverse relationship with ridership change per service hour, and as such, has decreased since implementation. The net cost per passenger of the bus replacement plan is $1.90 on weekdays, $2.71 on Saturdays, and $3.50 on Sundays, which comes to a weekly total of $2.11 per passenger. This change is therefore more financially efficient than the TTC network, on average.
+
+Table 15: Net Cost per Passenger for extensions of Routes 38 Highland Creek, 129 McCowan North, 131 Milner, 133 Neilson, 904 Sheppard-Kennedy Express, 939 Highland Creek Express, 939 Finch Express, and new route 903 Kennedy Stn-Scarborough Express
+
+     Net Cost per Passenger                Weekday            Saturday   Sunday   Weekly
+        Network Average                      $4.29             $6.06      $6.46   $4.31
+          Spring 2024                        $2.04             $2.73     $3.39    $2.23
+            Fall 2024                        $1.34             $1.84     $2.45    $1.49
+          Spring 2024                        $1.90             $2.71     $3.50    $2.11
+
+The Line 3 Bus Replacement Plan impacts two stops in the Kennedy Park Neighbourhood Improvement Area, as designated by the Toronto Strong Neighbourhoods 2020 Strategy. Stops located in this NIA have had their boardings weighted at 125% of a standard boarding when analyzing service productivity, to support the TTC’s efforts to address transit inequity. With these adjustments applied, the service productivity of this change passes the peak standard of 40 boardings per service hour. It also passes the off-peak standard of 30 boardings per service hour when weekday service is considered but does not pass the off-peak standard for Saturday and Sunday service.
+
+Table 16: Service Productivity for extensions of Routes 38 Highland Creek, 129 McCowan North, 131 Milner, 133 Neilson, 904 Sheppard-Kennedy Express, 939 Highland Creek Express, 939 Finch Express, and new route 903 Kennedy Stn-Scarborough Express
+
+        Service Productivity               Weekday            Weekday    Saturday   Sunday
+                                            Peak              Off-peak
+              Standard                       40                  30        30         30
+             Spring 2024                     39                  30        28         24
+              Fall 2024                      49                  37        36         30
+             Spring 2024                     41                  31        28         24
+
+Customer and operational feedback have also been received since this change was implemented. Many customers have noted excessive capacity on buses travelling between Scarborough Centre Station and Kennedy Station in most time periods, which aligns with the ridership figures and productivity metrics as outlined above. This suggests that service reductions could be implemented with little impact to service quantity and quality for customers travelling between Scarborough Centre Station and Kennedy Station.
+
+Customers have also noted bunching and gapping of buses along the common portion between Scarborough Centre Station and Kennedy Station, further contributing to irregular headways and wait times. TTC Service Planning resolved this issue on routes that (1) share a bus bay at Kennedy Station, and (2) previously operated on similar headways which allowed for the scheduling / blending of departures with minimal service hour expenditure. This includes routes 903 Kennedy Stn-Scarborough Express and 904 Kennedy-Sheppard Express in all time periods of operation on weekends.
+Similar improvements could be made to routes 131 Nugget and 133 Neilson pending service hour availability. However, the continuous and consistent blending of departures from both Scarborough Centre Station and Kennedy Station across all bus replacement routes is relatively infeasible given the scheduling complexity associated with a change of this magnitude.
+
+Customers have further noted crowding on routes / corridors that run parallel to bus replacement routes, such as 9 Bellany, 16 McCowan, 17 Birchmount, 20 Cliffside, 57 Midland, 43 Kennedy and 102 Markham Rd. Similar complaints have been received on routes that run perpendicular to the Line 3 bus replacement corridor such as 85 Sheppard East, 95 York Mills, 985 Sheppard East Express and 995 York Mills Express.
+These changes suggest that travel demand patterns in Scarborough have changes significantly since the decommissioning of Line 3 Scarborough, with customers seeking alternative connections to rapid transit stations on Line 1 Yonge-University and Line 2 Bloor-Danforth.
+
+As noted in the TTC’s 2024 Annual Service Plan, reducing service frequency on some or all the routes included in the Line 3 Bus Replacement Plan is likely infeasible due to
+
+route-specific capacity requirements north of Scarborough Centre Station. Some options include the removal of one or more routes from the bus replacement plan by adjusting them to terminate at Scarborough Centre Station. This would introduce an additional transfer for some customers but would likely improve service productivity on the remaining services as customers travelling between Scarborough Centre Station and Kennedy Station. Service hours saved from these adjustments could also be reallocated to busier routes and/or time periods to further improve service quality for affected customers.

@@ -1,0 +1,34 @@
+Route A, Route B, Route C
+
+Summary
+A routing adjustment is proposed on the Route A, Route B, and Route C. This proposal aims to improve customer experience and network connectivity by eliminating required transfers at the station and the hospital.
+
+With this proposal, service on the Route B (the station-Royal York) would be extended to the hospital, while service on a new Route A branch would provide new continuous service between the terminal and the station, via the corridor and the hospital. These changes would replace service previously offered by the Route A (the terminal-Sunnybrook) and Route C, which would be removed.
+
+Rationale
+The Route C operates primarily as a shuttle service between the station and the hospital, connecting customers of the Route B, 9Route B Express, and Line 1 Yonge-University, with the hospital. This route profile presents an opportunity to simplify the network and reduce transfers.
+
+Customers currently travelling between the western corridor and the hospital, or the the corridor and the station, are required to transfer to the Route C to complete their trips. By replacing service on the Route C with extended Route A and Route B services, customers following these travel patterns would be saved a transfer. This would have a particular benefit to shift- workers accessing the hospital. This change would also enable service frequencies to be improved on the Route A and along the current routing of the Route C in some periods, due to resource efficiencies gained with this proposal.
+
+One risk is that service reliability issues on the Route B could be expanded to affect customers travelling to the hospital. Given the anticipated benefits of the change, this risk is considered a worthwhile trade-off.
+
+Comparison of Effect on Customers
+Forecasts project that this proposal would result in a net savings in weighted customer travel time of 50,470 weekly minutes. Most of this benefit is due to the removal of necessary transfers at the station and the hospital, and improved service along the the corridor and Lawrence corridor east of the station in some periods. The model anticipates that no customer group will be adversely impacted due to this change. 
+
+Public and Community Partner Consultation
+During Round 1 of public consultation, pop-up events were held at the station and the hospital, with members of staff also engaging customers on board the Route B and Route C. These events were designed to discuss the change with customers, solicit feedback, and advertise the Annual Network Plan’s Round 1 Survey.
+
+Feedback at the events was largely positive, with many customers expressing support for the potential one-seat ride between the western corridor and the hospital. Discussions were also positive regarding the new Route A branch, although recommendations were made that service frequencies on the Route A branch should be improved. The primary concern voiced by customers was that service
+
+reliability issues on the Route B would negatively impact the extended service.
+
+Survey feedback was overwhelmingly positive, with more than half of respondents being supportive of the change, and less than a fifth being opposed. A detailed summary of survey results can be found in Appendix 2 and on the TTC’s 2026 Annual Network Plan webpage. This proposal was not consulted on during Round 2 of public consultation.
+
+Service Productivity
+This proposal is anticipated to cost 25 weekly service hours and is forecasted to produce a weekly system ridership increase of 300 customers. This increase is due to the removed transfers and improved service discussed above. This proposal would therefore yield an increase of 12 boardings per revenue service hour spent.
+
+Net Cost per Passenger
+This proposal would have a net cost per passenger gained of $9.40. This is more than the system’s average fare.
+
+Change in Ridership per Net Dollar
+This proposal is predicted to gain 7 riders per $100 spent.

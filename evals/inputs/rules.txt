@@ -1,0 +1,31 @@
+Changes to the TTC service are made regularly and frequently to meet the changing transit requirements in the city. Minor changes are generally developed and introduced through the Board Period process which occurs approximately every six weeks.
+Changes which are more substantial, either affecting the travel options of TTC customers or requiring additional resources for operation, undergo a more rigorous review. These major changes require TTC Board approval.
+Major Service Change Proposals
+All major service changes introduced by the TTC undergo a thorough review prior to recommendation for implementation. Ridership forecasts are produced to estimate Net
+
+Customer Impact and Service Performance, which are measured against TTC Board- approved service standards to determine whether proposals should proceed.
+1. Net Customer Impact of a major service change is assessed based on two metrics:
+   •   Comparison of effect on customers
+   •   Public and community partner consultation
+Comparison of effect on customers is evaluated based on net change of weighted customer travel time. This calculation accounts for four stages of the customer journey—walking, waiting, riding, and transferring—each of which are assigned a weight based on customer perception and decision impact. Net customer travel time benefit is measured against net customer travel time delay, with a positive sum yielding an overall customer benefit, and a passing outcome.
+Public and community partner consultation is developed with four key principles in mind—accessibility, equity, meaningfulness, and accountability. Engagement activities, with these tenets at their core, attempt to solicit feedback from all customers impacted by a service change, with particular emphasis on TTC’s key priority groups (people with low-income, women, and shift-workers). As the only qualitative metric, additional value is placed on the feedback received to capture customer sentiment most effectively.
+2. Service Performance of a major service change is assessed based on three metrics:
+   •   Service productivity
+   •   Net cost per passenger
+   •   Change in ridership per net dollar
+
+Service productivity is a measure of average weighted boardings per revenue service hour. This serves as a common metric by which to compare resource effectiveness on routes within the same service classification. To support the City’s efforts to address inequity in Toronto, boardings at all stops within 400m of a Neighbourhood Improvement Area (NIA), as designated by the City of Toronto, will be weighted at 125% of a standard boarding. Service productivity is measured against class average and route minimum performance targets, whose values are summarized in the table below.
+
+Table 1: Service Productivity Targets by Route Classification
+
+        Period            Streetcar          Bus       Bus (Tier 1   Bus (Tier 2        Bus
+                                           (Local)      Express)      Express)     (Community
+400 series)
+                         Avg.    Min.   Avg.    Min.   Avg.   Min. Avg.    Min.    Avg.   Min.
+    Peak Periods          95     50      75      20     65    40    50      40       6       4
+   Off-Peak Periods       85     35      55      10     55    30   N/A     N/A       6       4
+
+Net cost per passenger or subsidy per passenger boarding serves a similar comparative purpose, but with an explicit focus on financial productivity. Its calculation yields the amount of subsidy per boarding that is required to operate a service. While this metric has no defined standards on which basis to pass or fail a proposal, it is useful in comparing proposals to a class average, in the same way as service productivity.
+Change in ridership per net dollar is measured to ensure that service changes produce a better return on investment than fare changes would achieve. The TTC estimates that a 10% reduction in fare yields a gain of 11 new customers per $100 spent. As such, service changes are required to gain at least 11 new customers per $100 spent, to exceed the effectiveness of a fare subsidy. Service reductions must lose less than 11 customers per $100 saved to be worthwhile. Proposals are evaluated based on their forecasted ability to achieve this target.
+If a major service change passes the metrics above, it is generally recommended that it be adopted as part of the TTC network. Likewise, if a major service change does not pass the metrics above, it is generally recommended that it not be adopted. In cases where only certain metrics pass, or in other exceptional circumstances, discretionary recommendations may be made that transcend the metrics above.
+Recommended major service changes are granted a trial period of at least twelve months, during which service is actively promoted and efforts are made to establish a consistent ridership base. Regular monitoring is conducted throughout the trial period to ensure the service is progressing towards its performance targets. Upon the trial period’s completion, a post-implementation review is conducted to determine whether it has met its targets and should be formalized as a permanent component of the TTC network.

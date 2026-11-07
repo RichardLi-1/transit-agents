@@ -1,0 +1,35 @@
+11 Bayview, 52 Lawrence West, 124 Sunnybrook
+City Wards: Etobicoke Centre – Ward 2, York South-Weston – Ward 5, Eglinton- Lawrence – Ward 8, Don Valley West – Ward 15
+
+Summary
+A routing adjustment is proposed on the 11 Bayview, 52 Lawrence West, and 124 Sunnybrook. This proposal aims to improve customer experience and network connectivity by eliminating required transfers at Lawrence Station and Sunnybrook Hospital.
+
+With this proposal, service on the 52F Lawrence West (Lawrence Station-Royal York) would be extended to Sunnybrook Hospital, while service on a new 11B Bayview branch would provide new continuous service between Davisville Station and Lawrence Station, via Bayview Ave and Sunnybrook Hospital. These changes would replace service previously offered by the 11C Bayview (Davisville Station-Sunnybrook) and 124 Sunnybrook, which would be removed.
+
+Rationale
+The 124 Sunnybrook operates primarily as a shuttle service between Lawrence Station and Sunnybrook Hospital, connecting customers of the 52 Lawrence West, 952 Lawrence West Express, and Line 1 Yonge-University, with Sunnybrook Hospital. This route profile presents an opportunity to simplify the network and reduce transfers.
+
+Customers currently travelling between the Lawrence West corridor and Sunnybrook Hospital, or the Bayview corridor and Lawrence Station, are required to transfer to the 124 Sunnybrook to complete their trips. By replacing service on the 124 Sunnybrook with extended 11 Bayview and 52 Lawrence West services, customers following these travel patterns would be saved a transfer. This would have a particular benefit to shift- workers accessing the hospital. This change would also enable service frequencies to be improved on the 11 Bayview and along the current routing of the 124 Sunnybrook in some periods, due to resource efficiencies gained with this proposal.
+
+One risk is that service reliability issues on the 52 Lawrence West could be expanded to affect customers travelling to Sunnybrook Hospital. Given the anticipated benefits of the change, this risk is considered a worthwhile trade-off.
+
+Comparison of Effect on Customers
+Forecasts project that this proposal would result in a net savings in weighted customer travel time of 50,470 weekly minutes. Most of this benefit is due to the removal of necessary transfers at Lawrence Station and Sunnybrook Hospital, and improved service along the Bayview corridor and Lawrence corridor east of Lawrence Station in some periods. The model anticipates that no customer group will be adversely impacted due to this change. 
+
+Public and Community Partner Consultation
+During Round 1 of public consultation, pop-up events were held at Lawrence West Station and Sunnybrook Hospital, with members of staff also engaging customers on board the 52 Lawrence West and 124 Sunnybrook. These events were designed to discuss the change with customers, solicit feedback, and advertise the Annual Network Plan’s Round 1 Survey.
+
+Feedback at the events was largely positive, with many customers expressing support for the potential one-seat ride between the Lawrence West corridor and Sunnybrook Hospital. Discussions were also positive regarding the new 11B Bayview branch, although recommendations were made that service frequencies on the 11A Bayview branch should be improved. The primary concern voiced by customers was that service
+
+reliability issues on the 52 Lawrence West would negatively impact the extended service.
+
+Survey feedback was overwhelmingly positive, with more than half of respondents being supportive of the change, and less than a fifth being opposed. A detailed summary of survey results can be found in Appendix 2 and on the TTC’s 2026 Annual Network Plan webpage. This proposal was not consulted on during Round 2 of public consultation.
+
+Service Productivity
+This proposal is anticipated to cost 25 weekly service hours and is forecasted to produce a weekly system ridership increase of 1,680 customers. This increase is due to the removed transfers and improved service discussed above. This proposal would therefore yield an increase of 67 boardings per revenue service hour spent.
+
+Net Cost per Passenger
+This proposal would have a net cost per passenger gained of $1.29. This is less than the system’s average fare, which would reduce the TTC’s average subsidy per boarding.
+
+Change in Ridership per Net Dollar
+This proposal is predicted to gain 40 riders per $100 spent.

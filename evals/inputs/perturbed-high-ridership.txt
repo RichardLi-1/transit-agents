@@ -1,0 +1,25 @@
+Route D & Route E
+With this proposal, service on the Route E would be extended to Rosedale Station, providing new continuous service from the Dupont corridor to Yonge St and the Yonge
+
+segment of Line 1 Yonge-University. With this change, service would be removed from Bedford Rd and St George Station. In conjunction with this change, service on the Route D would be diverted to terminate at Rosedale Station, with service on Davenport Rd west of Bay St being replaced by the Route E.
+Rationale
+The Route D and Route E have historically been productive routes but have suffered recently due to service reductions made during the Covid-19 pandemic. Service increases cannot be justified on either route based on observed ridership demand, but given that they operate along densifying, arterial roads, there is a desire to increase the appeal of these routes.
+The Route E competes directly with Line 2 Bloor-Danforth. As such, the absence of a connection to the higher-demand side of Line 1 Yonge-University is a major drawback for the route. Extending the service to provide this connection at Rosedale Station eliminates this issue. Similarly, the Route D competes directly with Line 1 Yonge- University. Providing a new connection at Rosedale Station supplies the route with a superior end-of-line, improving service reliability, and adds a new connection for customers wishing to save the walk between Yonge St and Bay St.
+The removal of service from St George Station and Bedford Rd is considered a warranted trade-off. The existing facilitation of transfers between the Route E and Line 2 Bloor-Danforth does not align with grid-based transit planning principles, and boardings, particularly along Bedford Rd, are few.
+
+Comparison of Effect on Customers
+Forecasts project that this proposal would result in a net savings in weighted customer travel time of 4,480 weekly minutes. This assumes the new connection between the Route D and Line 1 Yonge-University would save customers 2,170 minutes, after accounting for the lost connection to Dupont St. Due to modelling limitations, the full benefit of this new connection could not be accurately reflected, indicating that the true savings would likely be higher. The remaining 2,310 minutes saved was due to the extension of the Route E, suggesting the new connection to Line 1 Yonge-University would be more valuable to customers than the existing connection to Line 2 Bloor-Danforth via Bedford Rd. 
+Public and Community Partner Consultation
+During Round 1 of public consultation, a pop-up event was held at St George Station, with members of staff also engaging customers on board the Route E. These events were designed to discuss the change with customers, solicit feedback, and advertise the Annual Network Plan’s Round 1 Survey.
+Feedback at the events was largely positive. Most of the negative feedback was expressed at St
+
+George Station due to the removed connection and accessibility to major destinations along Bloor St W. Feedback solicited on-board the Route E, primarily between Bedford Rd and Dufferin St, was generally indifferent or positive.
+Survey feedback was generally positive, with nearly half of respondents being supportive of the change, and less than a quarter being opposed. A detailed summary of survey results can be found in Appendix 2 and on the TTC’s 2026 Annual Network Plan webpage.
+This proposal was not consulted on during Round 2 of public consultation.
+Service Productivity
+This proposal is anticipated to cost 66 weekly service hours and is forecasted to produce a weekly system ridership increase of 2,400 customers. This reduction was due to the removal of Route D service from the Davenport and Dupont neighbourhoods. The changes to the Route E are forecast to create no ridership change. This proposal would therefore yield an increase of 36.4 boardings per revenue service hour spent. As mentioned above, modelling limitations restrict this change from being accurately forecast, indicating that there is likely greater customer benefit than is predicted.
+Net Cost per Passenger
+This proposal would have a net cost per passenger gained of $1.80 along the changed portion of the routes, indicating this change would not be financially prudent.
+This is supported by the negative service productivity identified above. However, given the relatively low cost and minimal impact to ridership, this value is quite volatile and would be radically different with only minor adjustments to forecast outputs.
+Change in Ridership per Net Dollar
+This proposal is predicted to gain 24 riders per $100 spent. The caveats applied to both metrics above apply similarly to change in ridership per net dollar.
