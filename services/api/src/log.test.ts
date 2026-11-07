@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { canonical, Log } from "./log.ts";
+import { canonical, Log, REDACTED } from "./log.ts";
 
 describe("Log", () => {
   let log: Log;
@@ -17,14 +17,22 @@ describe("Log", () => {
     assert.deepEqual(log.verify(), { ok: true, entries: 3, head: log.head().hash });
   });
 
-  it("refuses updates and deletes", () => {
+  it("refuses updates and deletes, of entries and of content", () => {
     assert.throws(() => log.db.exec("UPDATE log SET actor = 'x' WHERE seq = 1"), /append-only/);
     assert.throws(() => log.db.exec("DELETE FROM log WHERE seq = 1"), /append-only/);
+    assert.throws(() => log.db.exec(`UPDATE payloads SET json = '{}'`), /removed, not changed/);
   });
 
-  it("detects an edit made after the triggers are removed", () => {
+  it("detects changed content, even after the triggers are removed", () => {
+    log.db.exec("DROP TRIGGER payloads_no_update");
+    const { payloadHash } = log.get(2) as { payloadHash: string };
+    log.db.exec(`UPDATE payloads SET json = '{"outcome":"reject"}' WHERE hash = '${payloadHash}'`);
+    assert.deepEqual(log.verify(), { ok: false, brokenAt: 2, reason: "Content does not match its hash" });
+  });
+
+  it("detects a changed entry", () => {
     log.db.exec("DROP TRIGGER log_no_update");
-    log.db.exec(`UPDATE log SET data = '{"outcome":"reject"}' WHERE seq = 2`);
+    log.db.exec("UPDATE log SET actor = 'planner:someone-else' WHERE seq = 2");
     assert.deepEqual(log.verify(), { ok: false, brokenAt: 2, reason: "Entry does not match its hash" });
   });
 
@@ -34,10 +42,22 @@ describe("Log", () => {
     assert.deepEqual(log.verify(), { ok: false, brokenAt: 2, reason: "An entry is missing" });
   });
 
-  it("an insider who rewrites the whole chain changes the head, so a past head exposes them", () => {
+  it("removes content and still verifies, keeping the entry in place", () => {
+    assert.equal(log.removePayload(2), true);
+    assert.deepEqual(log.get(2)?.data, REDACTED);
+    assert.equal(log.get(2)?.type, "decision.recorded");
+    assert.equal(log.verify().ok, true);
+  });
+
+  it("keeps identical payloads apart, so removing one keeps the other", () => {
+    log.append({ actor: "a", type: "t", data: { same: true } });
+    log.append({ actor: "a", type: "t", data: { same: true } });
+    log.removePayload(4);
+    assert.deepEqual(log.get(5)?.data, { same: true });
+  });
+
+  it("an insider who rewrites the whole chain changes the head, so a stored head exposes them", () => {
     const witnessed = log.head().hash;
-    log.db.exec("DROP TRIGGER log_no_delete");
-    log.db.exec("DELETE FROM log");
     const rebuilt = new Log(":memory:");
     rebuilt.append({ actor: "agent:a", type: "figure.recorded", studyId: "s", data: { value: 99 } });
     assert.notEqual(rebuilt.head().hash, witnessed);
