@@ -1,0 +1,4 @@
+- never to replace people
+- tokens and costs are tracked
+- lighthouse score of 100, for accessibility
+- full integration into existing brownfield systems and planning processes is a must
