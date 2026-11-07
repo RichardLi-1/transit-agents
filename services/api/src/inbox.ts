@@ -1,5 +1,6 @@
 // A watched folder. For a system that can only export files on a schedule, this
 // is the whole integration: point the export here, or sync a shared folder.
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { NewContext } from "@transit-agents/contracts";
@@ -28,7 +29,8 @@ export function watchInbox(service: Service, directory: string) {
       seen.delete(name);
       const bytes = await readFile(path);
       const pages = await extractPages(name, bytes);
-      service.addContext("integration:inbox", NewContext.parse({ title: name, folder: "Inbox", pages }));
+      const fileHash = createHash("sha256").update(bytes).digest("hex");
+      service.addContext("integration:inbox", NewContext.parse({ title: name, folder: "Inbox", pages }), fileHash);
       await rename(path, join(done, `${Date.now()}-${name}`));
     }
   };

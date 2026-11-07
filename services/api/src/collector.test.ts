@@ -60,7 +60,7 @@ describe("Collector", () => {
 describe("buildTimeline", () => {
   it("keeps measured results and forecasts apart", () => {
     const service = new Service(":memory:");
-    service.addContext("a", NewContext.parse({ id: "plan", title: "Plan", pages: [{ page: 1, text: "an increase of 1,680 customers" }] }));
+    service.addContext("integration:seed", NewContext.parse({ id: "plan", title: "Plan", pages: [{ page: 1, text: "an increase of 1,680 customers" }] }));
     service.openStudy("a", NewStudy.parse({ id: "s", title: "S", watch: ["52F"], project: ["riders"], trial: { startedOn: "2026-11-01", reviewOn: "2027-11-01" } }));
     service.addFigure("a", "s", NewFigure.parse({ id: "riders", label: "Riders", unit: "riders/week", value: 1680, basis: { kind: "cited", citation: { contextId: "plan", page: 1, quote: "an increase of 1,680 customers" } } }));
     const collector = { reliability: (patterns?: string[]) => (patterns ? [{ date: "2026-11-07", departures: 10, onTimeStandard: 7, onTimeReported: 6 }] : []) };

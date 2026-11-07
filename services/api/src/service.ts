@@ -27,8 +27,8 @@ import type {
   NewFinding as NewFindingSchema,
   NewStudy as NewStudySchema,
 } from "@transit-agents/contracts";
-import { findQuote, valueInQuote } from "./citations.ts";
-import { Log, type Entry, type NewEntry } from "./log.ts";
+import { checkValue, findQuote } from "./citations.ts";
+import { Log, REDACTED, type Entry, type NewEntry } from "./log.ts";
 import {
   analysisOf,
   apply,
@@ -41,6 +41,14 @@ import {
   type State,
   type Study,
 } from "./state.ts";
+
+// Entry types whose content may be removed, such as a member of the public's
+// words. Figures, decisions and rules stay: removing them would change results.
+const REMOVABLE = new Set(["activity", "finding.recorded"]);
+
+// Only sources added by people or agency systems can back a figure, so an agent
+// can't upload a document and then cite it.
+const CITABLE_ROLES = ["planner:", "integration:"];
 
 export class ApiError extends Error {
   readonly status: number;
@@ -138,11 +146,15 @@ export class Service {
 
   // --- Context -------------------------------------------------------------
 
-  addContext(actor: string, input: z.output<typeof NewContextSchema>): Context {
+  // `fileHash` is the hash of an uploaded file's bytes, so a changed file with no
+  // readable text still counts as new.
+  addContext(actor: string, input: z.output<typeof NewContextSchema>, fileHash?: string): Context {
     const pages = input.pages ?? (input.text !== undefined ? [{ page: 1, text: input.text }] : []);
-    const sha256 = createHash("sha256")
-      .update(JSON.stringify(pages.length ? pages : input.url ?? input.title))
-      .digest("hex");
+    const sha256 =
+      fileHash ??
+      createHash("sha256")
+        .update(JSON.stringify(pages.length ? pages : input.url ?? input.title))
+        .digest("hex");
     const id = input.id ?? `${slugify(input.title)}-${sha256.slice(0, 8)}`;
 
     const existing = this.state.contexts.get(id);
@@ -177,9 +189,12 @@ export class Service {
     return row.text;
   }
 
-  private verifyCitation(citation: Citation): "exact" | "scattered" {
+  private verifyCitation(citation: Citation): "exact" | "table" {
     const context = this.state.contexts.get(citation.contextId);
     if (!context) throw new ApiError(422, "unknown_source", `No context "${citation.contextId}"`);
+    if (!CITABLE_ROLES.some((role) => context.addedBy.startsWith(role))) {
+      throw new ApiError(422, "uncitable_source", `"${context.id}" was added by ${context.addedBy}, so it can't back a figure`);
+    }
     if (!context.pageCount) throw new ApiError(422, "unreadable_source", `Context "${context.id}" has no readable text`);
     let page: string;
     try {
@@ -187,7 +202,13 @@ export class Service {
     } catch {
       throw new ApiError(422, "page_not_found", `Context "${context.id}" has no page ${citation.page}`);
     }
-    const match = findQuote(page, citation.quote);
+    let next = "";
+    try {
+      next = this.contextPage(citation.contextId, citation.page + 1);
+    } catch {
+      // The last page has no next page.
+    }
+    const match = findQuote(page, citation.quote, next);
     if (match === "none") {
       throw new ApiError(422, "quote_not_found", `Quote not found on page ${citation.page} of "${context.id}"`);
     }
@@ -232,15 +253,18 @@ export class Service {
     if (basis.kind === "cited") {
       if (input.value === undefined) throw new ApiError(422, "missing_value", "A cited figure needs a value");
       const match = this.verifyCitation(basis.citation);
-      if (!valueInQuote(input.value, basis.citation.quote)) {
-        throw new ApiError(422, "value_not_in_quote", `${input.value} does not appear in the quote`);
-      }
+      const check = checkValue(input.value, basis.citation.quote, match);
+      if (!check.ok) throw new ApiError(422, "value_not_in_quote", check.reason);
       return { value: input.value, match };
     }
 
     if (basis.kind === "computed") {
       if (input.value === undefined) throw new ApiError(422, "missing_value", "A computed figure needs a value");
+      if (!this.state.skills.get(basis.skill)?.has(basis.version)) {
+        throw new ApiError(422, "unregistered_skill", `Skill "${basis.skill}" version ${basis.version} has not been approved`);
+      }
       for (const dependency of basis.inputs) this.requireInput(study, dependency);
+      this.rejectCycles(study, input.id, basis);
       return { value: input.value };
     }
 
@@ -257,9 +281,6 @@ export class Service {
       const dependency = basis.inputs[name];
       if (!dependency) throw new ApiError(422, "unbound_name", `"${name}" has no input`);
       this.requireInput(study, dependency);
-      if ("figure" in dependency && dependency.figure === input.id) {
-        throw new ApiError(422, "circular", `Figure "${input.id}" depends on itself`);
-      }
       scope[name] = ("figure" in dependency ? values.get(dependency.figure) : assumptions.get(dependency.assumption)) as number;
     }
     let computed: number;
@@ -271,7 +292,21 @@ export class Service {
     if (input.value !== undefined && Math.abs(input.value - computed) > Math.abs(computed) * 1e-6 + 1e-9) {
       throw new ApiError(422, "value_mismatch", `Formula gives ${computed}, not ${input.value}`);
     }
+    this.rejectCycles(study, input.id, basis);
     return { value: computed };
+  }
+
+  // Replacing a figure can close a loop through others, so try the study with the
+  // new figure in place before accepting it.
+  private rejectCycles(study: Study, id: string, basis: Basis) {
+    const figures = new Map(study.figures);
+    const placeholder = figures.get(id) ?? study.figures.values().next().value;
+    figures.set(id, { ...(placeholder as Figure), id, basis, value: 0 });
+    try {
+      resolveFigures({ figures }, assumptionValues(this.state));
+    } catch (error) {
+      if (/depends on itself/.test((error as Error).message)) throw new ApiError(422, "circular", (error as Error).message);
+    }
   }
 
   private requireInput(study: Study, dependency: { figure: string } | { assumption: string }) {
@@ -294,10 +329,31 @@ export class Service {
   }
 
   addFinding(actor: string, studyId: string, input: z.output<typeof NewFindingSchema>): FindingView {
-    this.study(studyId);
+    const study = this.study(studyId);
     this.verifyCitation(input.citation);
     this.commit({ actor, type: "finding.recorded", studyId, data: input });
-    return input;
+    const { seq: _seq, ...finding } = study.findings.get(input.id) as FindingView & { seq: number };
+    return finding;
+  }
+
+  // How consultation reads is a judgement, so only a planner sets it.
+  rateFinding(actor: string, studyId: string, findingId: string, tone: Exclude<FindingView["tone"], "unrated">): FindingView {
+    const study = this.study(studyId);
+    if (!study.findings.has(findingId)) throw notFound("finding", findingId);
+    this.commit({ actor, type: "finding.rated", studyId, data: { finding: findingId, tone } });
+    const { seq: _seq, ...finding } = study.findings.get(findingId) as FindingView & { seq: number };
+    return finding;
+  }
+
+  // A planner accepts one specific version of a skill's result. If the skill
+  // resubmits, the new value needs accepting again.
+  acceptFigure(actor: string, studyId: string, figureId: string): Figure {
+    const study = this.study(studyId);
+    const figure = study.figures.get(figureId);
+    if (!figure) throw notFound("figure", figureId);
+    if (figure.accepted) return figure;
+    this.commit({ actor, type: "figure.accepted", studyId, data: { figure: figureId, seq: figure.seq } });
+    return study.figures.get(figureId) as Figure;
   }
 
   // --- Assumptions ---------------------------------------------------------
@@ -306,6 +362,9 @@ export class Service {
     if (input.citation) this.verifyCitation(input.citation);
     const before = this.snapshot();
     const previous = this.state.assumptions.get(key);
+    if (previous && previous.value === input.value && previous.reason === input.reason) {
+      return { assumption: previous, effects: [] };
+    }
     const scope = assumptionValues(this.state).set(key, input.value);
     const effects = this.effectsOf(before, this.snapshot(scope));
     this.commit({
@@ -321,7 +380,7 @@ export class Service {
       [...this.state.studies.values()].map((study) => {
         const values = resolveFigures(study, assumptions);
         const checks = checksFor(study, values, assumptions);
-        return [study.id, { values, checks, analysis: analysisOf(checks) }] as const;
+        return [study.id, { values, checks, analysis: analysisOf(checks, [...study.findings.values()]) }] as const;
       }),
     );
   }
@@ -365,6 +424,27 @@ export class Service {
     return this.study(studyId).decisions.at(-1) as Decision;
   }
 
+  // --- Skills and removal ---------------------------------------------------
+
+  registerSkill(actor: string, name: string, input: { version: string; description: string }) {
+    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new ApiError(400, "invalid_name", "Use lowercase letters, numbers and dashes");
+    this.commit({ actor, type: "skill.registered", data: { name, ...input } });
+    return { name, versions: [...(this.state.skills.get(name) ?? [])] };
+  }
+
+  removeContent(actor: string, seq: number, reason: string) {
+    const entry = this.log.get(seq);
+    if (!entry) throw notFound("log entry", String(seq));
+    if (!REMOVABLE.has(entry.type)) {
+      throw new ApiError(422, "not_removable", `${entry.type} entries can't be removed, because results depend on them`);
+    }
+    if (entry.data === REDACTED || (entry.data as { redacted?: boolean }).redacted) {
+      throw new ApiError(409, "already_removed", `Entry ${seq} has no content`);
+    }
+    this.log.removePayload(seq);
+    return this.commit({ actor, type: "content.removed", studyId: entry.studyId, data: { seq, reason } });
+  }
+
   // --- Activity ------------------------------------------------------------
 
   recordActivity(actor: string, studyId: string, activity: Activity): Entry {
@@ -395,6 +475,7 @@ export class Service {
       throw new ApiError(422, "bad_preview", (error as Error).message);
     }
     const checks = checksFor(study, values, assumptions);
+    const findings = [...study.findings.values()].map(({ seq: _seq, ...finding }) => finding);
     const decision = study.decisions.at(-1);
     return {
       id: study.id,
@@ -407,8 +488,8 @@ export class Service {
       project: study.project,
       figures: viewFigures(study, values),
       checks,
-      findings: [...study.findings.values()],
-      analysis: analysisOf(checks),
+      findings,
+      analysis: analysisOf(checks, findings),
       ...(decision ? { decision } : {}),
     };
   }
@@ -419,16 +500,6 @@ export class Service {
 
   usage(): { total: Usage; byStudy: Record<string, Usage> } {
     return { total: this.state.usage, byStudy: Object.fromEntries(this.state.usageByStudy) };
-  }
-
-  private entryFor(studyId: string, figureId: string): Entry | undefined {
-    let found: Entry | undefined;
-    for (const entry of this.allEntries()) {
-      if (entry.type === "figure.recorded" && entry.studyId === studyId && (entry.data as { id: string }).id === figureId) {
-        found = entry;
-      }
-    }
-    return found;
   }
 
   trace(studyId: string, figureId: string): TraceNode {
@@ -443,14 +514,13 @@ export class Service {
           : figure.basis.kind === "computed"
             ? figure.basis.inputs
             : [];
-      const entry = this.entryFor(studyId, id);
       return {
         id,
         label: figure.label,
         value: values.get(id) as number,
         unit: figure.unit,
         basis: figure.basis,
-        ...(entry ? { entry: { seq: entry.seq, hash: entry.hash, at: entry.at, actor: entry.actor } } : {}),
+        entry: { seq: figure.seq, hash: figure.hash, at: figure.recordedAt, actor: figure.recordedBy },
         inputs: dependencies.map((d) =>
           "figure" in d ? build(d.figure) : { assumption: this.state.assumptions.get(d.assumption) as Assumption },
         ),

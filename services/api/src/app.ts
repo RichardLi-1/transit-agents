@@ -6,14 +6,18 @@ import { Hono, type Context as HonoContext } from "hono";
 import { compress } from "hono/compress";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import {
   Activity,
+  ContentRemoval,
+  FindingRating,
   NewAssumption,
   NewCheck,
   NewContext,
   NewDecision,
   NewFigure,
   NewFinding,
+  NewSkill,
   NewStudy,
   NewSubscription,
   type Role,
@@ -29,9 +33,13 @@ export type AppOptions = {
   service: Service;
   webhooks: Webhooks;
   tokens: Map<string, Actor>;
-  // With open access, a request without a token acts as a local planner. Only
-  // for a machine you control: it is bound to localhost by default.
+  // Open access makes a request without a token act as a local planner. It is
+  // for a demo on a machine you control, and must be switched on explicitly.
+  // Without it, every /v1 request needs a token.
   openAccess: boolean;
+  // Hosts webhooks may send to. Without open access, an empty list allows none,
+  // so nothing can be sent anywhere nobody approved.
+  webhookHosts?: string[];
   staticDir?: string;
   live?: { vehicles: (routes: string[]) => unknown };
   timeline?: (studyId: string) => unknown;
@@ -43,6 +51,8 @@ const anyone: Role[] = ["viewer", "integration", "agent", "planner"];
 const contributors: Role[] = ["integration", "agent", "planner"];
 const authors: Role[] = ["agent", "planner"];
 const planners: Role[] = ["planner"];
+// Agents can't create subscriptions: one could otherwise send the log anywhere.
+const integrators: Role[] = ["integration", "planner"];
 
 const Preview = z.object({
   assumptions: z.record(z.string(), z.number()).optional(),
@@ -83,7 +93,7 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 export function createApp(options: AppOptions) {
-  const { service, webhooks, tokens, openAccess, staticDir, live, timeline } = options;
+  const { service, webhooks, tokens, openAccess, staticDir, live, timeline, webhookHosts = [] } = options;
   const app = new Hono<Env>();
 
   app.use("*", async (c, next) => {
@@ -101,7 +111,9 @@ export function createApp(options: AppOptions) {
 
   app.use("/v1/*", async (c, next) => {
     const header = c.req.header("authorization");
-    const token = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
+    // EventSource can't send headers, so the event stream also takes a query token.
+    const queryToken = c.req.path === "/v1/events" ? c.req.query("access_token") : undefined;
+    const token = header?.startsWith("Bearer ") ? header.slice(7) : queryToken;
     if (token !== undefined) {
       const actor = tokens.get(token);
       if (!actor) throw new ApiError(401, "bad_token", "Unknown token");
@@ -109,9 +121,35 @@ export function createApp(options: AppOptions) {
     } else if (openAccess) {
       c.set("actor", { role: "planner", name: "local" });
     } else {
-      c.set("actor", { role: "viewer", name: "anonymous" });
+      throw new ApiError(401, "token_required", "A token is required");
     }
     await next();
+  });
+
+  // A client that retries after a timeout can send the same Idempotency-Key, and
+  // gets the first response back instead of writing twice.
+  service.log.db.exec(`
+    CREATE TABLE IF NOT EXISTS idempotency (
+      actor TEXT NOT NULL,
+      key TEXT NOT NULL,
+      status INTEGER NOT NULL,
+      body TEXT NOT NULL,
+      PRIMARY KEY (actor, key)
+    );
+  `);
+  app.use("/v1/*", async (c, next) => {
+    const key = c.req.header("idempotency-key");
+    if (!key || c.req.method === "GET") return next();
+    const actor = actorName(c);
+    const seen = service.log.db.prepare("SELECT status, body FROM idempotency WHERE actor = ? AND key = ?").get(actor, key) as
+      | { status: number; body: string }
+      | undefined;
+    if (seen) return c.body(seen.body, seen.status as 200, { "content-type": "application/json", "idempotent-replay": "true" });
+    await next();
+    if (c.res.ok) {
+      const body = await c.res.clone().text();
+      service.log.db.prepare("INSERT OR IGNORE INTO idempotency (actor, key, status, body) VALUES (?, ?, ?, ?)").run(actor, key, c.res.status, body);
+    }
   });
 
   type Route = {
@@ -138,9 +176,11 @@ export function createApp(options: AppOptions) {
         const form = await c.req.parseBody();
         const file = form.file;
         if (!(file instanceof File)) throw new ApiError(400, "invalid_body", "Expected a file field");
-        const pages = await extractPages(file.name, new Uint8Array(await file.arrayBuffer()));
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const pages = await extractPages(file.name, bytes);
         const input = NewContext.parse({ title: String(form.title ?? file.name), folder: String(form.folder ?? "Inbox"), pages });
-        return c.json(service.addContext(actorName(c), input), 201);
+        const fileHash = createHash("sha256").update(bytes).digest("hex");
+        return c.json(service.addContext(actorName(c), input, fileHash), 201);
       },
     },
     {
@@ -202,6 +242,24 @@ export function createApp(options: AppOptions) {
       roles: authors,
       body: NewFinding,
       handler: async (c) => c.json(service.addFinding(actorName(c), c.req.param("id") as string, await bodyOf(c, NewFinding)), 201),
+    },
+    {
+      method: "put",
+      path: "/v1/studies/:id/findings/:finding/tone",
+      summary: "Rate how a finding reads. Agents can only propose a tone. Planners only",
+      roles: planners,
+      body: FindingRating,
+      handler: async (c) => {
+        const { tone } = await bodyOf(c, FindingRating);
+        return c.json(service.rateFinding(actorName(c), c.req.param("id") as string, c.req.param("finding") as string, tone));
+      },
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/figures/:figure/accept",
+      summary: "Accept a skill's result so it can pass or fail a check. Planners only",
+      roles: planners,
+      handler: (c) => c.json(service.acceptFigure(actorName(c), c.req.param("id") as string, c.req.param("figure") as string)),
     },
     {
       method: "post",
@@ -274,6 +332,25 @@ export function createApp(options: AppOptions) {
       handler: (c) => c.json([...service.state.assumptions.values()]),
     },
     {
+      method: "put",
+      path: "/v1/skills/:name",
+      summary: "Approve a skill version, so its results can enter studies. Planners only",
+      roles: planners,
+      body: NewSkill,
+      handler: async (c) => c.json(service.registerSkill(actorName(c), c.req.param("name") as string, await bodyOf(c, NewSkill)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/log/:seq/remove-content",
+      summary: "Remove an entry's content for retention or privacy. The entry and chain stay. Planners only",
+      roles: planners,
+      body: ContentRemoval,
+      handler: async (c) => {
+        const { reason } = await bodyOf(c, ContentRemoval);
+        return c.json(service.removeContent(actorName(c), Number(c.req.param("seq")), reason), 201);
+      },
+    },
+    {
       method: "get",
       path: "/v1/log",
       summary: "Read the log from a position",
@@ -309,9 +386,16 @@ export function createApp(options: AppOptions) {
       method: "post",
       path: "/v1/subscriptions",
       summary: "Subscribe a webhook to events. Formats: json, slack, teams",
-      roles: contributors,
+      roles: integrators,
       body: NewSubscription,
-      handler: async (c) => c.json(webhooks.add(actorName(c), await bodyOf(c, NewSubscription)), 201),
+      handler: async (c) => {
+        const input = await bodyOf(c, NewSubscription);
+        const host = new URL(input.url).hostname;
+        if (!openAccess && !webhookHosts.includes(host)) {
+          throw new ApiError(403, "host_not_allowed", `Webhooks to ${host} are not allowed. Add it to WEBHOOK_HOSTS`);
+        }
+        return c.json(webhooks.add(actorName(c), input), 201);
+      },
     },
     {
       method: "get",

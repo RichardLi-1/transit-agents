@@ -40,7 +40,8 @@ const app = createApp({
   service,
   webhooks,
   tokens: parseTokens(process.env.TRANSIT_TOKENS),
-  openAccess: process.env.AUTH !== "required",
+  openAccess: process.env.AUTH === "open",
+  webhookHosts: (process.env.WEBHOOK_HOSTS ?? "").split(",").filter(Boolean),
   staticDir: join(root, "apps/display/dist"),
   live: collector,
   timeline: (id) => buildTimeline(service, collector, id),
@@ -48,6 +49,9 @@ const app = createApp({
 
 const server = serve({ fetch: app.fetch, port, hostname: host }, () => {
   console.log(`Transit Agents on http://${host}:${port}`);
+  if (process.env.AUTH === "open") {
+    console.warn("AUTH=open: requests without a token act as a planner. Use only on a machine you control.");
+  }
 });
 
 const shutdown = () => {

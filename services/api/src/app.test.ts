@@ -15,10 +15,10 @@ const TOKENS = new Map<string, Actor>([
   ["viewer-token", { role: "viewer", name: "auditor" }],
 ]);
 
-function setup({ openAccess = false, post }: { openAccess?: boolean; post?: typeof fetch } = {}) {
+function setup({ openAccess = false, post, webhookHosts = ["hook.test"] }: { openAccess?: boolean; post?: typeof fetch; webhookHosts?: string[] } = {}) {
   const service = new Service(":memory:");
   const webhooks = new Webhooks(service, "https://example.test", post ?? (async () => new Response("ok")));
-  const app = createApp({ service, webhooks, tokens: TOKENS, openAccess });
+  const app = createApp({ service, webhooks, tokens: TOKENS, openAccess, webhookHosts });
   const call = (method: string, path: string, token?: string, body?: unknown) =>
     app.request(path, {
       method,
@@ -60,10 +60,31 @@ describe("roles", () => {
     assert.equal((await call("POST", "/v1/studies", "integration-token", STUDY)).status, 403);
   });
 
-  it("gives an anonymous caller read access only", async () => {
+  it("turns away a caller with no token, unless open access was chosen", async () => {
+    assert.equal((await setup().call("GET", "/v1/studies")).status, 401);
+    assert.equal((await setup({ openAccess: true }).call("GET", "/v1/studies")).status, 200);
+  });
+
+  it("lets a viewer read and nothing else", async () => {
     const { call } = setup();
-    assert.equal((await call("GET", "/v1/studies")).status, 200);
-    assert.equal((await call("POST", "/v1/context", undefined, { title: "x" })).status, 403);
+    assert.equal((await call("GET", "/v1/studies", "viewer-token")).status, 200);
+    assert.equal((await call("POST", "/v1/context", "viewer-token", { title: "x" })).status, 403);
+  });
+
+  it("refuses a webhook from an agent, and to an unapproved host", async () => {
+    const { call } = setup();
+    assert.equal((await call("POST", "/v1/subscriptions", "agent-token", { url: "https://hook.test/x" })).status, 403);
+    assert.equal((await call("POST", "/v1/subscriptions", "integration-token", { url: "https://attacker.test/x" })).status, 403);
+    assert.equal((await call("POST", "/v1/subscriptions", "integration-token", { url: "https://hook.test/x" })).status, 201);
+  });
+
+  it("lets only a planner rate consultation, approve a skill or accept a result", async () => {
+    const { call } = setup();
+    assert.equal((await call("PUT", "/v1/skills/r5", "agent-token", { version: "1" })).status, 403);
+    assert.equal((await call("PUT", "/v1/skills/r5", "planner-token", { version: "1" })).status, 201);
+    await call("POST", "/v1/studies", "agent-token", STUDY);
+    assert.equal((await call("PUT", "/v1/studies/lawrence/findings/f/tone", "agent-token", { tone: "positive" })).status, 403);
+    assert.equal((await call("POST", "/v1/studies/lawrence/figures/f/accept", "agent-token")).status, 403);
   });
 
   it("rejects an unknown token", async () => {
@@ -79,6 +100,24 @@ describe("roles", () => {
   });
 });
 
+describe("idempotency", () => {
+  it("returns the first response to a retried request, and writes once", async () => {
+    const { app, service } = setup();
+    const send = () =>
+      app.request("/v1/studies", {
+        method: "POST",
+        headers: { authorization: "Bearer agent-token", "content-type": "application/json", "idempotency-key": "k1" },
+        body: JSON.stringify(STUDY),
+      });
+    const first = await send();
+    const second = await send();
+    assert.equal(first.status, 201);
+    assert.equal(second.status, 201);
+    assert.equal(second.headers.get("idempotent-replay"), "true");
+    assert.equal(service.log.since(0).filter((e) => e.type === "study.opened").length, 1);
+  });
+});
+
 describe("errors", () => {
   it("explains invalid input", async () => {
     const { call } = setup();
@@ -89,7 +128,7 @@ describe("errors", () => {
 
   it("returns 404 for an unknown study", async () => {
     const { call } = setup();
-    assert.equal((await call("GET", "/v1/studies/nope")).status, 404);
+    assert.equal((await call("GET", "/v1/studies/nope", "viewer-token")).status, 404);
   });
 });
 
@@ -105,12 +144,13 @@ describe("openapi", () => {
 });
 
 describe("events", () => {
-  it("replays past entries, filtered by type", async () => {
+  it("replays past entries, filtered by type, with a token in the query", async () => {
     const { app, call } = setup();
     await call("POST", "/v1/studies", "agent-token", STUDY);
     await call("POST", "/v1/studies/lawrence/decisions", "planner-token", DECISION);
     const controller = new AbortController();
-    const response = await app.request("/v1/events?types=decision.recorded", { signal: controller.signal });
+    assert.equal((await app.request("/v1/events")).status, 401);
+    const response = await app.request("/v1/events?types=decision.recorded&access_token=viewer-token", { signal: controller.signal });
     assert.equal(response.headers.get("content-type"), "text/event-stream");
     const reader = (response.body as ReadableStream<Uint8Array>).getReader();
     const { value } = await reader.read();
@@ -204,6 +244,21 @@ describe("inbox", () => {
     dir = mkdtempSync(join(tmpdir(), "transit-inbox-"));
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("treats a changed file with no readable text as new", async () => {
+    const service = new Service(":memory:");
+    const stop = watchInbox(service, dir);
+    const wait = async (count: number) => {
+      const deadline = Date.now() + 7000;
+      while (service.state.contexts.size < count && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    };
+    writeFileSync(join(dir, "ridership.xlsx"), "first version");
+    await wait(1);
+    writeFileSync(join(dir, "ridership.xlsx"), "second version");
+    await wait(2);
+    stop();
+    assert.equal(service.state.contexts.size, 2);
+  });
 
   it("ingests a dropped file once it stops changing, and moves it aside", async () => {
     const service = new Service(":memory:");

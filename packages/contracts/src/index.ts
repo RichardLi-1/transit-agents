@@ -85,25 +85,35 @@ export type Figure = {
   unit: string;
   value: number;
   basis: Basis;
+  // "table" when the quote matched a table row with gaps. Shown, never hidden.
+  match?: "exact" | "table";
+  // A skill's result counts only once a planner accepts it.
+  accepted: boolean;
   recordedBy: string;
   recordedAt: string;
+  seq: number;
+  hash: string;
 };
 
 // --- Checks ----------------------------------------------------------------
 
 export const CheckOp = z.enum([">=", ">", "<=", "<"]);
 
+// A check compares a figure with a rule. Thresholds always come from a rule a
+// planner has set, so an agent can't decide what passing means.
 export const NewCheck = z.object({
   id: slug,
   label: z.string().min(1).max(120),
   figure: slug,
   op: CheckOp,
-  threshold: z.object({ assumption: slug }).or(z.object({ value: z.number() })),
+  threshold: z.object({ assumption: slug }),
   rule: Citation.optional(),
 });
 export type NewCheck = z.input<typeof NewCheck>;
 
-// A test the service can't compute, such as whether public feedback was positive.
+// Something the service can't compute, such as public feedback. Consultation is
+// one of the TTC's own tests, so a negative or mixed finding counts in the analysis.
+// A neutral finding, such as a noted risk, does not.
 export const NewFinding = z.object({
   id: slug,
   label: z.string().min(1).max(120),
@@ -113,7 +123,12 @@ export const NewFinding = z.object({
 });
 export type NewFinding = z.input<typeof NewFinding>;
 
-export const CheckStatus = z.enum(["pass", "fail", "stale"]);
+export const Tone = z.enum(["positive", "mixed", "negative", "neutral"]);
+export const FindingRating = z.object({ tone: Tone });
+
+// "stale" means an input changed since a skill computed it. "unverified" means a
+// skill's result is waiting for a planner to accept it.
+export const CheckStatus = z.enum(["pass", "fail", "stale", "unverified"]);
 export type CheckStatus = z.infer<typeof CheckStatus>;
 
 // --- Assumptions -----------------------------------------------------------
@@ -165,6 +180,7 @@ export const NewDecision = z.object({
 });
 export type NewDecision = z.input<typeof NewDecision>;
 
+// "mixed" means the tests disagree, so a person has to weigh them.
 export type Analysis = "pass" | "fail" | "mixed" | "incomplete";
 
 export type Decision = {
@@ -191,7 +207,12 @@ export type CheckView = {
   rule?: Citation;
 };
 
-export type FindingView = z.infer<typeof NewFinding>;
+// An agent can only propose a tone. Until a planner rates the finding it reads
+// "unrated", and the study's analysis stays incomplete.
+export type FindingView = Omit<z.infer<typeof NewFinding>, "tone"> & {
+  tone: z.infer<typeof Tone> | "unrated";
+  proposedTone?: z.infer<typeof Tone>;
+};
 
 export type DayResult = { date: string; departures: number; onTimeStandard: number; onTimeReported: number };
 
@@ -262,6 +283,15 @@ export type LogEntry = {
   prevHash: string;
   hash: string;
 };
+
+// A skill version a planner has approved. Computed figures must name one.
+export const NewSkill = z.object({
+  version: z.string().min(1).max(50),
+  description: z.string().max(400).default(""),
+});
+export type NewSkill = z.input<typeof NewSkill>;
+
+export const ContentRemoval = z.object({ reason: z.string().min(3).max(400) });
 
 export const NewSubscription = z.object({
   url: z.url(),

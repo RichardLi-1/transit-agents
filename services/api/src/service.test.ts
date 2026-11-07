@@ -18,6 +18,8 @@ const cited = (id: string, value: number, page: number, quote: string, label = i
 function seed(service: Service) {
   service.addContext("integration:seed", NewContext.parse({ id: "plan", title: "2026 Plan", pages: PLAN }));
   service.openStudy("agent:lead", NewStudy.parse({ id: "lawrence", title: "Lawrence–Sunnybrook" }));
+  service.addFinding("agent:lead", "lawrence", NewFinding.parse({ id: "survey", label: "Survey", text: "Positive", tone: "positive", citation: { contextId: "plan", page: 2, quote: "Survey feedback was overwhelmingly positive" } }));
+  service.rateFinding("planner:ana", "lawrence", "survey", "positive");
   service.setAssumption("planner:ana", "min-riders-per-100", NewAssumption.parse({ value: 11, reason: "TTC standard", citation: { contextId: "plan", page: 3, quote: "gain at least 11 new customers per $100 spent" } }));
   service.setAssumption("planner:ana", "ridership-realised", NewAssumption.parse({ value: 1, reason: "Published forecast" }));
   service.addFigure("agent:lead", "lawrence", cited("riders", 1680, 1, "ridership increase of 1,680 customers"));
@@ -85,6 +87,25 @@ describe("Service", () => {
       rejects(() => service.addFigure("agent:a", "lawrence", derived("a", "a + 1", { a: { figure: "a" } })), "unknown_input");
       rejects(() => service.addFigure("agent:a", "lawrence", derived("hours", "h + 1", { h: { figure: "hours" } })), "circular");
     });
+
+    it("rejects a loop closed through another figure", () => {
+      const derived = (id: string, formula: string, inputs: object) => NewFigure.parse({ id, label: id, basis: { kind: "derived", formula, inputs } });
+      service.addFigure("agent:a", "lawrence", derived("double", "h * 2", { h: { figure: "hours" } }));
+      rejects(() => service.addFigure("agent:a", "lawrence", derived("hours", "d / 2", { d: { figure: "double" } })), "circular");
+      assert.equal(service.studies().length, 1);
+    });
+
+    it("refuses a citation to a document an agent added", () => {
+      service.addContext("agent:lead", NewContext.parse({ id: "notes", title: "My notes", text: "ridership increase of 9,999 customers" }));
+      const figure = NewFigure.parse({ id: "x", label: "x", value: 9999, basis: { kind: "cited", citation: { contextId: "notes", page: 1, quote: "ridership increase of 9,999 customers" } } });
+      rejects(() => service.addFigure("agent:a", "lawrence", figure), "uncitable_source");
+    });
+
+    it("refuses a flipped sign that would turn a failing test into a pass", () => {
+      service.addContext("integration:seed", NewContext.parse({ id: "hc", title: "Highland", text: "a net increase in weighted customer travel time of 18,940 weekly minutes" }));
+      const flipped = NewFigure.parse({ id: "t", label: "t", value: -18940, basis: { kind: "cited", citation: { contextId: "hc", page: 1, quote: "a net increase in weighted customer travel time of 18,940 weekly minutes" } } });
+      rejects(() => service.addFigure("agent:a", "lawrence", flipped), "value_not_in_quote");
+    });
   });
 
   describe("assumptions", () => {
@@ -92,8 +113,9 @@ describe("Service", () => {
       const { effects } = service.setAssumption("planner:ana", "ridership-realised", NewAssumption.parse({ value: 0.25, reason: "Stress test" }));
       assert.deepEqual(effects[0]?.figures, [{ id: "per-100", from: 40, to: 10 }]);
       assert.deepEqual(effects[0]?.checks, [{ id: "ridership-per-dollar", from: "pass", to: "fail" }]);
-      assert.deepEqual(effects[0]?.analysis, { from: "pass", to: "fail" });
-      assert.equal(service.viewStudy("lawrence").analysis, "fail");
+      // The test now fails but consultation was positive, so it needs judgement.
+      assert.deepEqual(effects[0]?.analysis, { from: "pass", to: "mixed" });
+      assert.equal(service.viewStudy("lawrence").analysis, "mixed");
     });
 
     it("keeps the old value", () => {
@@ -107,24 +129,82 @@ describe("Service", () => {
     it("previews a change without writing to the log", () => {
       const head = service.log.head().seq;
       const preview = service.viewStudy("lawrence", { assumptions: { "ridership-realised": 0.2 } });
-      assert.equal(preview.analysis, "fail");
+      assert.equal(preview.checks.find((c) => c.id === "ridership-per-dollar")?.status, "fail");
       assert.equal(service.log.head().seq, head);
       assert.equal(service.viewStudy("lawrence").analysis, "pass");
     });
   });
 
   describe("computed figures", () => {
-    it("are marked stale when an input changes, and clear when resubmitted", () => {
-      const computed = NewFigure.parse({ id: "travel-time", label: "Travel time", value: 12, basis: { kind: "computed", skill: "travel-time-compare", version: "1.0.0", inputs: [{ assumption: "ridership-realised" }] } });
+    const computed = NewFigure.parse({ id: "travel-time", label: "Travel time", value: 12, basis: { kind: "computed", skill: "travel-time-compare", version: "1.0.0", inputs: [{ assumption: "ridership-realised" }] } });
+    const check = NewCheck.parse({ id: "tt", label: "Travel time", figure: "travel-time", op: "<", threshold: { assumption: "max-minutes" } });
+    const approve = () => {
+      service.registerSkill("planner:ana", "travel-time-compare", { version: "1.0.0", description: "r5py before and after" });
+      service.setAssumption("planner:ana", "max-minutes", NewAssumption.parse({ value: 20, reason: "Target" }));
+    };
+
+    it("need an approved skill version", () => {
+      rejects(() => service.addFigure("agent:a", "lawrence", computed), "unregistered_skill");
+    });
+
+    it("can't pass a check until a planner accepts them", () => {
+      approve();
       service.addFigure("agent:a", "lawrence", computed);
-      service.addCheck("agent:a", "lawrence", NewCheck.parse({ id: "tt", label: "Travel time", figure: "travel-time", op: "<", threshold: { value: 20 } }));
+      service.addCheck("agent:a", "lawrence", check);
+      assert.equal(service.viewStudy("lawrence").checks.find((c) => c.id === "tt")?.status, "unverified");
+      assert.equal(service.viewStudy("lawrence").analysis, "incomplete");
+      service.acceptFigure("planner:ana", "lawrence", "travel-time");
+      assert.equal(service.viewStudy("lawrence").checks.find((c) => c.id === "tt")?.status, "pass");
+    });
+
+    it("are marked stale when an input changes, and need accepting again when resubmitted", () => {
+      approve();
+      service.addFigure("agent:a", "lawrence", computed);
+      service.addCheck("agent:a", "lawrence", check);
+      service.acceptFigure("planner:ana", "lawrence", "travel-time");
       service.setAssumption("planner:ana", "ridership-realised", NewAssumption.parse({ value: 0.9, reason: "Revised" }));
       const stale = service.viewStudy("lawrence");
       assert.equal(stale.figures.find((f) => f.id === "travel-time")?.stale, true);
       assert.equal(stale.checks.find((c) => c.id === "tt")?.status, "stale");
-      assert.equal(stale.analysis, "incomplete");
       service.addFigure("agent:a", "lawrence", computed);
+      assert.equal(service.viewStudy("lawrence").checks.find((c) => c.id === "tt")?.status, "unverified");
+      service.acceptFigure("planner:ana", "lawrence", "travel-time");
       assert.equal(service.viewStudy("lawrence").analysis, "pass");
+    });
+  });
+
+  describe("findings", () => {
+    it("count once a planner rates them, and a negative rating makes the analysis mixed", () => {
+      service.addFinding("agent:a", "lawrence", NewFinding.parse({ id: "events", label: "Events", text: "Negative", tone: "positive", citation: { contextId: "plan", page: 2, quote: "Survey feedback was overwhelmingly positive" } }));
+      const pending = service.viewStudy("lawrence");
+      assert.equal(pending.findings.find((f) => f.id === "events")?.tone, "unrated");
+      assert.equal(pending.findings.find((f) => f.id === "events")?.proposedTone, "positive");
+      assert.equal(pending.analysis, "incomplete");
+      service.rateFinding("planner:ana", "lawrence", "events", "negative");
+      assert.equal(service.viewStudy("lawrence").analysis, "mixed");
+    });
+
+    it("leave a decision against mixed results unflagged, because that is judgement", () => {
+      service.addFinding("agent:a", "lawrence", NewFinding.parse({ id: "events", label: "Events", text: "Negative", tone: "negative", citation: { contextId: "plan", page: 2, quote: "Survey feedback was overwhelmingly positive" } }));
+      service.rateFinding("planner:ana", "lawrence", "events", "negative");
+      const decision = service.recordDecision("planner:ana", "lawrence", NewDecision.parse({ outcome: "reject", reason: "Feedback", decidedBy: "Ana Ruiz" }));
+      assert.equal(decision.analysis, "mixed");
+      assert.equal(decision.override, false);
+    });
+  });
+
+  describe("content removal", () => {
+    it("removes a finding's words, keeps the chain, and logs the removal", () => {
+      const seq = service.log.since(0).find((e) => e.type === "finding.recorded")?.seq as number;
+      service.removeContent("planner:ana", seq, "Retention schedule");
+      assert.equal(service.viewStudy("lawrence").findings.length, 0);
+      assert.equal(service.log.verify().ok, true);
+      assert.equal(service.log.since(0).at(-1)?.type, "content.removed");
+    });
+
+    it("refuses to remove anything results depend on", () => {
+      const seq = service.log.since(0).find((e) => e.type === "figure.recorded")?.seq as number;
+      rejects(() => service.removeContent("planner:ana", seq, "Because"), "not_removable");
     });
   });
 
@@ -141,7 +221,7 @@ describe("Service", () => {
     });
   });
 
-  describe("findings", () => {
+  describe("finding quotes", () => {
     it("need a quote that exists", () => {
       const finding = (quote: string) => NewFinding.parse({ id: "f", label: "Survey", text: "Positive", tone: "positive", citation: { contextId: "plan", page: 2, quote } });
       assert.equal(service.addFinding("agent:a", "lawrence", finding("Survey feedback was overwhelmingly positive")).id, "f");

@@ -2,6 +2,7 @@
 // is appended first, then applied.
 import {
   evaluate,
+  type Analysis,
   type Assumption,
   type Basis,
   type CheckView,
@@ -15,7 +16,7 @@ import {
 } from "@transit-agents/contracts";
 import type { Entry } from "./log.ts";
 
-type Check = Omit<NewCheck, "threshold"> & { threshold: { assumption: string } | { value: number } };
+type Check = NewCheck & { threshold: { assumption: string } };
 
 export type Study = {
   id: string;
@@ -28,7 +29,7 @@ export type Study = {
   project: string[];
   figures: Map<string, Figure>;
   checks: Map<string, Check>;
-  findings: Map<string, FindingView>;
+  findings: Map<string, FindingView & { seq: number }>;
   decisions: Decision[];
   stale: Set<string>;
 };
@@ -37,6 +38,7 @@ export type State = {
   contexts: Map<string, Context>;
   studies: Map<string, Study>;
   assumptions: Map<string, Assumption>;
+  skills: Map<string, Set<string>>;
   usage: Usage;
   usageByStudy: Map<string, Usage>;
 };
@@ -47,13 +49,14 @@ export const emptyState = (): State => ({
   contexts: new Map(),
   studies: new Map(),
   assumptions: new Map(),
+  skills: new Map(),
   usage: noUsage(),
   usageByStudy: new Map(),
 });
 
 type Scope = Map<string, number>;
 
-const inputsOf = (basis: Basis): ({ figure: string } | { assumption: string })[] => {
+export const inputsOf = (basis: Basis): ({ figure: string } | { assumption: string })[] => {
   if (basis.kind === "derived") return Object.values(basis.inputs);
   if (basis.kind === "computed") return basis.inputs;
   return [];
@@ -61,7 +64,7 @@ const inputsOf = (basis: Basis): ({ figure: string } | { assumption: string })[]
 
 // What each figure in a study is worth, given assumption values. A cycle or a
 // missing input throws, and the API rejects such figures before they are stored.
-export function resolveFigures(study: Study, assumptions: Scope, overrides: Scope = new Map()): Scope {
+export function resolveFigures(study: Pick<Study, "figures">, assumptions: Scope, overrides: Scope = new Map()): Scope {
   const values: Scope = new Map();
   const visiting = new Set<string>();
 
@@ -105,12 +108,35 @@ const passes = (actual: number, op: Check["op"], threshold: number) => {
   return actual < threshold;
 };
 
+// Figures that rest on a skill result no planner has accepted yet.
+export function unverified(study: Study): Set<string> {
+  const out = new Set([...study.figures.values()].filter((f) => !f.accepted).map((f) => f.id));
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const figure of study.figures.values()) {
+      if (out.has(figure.id)) continue;
+      if (inputsOf(figure.basis).some((input) => "figure" in input && out.has(input.figure))) {
+        out.add(figure.id);
+        grew = true;
+      }
+    }
+  }
+  return out;
+}
+
 export function checksFor(study: Study, values: Scope, assumptions: Scope): CheckView[] {
+  const pending = unverified(study);
   return [...study.checks.values()].map((check) => {
-    const threshold =
-      "value" in check.threshold ? check.threshold.value : assumptionValue(assumptions, check.threshold.assumption);
+    const threshold = assumptionValue(assumptions, check.threshold.assumption);
     const actual = values.get(check.figure) as number;
-    const status = study.stale.has(check.figure) ? "stale" : passes(actual, check.op, threshold) ? "pass" : "fail";
+    const status = study.stale.has(check.figure)
+      ? "stale"
+      : pending.has(check.figure)
+        ? "unverified"
+        : passes(actual, check.op, threshold)
+          ? "pass"
+          : "fail";
     return {
       id: check.id,
       label: check.label,
@@ -124,15 +150,24 @@ export function checksFor(study: Study, values: Scope, assumptions: Scope): Chec
   });
 }
 
-export function analysisOf(checks: CheckView[]): "pass" | "fail" | "mixed" | "incomplete" {
-  if (!checks.length || checks.some((c) => c.status === "stale")) return "incomplete";
+// Tests and consultation together. When they disagree, the analysis says so and a
+// person decides; the service never resolves it. Consultation is one of the TTC's
+// tests, so a study is incomplete until a planner has rated some.
+export function analysisOf(checks: CheckView[], findings: Pick<FindingView, "tone">[] = []): Analysis {
+  if (!checks.length || checks.some((c) => c.status === "stale" || c.status === "unverified")) return "incomplete";
+  const tones = new Set(findings.map((f) => f.tone));
+  if (tones.has("unrated")) return "incomplete";
+  const consulted = tones.has("positive") || tones.has("negative") || tones.has("mixed");
+  if (!consulted) return "incomplete";
   const failed = checks.filter((c) => c.status === "fail").length;
-  if (failed === 0) return "pass";
-  return failed === checks.length ? "fail" : "mixed";
+  const doubts = tones.has("negative") || tones.has("mixed");
+  if (failed === 0) return doubts ? "mixed" : "pass";
+  if (failed === checks.length) return tones.has("positive") ? "mixed" : "fail";
+  return "mixed";
 }
 
 // A decision is an override when it goes against a clear analysis.
-export function isOverride(analysis: Decision["analysis"], outcome: Decision["outcome"]): boolean {
+export function isOverride(analysis: Analysis, outcome: Decision["outcome"]): boolean {
   if (analysis === "pass") return outcome !== "adopt";
   if (analysis === "fail") return outcome === "adopt";
   return false;
@@ -194,7 +229,10 @@ const get = <T>(map: Map<string, T>, key: string | null): T => {
 };
 
 export function apply(state: State, entry: Entry): void {
-  const data = entry.data as { id: string; kind?: string };
+  const data = entry.data as { id: string; kind?: string; redacted?: true };
+  // Removed content stays in the chain as a placeholder and changes nothing.
+  if (data.redacted) return;
+
   switch (entry.type) {
     case "context.added":
       state.contexts.set(data.id, { ...(data as unknown as Context), addedAt: entry.at, addedBy: entry.actor });
@@ -217,9 +255,17 @@ export function apply(state: State, entry: Entry): void {
 
     case "figure.recorded": {
       const study = get(state.studies, entry.studyId);
-      const figure = data as unknown as Omit<Figure, "studyId" | "recordedBy" | "recordedAt">;
+      const figure = data as unknown as Omit<Figure, "studyId" | "recordedBy" | "recordedAt" | "seq" | "hash">;
       const replacing = study.figures.has(figure.id);
-      study.figures.set(figure.id, { ...figure, studyId: study.id, recordedBy: entry.actor, recordedAt: entry.at });
+      study.figures.set(figure.id, {
+        ...figure,
+        studyId: study.id,
+        recordedBy: entry.actor,
+        recordedAt: entry.at,
+        seq: entry.seq,
+        hash: entry.hash,
+        accepted: figure.basis.kind !== "computed" || entry.actor.startsWith("planner:"),
+      });
       study.stale.delete(figure.id);
       if (replacing) for (const id of staleAfter(study, { figure: figure.id })) study.stale.add(id);
       return;
@@ -229,9 +275,45 @@ export function apply(state: State, entry: Entry): void {
       get(state.studies, entry.studyId).checks.set(data.id, data as unknown as Check);
       return;
 
-    case "finding.recorded":
-      get(state.studies, entry.studyId).findings.set(data.id, data as unknown as FindingView);
+    case "finding.recorded": {
+      const finding = data as unknown as FindingView & { tone: FindingView["proposedTone"] };
+      const rated = entry.actor.startsWith("planner:");
+      get(state.studies, entry.studyId).findings.set(data.id, {
+        ...finding,
+        tone: rated ? (finding.tone as FindingView["tone"]) : "unrated",
+        ...(rated ? {} : { proposedTone: finding.tone }),
+        seq: entry.seq,
+      });
       return;
+    }
+
+    case "finding.rated": {
+      const { finding, tone } = data as unknown as { finding: string; tone: FindingView["tone"] };
+      const existing = get(state.studies, entry.studyId).findings.get(finding);
+      if (existing) existing.tone = tone;
+      return;
+    }
+
+    case "figure.accepted": {
+      const { figure, seq } = data as unknown as { figure: string; seq: number };
+      const existing = get(state.studies, entry.studyId).figures.get(figure);
+      if (existing && existing.seq === seq) existing.accepted = true;
+      return;
+    }
+
+    case "content.removed": {
+      const { seq } = data as unknown as { seq: number };
+      for (const study of state.studies.values()) {
+        for (const [id, finding] of study.findings) if (finding.seq === seq) study.findings.delete(id);
+      }
+      return;
+    }
+
+    case "skill.registered": {
+      const { name, version } = data as unknown as { name: string; version: string };
+      state.skills.set(name, new Set([...(state.skills.get(name) ?? []), version]));
+      return;
+    }
 
     case "assumption.set": {
       const { key, value, unit, label, reason, citation } = data as unknown as Assumption;
