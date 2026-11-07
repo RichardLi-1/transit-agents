@@ -409,7 +409,7 @@ export function createApp(options: AppOptions) {
   for (const route of routes) {
     app[route.method](route.path, async (c) => {
       if (!route.roles.includes(c.get("actor").role)) {
-        throw new ApiError(403, "forbidden", `A ${c.get("actor").role} can't do this`);
+        throw new ApiError(403, "forbidden", `This needs a ${route.roles.join(" or ")} token, not ${c.get("actor").role}`);
       }
       return route.handler(c);
     });

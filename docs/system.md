@@ -39,7 +39,7 @@ flowchart LR
 
     subgraph people["People and places they already work"]
         direction TB
-        chat["Teams or Slack<br/>notify · approve"]
+        chat["Teams or Slack<br/>notify"]
         display["Display"]
         planner["Named planner<br/>signs every decision"]
         external["Board · Auditor · public"]
@@ -98,7 +98,7 @@ Full schema at `GET /openapi.json`.
 | Try a change without recording it | `POST /v1/studies/{id}/preview` |
 | Record a decision (planners only) | `POST /v1/studies/{id}/decisions` |
 | Read a study | `GET /v1/studies/{id}` |
-| Trace a figure to its source | `GET /v1/figures/{id}/trace` |
+| Trace a figure to its source | `GET /v1/studies/{id}/figures/{figure}/trace` |
 | See what changed between versions | `GET /v1/studies/{id}/compare` |
 | See results over time | `GET /v1/studies/{id}/timeline` |
 | Read or verify the log | `GET /v1/log`, `GET /v1/log/verify`, `GET /v1/log/head` |
