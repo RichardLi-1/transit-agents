@@ -2,14 +2,21 @@
   "name": "transit-agents",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24" },
-  "workspaces": ["packages/*", "services/*", "apps/*"],
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*"
+  ],
   "scripts": {
-    "test": "node --test --disable-warning=ExperimentalWarning \"evals/**/*.test.ts\" \"packages/**/*.test.ts\" \"services/**/*.test.ts\"",
+    "test": "node --test --test-force-exit --disable-warning=ExperimentalWarning \"evals/**/*.test.ts\" \"packages/**/*.test.ts\" \"services/**/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
     "@types/node": "^24",
+    "playwright-core": "^1.65.0",
     "typescript": "^5.9"
   }
 }
