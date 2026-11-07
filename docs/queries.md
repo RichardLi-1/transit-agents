@@ -29,9 +29,10 @@ Apply the published tests to a proposal, with the recommendation hidden.
 | Does Rosedale pass? | All pass | Not adopted, after public feedback |
 | Did the 200 Toronto Zoo pass its review? | Fails | Deferred one year |
 
-The rules alone do not explain the last four. That gap is the point: this is
-where planners use judgement, and where the agent has to show its reasoning
-and hand over, not guess.
+The rules alone match 3 of the 8 real decisions in the eval set. Highland Creek,
+Rosedale, the Zoo and the two other trial reviews needed judgement. That gap is
+the point: this is where planners decide, and where the agent has to show its
+reasoning and hand over, not guess.
 
 ## 3. Calculate
 
