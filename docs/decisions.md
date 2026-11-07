@@ -1,120 +1,119 @@
 # Design decisions
 
-How the design was argued. An independent reviewer tested the running code
-against the real TTC plan twice. Each decision records the position, the
-challenge, and what changed.
+Why the design is the way it is, and what the owner still has to decide. An
+independent reviewer tested the running code against the real TTC plan twice.
+The design rules are in [system.md](system.md).
 
 ## 1. Agents cannot decide
 
-- **Position:** only planner tokens can record a decision.
-- **Challenge:** this was theatre. A request without a token acted as a planner, so an agent could leave its token off. Agents also set the thresholds, so they defined what passing meant.
-- **Outcome:**
-  - Tokens are required by default. Open access is a local demo setting you have to switch on, and it warns at startup.
-  - Thresholds come only from rules a planner sets.
-  - Consultation counts only once a planner rates it.
-  - A skill's result counts only once a planner accepts it.
-  - Agents can't create webhooks, and webhook hosts need approval.
+A request with no token acted as a planner, and agents set the thresholds. Now
+tokens are required by default, and open access warns at startup. Thresholds,
+consultation and skill results count only once a planner sets, rates or accepts
+them.
 
 ## 2. Citations are checked
 
-- **Position:** a quote must be on the cited page, and the value must be in the quote.
-- **Challenge:** five ways through:
-  - Reordered words passed, so "adopted" could come from "not adopted".
-  - A flipped sign turned Highland Creek's failing test into a pass.
-  - Any cell in a quoted table row passed.
-  - A quote sitting wholly on the next page passed.
-  - An agent could cite a document it had uploaded itself.
-- **Outcome:**
-  - Prose must match exactly.
-  - A table row must match in order, and the value must be its last cell.
-  - A negative value needs wording that says so, such as "decrease" or "savings".
-  - A quote can run onto the next page but must start on the cited one.
-  - Only documents added by planners or agency systems can be cited.
-- **Still open:** the checker can't prove which column a table cell is in, so table figures are flagged.
+Five ways past the check, and the fix for each:
+
+- Reordered words passed, so "adopted" could come from "not adopted". Prose must
+  now match exactly.
+- A flipped sign turned Highland Creek's failing test into a pass. A negative
+  value needs wording such as "decrease" or "savings".
+- Any cell of a quoted table row passed. The row must match in order, with the
+  value as its last cell.
+- A quote wholly on the next page passed. A quote may run onto the next page but
+  must start on the cited one.
+- An agent could cite its own upload. Only documents from planners or agency
+  systems can be cited.
+
+Still open: the checker can't prove a cell's column, so table figures are flagged.
 
 ## 3. Rosedale
 
-- **Position:** it passed every test and was dropped after feedback, so it was a real override.
-- **Challenge:** consultation is one of the TTC's own tests, described as "the only qualitative metric" (2026 plan, p. 114). Rosedale didn't pass everything.
-- **Outcome:** findings count in the analysis. Split consultation reads "needs judgement", and deciding against it is not an override. The demo no longer claims an override.
+It was shown as a real override, dropped after feedback despite passing every
+test. But consultation is one of the TTC's own tests, "the only qualitative
+metric" (2026 plan, p. 114), so Rosedale didn't pass everything. Now findings
+count in the analysis, split consultation reads "needs judgement", deciding
+against it is not an override, and the demo no longer claims one.
 
 ## 4. The log
 
-- **Position:** one append-only, hash-chained log, with all state derived from it.
-- **Challenge:** the reviewer judged the log itself sound, but found:
-  - The tamper claim was oversold.
-  - Two figures depending on each other broke the study list.
-  - Tracing a figure scanned the whole log.
-  - Retried usage reports were counted twice.
-  - A permanent chain can't remove a member of the public's words when retention rules or FOI require it.
-- **Outcome:**
-  - Cycles are rejected on entry.
-  - A trace reads a stored position.
-  - Writes accept an idempotency key.
-  - Content sits outside the chain, so it can be removed while the chain still verifies.
-  - The claim is now "tamper-evident to anyone who kept an earlier head hash".
+The reviewer judged the hash-chained log itself sound, but found:
+
+- The tamper claim was oversold. It is now "tamper-evident to anyone who kept an
+  earlier head hash".
+- A member of the public's words couldn't be removed when retention rules or FOI
+  require it. Content now sits outside the chain.
+- Two figures depending on each other broke the study list. Cycles are now
+  rejected on entry.
+- Tracing a figure scanned the whole log. A trace now reads a stored position.
+- Retried usage reports were counted twice. Writes now accept an idempotency key.
 
 ## 5. Time
 
-- **Position:** fast-forward from today to the review date, with forecasts adding up as it plays.
-- **Challenge:** a running total rises whatever happens. The timetable ends December 21, so vehicles drawn after that are invented. Measured data starts at nothing.
-- **Outcome:**
-  - The axis counts trial weeks.
-  - A forecast shows as a flat weekly rate.
-  - Vehicles and the network's daily rhythm stop where the timetable stops.
-  - Measured results show by week, with coverage against scheduled trips, and "Too few" below 20 departures.
+Fast-forwarding to the review date summed forecasts into a total that rises
+whatever happens, invented vehicles after the timetable ends on December 21, and
+started measured data at nothing. Now the axis counts trial weeks, forecasts are
+flat weekly rates, vehicles and the daily rhythm stop with the timetable, and
+measured results show by week, with coverage against scheduled trips and "Too
+few" below 20 departures.
 
 ## 6. The map
 
-- **Position:** a custom WebGL renderer, with no map library, no tiles, and a tilted view fading into white.
-- **Challenge:** the accessibility score doesn't depend on it, MapLibre also runs without tiles, the display goes blank without WebGL, and the subject shouldn't fade into the fog.
-- **Outcome:**
-  - The renderer stays, because the camera is scripted, the whole app is 20 KB, and it runs offline.
-  - The study line and vehicles no longer fade.
-  - A flat 2D map takes over if WebGL is missing or lost.
-  - Rendering moved into a worker, which raised mobile Lighthouse performance from 66 to 98.
+The custom WebGL renderer draws a tilted view fading into white. It stays, for
+its scripted camera, 20 KB app and offline running, though the accessibility
+score doesn't depend on it and MapLibre also runs without tiles. Now a flat 2D
+map takes over if WebGL is missing or lost, the study line and vehicles no longer
+fade, and moving rendering into a worker raised mobile Lighthouse performance
+from 66 to 98.
 
 ## 7. Measurement
 
-- **Challenge:** the collector ran inside the API, so every restart cut a gap in the trial record. It also counted only departures it saw, so cancelled trips raised the on-time rate.
-- **Outcome:** the collector runs as its own process. Results show coverage against the timetable. Raw positions for the study routes are archived daily for research.
+The collector ran inside the API, so every restart cut a gap in the trial
+record. It counted only departures it saw, so cancelled trips raised the on-time
+rate. Now the collector runs as its own process, results show coverage against
+the timetable, and raw positions for the study routes are archived daily for
+research.
 
 ## 8. Evals
 
-- **Challenge:**
-  - Handing a judgement case to a planner scored as a failure, so guessing scored better.
-  - The rules-only control used the answer key's own test results.
-  - Eight real decisions are too few.
-  - The plans are public, so answers can leak.
-- **Outcome:**
-  - A hand-over on a judgement case counts as correct and is reported separately.
-  - The control is described as an upper bound for rules alone.
-  - Counts are reported beside rates.
-  - Changed-number copies and the sealed 2027 test address leakage.
+Guessing beat handing a judgement case to a planner, the rules-only control used
+the answer key's test results, eight real decisions are too few, and public plans
+can leak answers. Now hand-overs on judgement cases count as correct and are
+reported apart, the control is called an upper bound for rules alone, counts are
+reported beside rates, and changed-number copies and a sealed 2027 test address
+leakage ([evals.md](evals.md)).
 
 ## 9. Brownfield
 
-- **Challenge:** HASTUS and EMME had no sample, parser or format. A changed spreadsheet with no readable text was silently dropped.
-- **Outcome:** the claim is now file-level ingestion through a watched folder, untested on real agency exports. Files are hashed by their bytes, so changed files always register.
+HASTUS and EMME had no sample, parser or format, and a changed spreadsheet with no
+readable text was silently dropped. The claim is now file-level ingestion through
+a watched folder, untested on real agency exports. Files are hashed by their
+bytes, so changes always register.
 
 ## 10. Zoo history on the display
 
-- **Challenge:** show the Zoo route's published results over three summers, so viewers see that results drift.
-- **Outcome:** rejected for the display, because the owner's rule is that only dates from today on appear, and the design is minimal. It stays in the benchmark docs.
+Rejected, because the owner's rule is that only dates from today on appear, and
+the display stays minimal. The Zoo route's drift over three summers stays in
+[benchmark.md](benchmark.md).
 
 ## 11. Fast rollout
 
-- **Position (owner):** construction projects are slow, so this must be fast.
-- **Challenge:** a study isn't a built project. Comparing a tool's rollout with construction time is a category error.
-- **Outcome:** unresolved, and the owner's call. The docs make the claim the evidence supports: evidence in week 1 of a trial instead of at the month-12 review, and a first study in weeks.
+The owner says construction is slow, so this must be fast. The challenge: a study
+isn't a built project, so the comparison is a category error. Unresolved. The docs
+make the claim the evidence supports: evidence in week 1 of a trial instead of at
+the month-12 review, and a first study on day 1 from public data
+([rollout.md](rollout.md)).
 
 ## 12. Digital twins
 
-- **Outcome:** a twin plugs in as a skill. The service records what the twin predicted and what was decided. It does not replace the twin.
+A twin plugs in as a skill. The service records what it predicted and what was
+decided, and does not replace it.
 
 ## For the owner to decide
 
-- Keep the two legend words, "Live" and "Scheduled"? They are the only explanatory text on the display.
-- Keep the "Replay" tag in chat? It shows only while the scripted run is playing.
+- Keep the legend words "Live" and "Scheduled"? They are the display's only
+  explanatory text.
+- Keep the "Replay" tag in chat? It shows only while the scripted run plays.
 - How to frame "fast" in the pitch (decision 11).
-- A demo on a Sunday shows no live 52F, which doesn't run Sundays. The 11B does.
+- A Sunday demo shows no live 52F, which doesn't run Sundays. The 11B does.
