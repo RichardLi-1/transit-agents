@@ -20,14 +20,26 @@ const SHAPES_PER_ROUTE = 4;
 const DAY_TYPES = ["weekday", "saturday", "sunday"] as const;
 type DayType = (typeof DAY_TYPES)[number];
 
-const STUDY_PATTERNS: Record<string, RegExp[]> = {
+// Which trips belong to each study. Southbound 11 trips share one headsign across
+// branches, so `maxLat` separates the 11B from the branch that runs to Steeles.
+type StudyPattern = { headsign: RegExp; maxLat?: number };
+
+const LAWRENCE_AVE_LAT = 43.735;
+
+const STUDY_PATTERNS: Record<string, StudyPattern[]> = {
   "lawrence-sunnybrook": [
-    /^East - 52F .*Sunnybrook/,
-    /^West - 52F /,
-    /^North - 11B .*Lawrence Station/,
-    /^South - 11 .*Davisville/,
+    { headsign: /^East - 52F .*Sunnybrook/ },
+    { headsign: /^West - 52F / },
+    { headsign: /^North - 11B .*Lawrence Station/ },
+    { headsign: /^South - 11 .*Davisville/, maxLat: LAWRENCE_AVE_LAT },
   ],
-  "sherbourne-castle-frank": [/^South - 75 /, /^North - 75 /],
+  "sherbourne-castle-frank": [{ headsign: /^North - 75 / }],
+};
+
+// The Rosedale proposal was never built, so its line is the current northbound 75
+// extended along Bloor to Castle Frank Station. It has no scheduled trips.
+const UNBUILT_EXTENSIONS: Record<string, { stop: RegExp }> = {
+  "sherbourne-castle-frank": { stop: /^Castle Frank Station/ },
 };
 
 type Point = [number, number];
@@ -143,13 +155,14 @@ async function main() {
     shapeUse.set(trip.route, use);
   }
 
-  const studyShapes = new Map<string, Set<string>>();
+  const candidates = new Map<string, Map<string, number | undefined>>();
   for (const [study, patterns] of Object.entries(STUDY_PATTERNS)) {
-    const shapes = new Set<string>();
+    const shapes = new Map<string, number | undefined>();
     for (const trip of trips.values()) {
-      if (patterns.some((p) => p.test(trip.headsign))) shapes.add(trip.shape);
+      const match = patterns.find((p) => p.headsign.test(trip.headsign));
+      if (match) shapes.set(trip.shape, match.maxLat);
     }
-    studyShapes.set(study, shapes);
+    candidates.set(study, shapes);
   }
 
   const wanted = new Set<string>();
@@ -159,7 +172,7 @@ async function main() {
     routeShapes.set(route, top);
     for (const shape of top) wanted.add(shape);
   }
-  for (const shapes of studyShapes.values()) for (const shape of shapes) wanted.add(shape);
+  for (const shapes of candidates.values()) for (const shape of shapes.keys()) wanted.add(shape);
 
   const raw = new Map<string, [number, Point][]>();
   for await (const p of rows("shapes.txt")) {
@@ -172,6 +185,21 @@ async function main() {
   const shapes = new Map<string, Point[]>();
   for (const [id, list] of raw) {
     shapes.set(id, list.sort((a, b) => a[0] - b[0]).map(([, point]) => point));
+  }
+
+  const studyShapes = new Map<string, Set<string>>();
+  for (const [study, shapeLimits] of candidates) {
+    const kept = new Set<string>();
+    for (const [id, maxLat] of shapeLimits) {
+      const limit = maxLat === undefined ? Infinity : project(maxLat, ORIGIN.lon)[1];
+      if ((shapes.get(id) ?? []).every(([, y]) => y <= limit)) kept.add(id);
+    }
+    studyShapes.set(study, kept);
+  }
+
+  const stops: { name: string; point: Point }[] = [];
+  for await (const s of rows("stops.txt")) {
+    stops.push({ name: s.stop_name as string, point: project(Number(s.stop_lat), Number(s.stop_lon)) });
   }
 
   // First and last time of every trip, for schedules and for hourly service.
@@ -224,13 +252,24 @@ async function main() {
   const studies: Record<string, unknown> = {};
   for (const [study, ids] of studyShapes) {
     const patterns = [...ids];
-    const lines = patterns.map((id) => simplify(shapes.get(id) ?? [], 4).map(([x, y]) => [round1(x), round1(y)]));
+    const extension = UNBUILT_EXTENSIONS[study];
+    const lines = patterns.map((id) => {
+      const line = simplify(shapes.get(id) ?? [], 4);
+      if (extension) {
+        const stop = stops.find((s) => extension.stop.test(s.name));
+        if (!stop) throw new Error(`No stop matching ${extension.stop}`);
+        line.push(stop.point);
+      }
+      return line.map(([x, y]) => [round1(x), round1(y)]);
+    });
     const schedule: Record<DayType, [number, number, number][]> = { weekday: [], saturday: [], sunday: [] };
-    for (const [tripId, { start, end }] of span) {
-      const trip = trips.get(tripId) as Trip;
-      const pattern = patterns.indexOf(trip.shape);
-      if (pattern === -1 || end <= start) continue;
-      schedule[trip.day].push([pattern, start, end]);
+    if (!extension) {
+      for (const [tripId, { start, end }] of span) {
+        const trip = trips.get(tripId) as Trip;
+        const pattern = patterns.indexOf(trip.shape);
+        if (pattern === -1 || end <= start) continue;
+        schedule[trip.day].push([pattern, start, end]);
+      }
     }
     for (const list of Object.values(schedule)) list.sort((a, b) => a[1] - b[1]);
     studies[study] = { lines, schedule };
