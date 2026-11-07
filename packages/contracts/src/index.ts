@@ -214,7 +214,7 @@ export type FindingView = Omit<z.infer<typeof NewFinding>, "tone"> & {
   proposedTone?: z.infer<typeof Tone>;
 };
 
-export type DayResult = { date: string; departures: number; onTimeStandard: number; onTimeReported: number };
+export type DayResult = { date: string; departures: number; onTimeStandard: number; onTimeReported: number; scheduled: number };
 
 // Measured and forecast are kept apart on purpose. `measured` is what the live feed
 // recorded. `forecast` is a published weekly figure at current assumptions: a claim,

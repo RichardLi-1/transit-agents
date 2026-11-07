@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { deviationFrom, DepartureTracker, isOnTime, localClock, summarize, WINDOWS, type ScheduledTrip } from "./reliability.ts";
+import { deviationFrom, DepartureTracker, isOnTime, localClock, scheduledCount, summarize, WINDOWS, type ScheduledTrip } from "./reliability.ts";
 
 // 2026-11-07 12:00:00 in Toronto (EST).
 const NOON = Date.UTC(2026, 10, 7, 17, 0, 0) / 1000;
 const NOON_SECONDS = 12 * 3600;
 
 const SCHEDULE: Record<string, ScheduledTrip> = {
-  t1: { route: "52", pattern: "52F", firstSequence: 1, departure: NOON_SECONDS },
+  t1: { route: "52", pattern: "52F", firstSequence: 1, departure: NOON_SECONDS, days: 1 | 2 },
 };
 const tracker = () => new DepartureTracker((trip) => SCHEDULE[trip]);
 const reading = (at: number, sequence: number, trip = "t1", vehicle = "v1") => ({ vehicle, trip, route: "52", sequence, at });
@@ -101,8 +101,26 @@ describe("summarize", () => {
       { date: "2026-11-07", deviation: 400 },
     ]);
     assert.deepEqual(days, [
-      { date: "2026-11-07", departures: 2, onTimeStandard: 1, onTimeReported: 0 },
-      { date: "2026-11-08", departures: 1, onTimeStandard: 1, onTimeReported: 1 },
+      { date: "2026-11-07", departures: 2, onTimeStandard: 1, onTimeReported: 0, scheduled: 0 },
+      { date: "2026-11-08", departures: 1, onTimeStandard: 1, onTimeReported: 1, scheduled: 0 },
     ]);
+  });
+});
+
+describe("scheduledCount", () => {
+  const trips = [
+    { route: "52", pattern: "52F", firstSequence: 1, departure: 8 * 3600, days: 1 | 2 },
+    { route: "52", pattern: "52F", firstSequence: 1, departure: 20 * 3600, days: 1 },
+    { route: "11", pattern: "11B", firstSequence: 1, departure: 9 * 3600, days: 1 | 2 | 4 },
+  ];
+
+  it("counts trips by day type and pattern", () => {
+    assert.equal(scheduledCount(trips, new Set(["52F"]), "2026-11-09"), 2);
+    assert.equal(scheduledCount(trips, new Set(["52F"]), "2026-11-07"), 1);
+    assert.equal(scheduledCount(trips, new Set(["52F"]), "2026-11-08"), 0);
+  });
+
+  it("counts only trips due by a time, for a day still under way", () => {
+    assert.equal(scheduledCount(trips, null, "2026-11-09", 12 * 3600), 2);
   });
 });

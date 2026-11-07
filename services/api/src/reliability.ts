@@ -17,6 +17,8 @@ export type ScheduledTrip = {
   pattern: string;
   firstSequence: number;
   departure: number;
+  // 1 weekday, 2 Saturday, 4 Sunday.
+  days: number;
 };
 
 export type Departure = {
@@ -122,12 +124,33 @@ export type DaySummary = {
   departures: number;
   onTimeStandard: number;
   onTimeReported: number;
+  // Trips the timetable planned. Departures below this include cancellations and
+  // trips the feed missed, which on-time rates alone would hide.
+  scheduled: number;
 };
 
-export function summarize(departures: Pick<Departure, "date" | "deviation">[]): DaySummary[] {
+const dayMask = (date: string) => {
+  const day = new Date(`${date}T12:00:00Z`).getUTCDay();
+  return day === 0 ? 4 : day === 6 ? 2 : 1;
+};
+
+// How many trips of these patterns were due to leave by a time on a date.
+export function scheduledCount(trips: Iterable<ScheduledTrip>, patterns: Set<string> | null, date: string, until = Infinity): number {
+  const mask = dayMask(date);
+  let count = 0;
+  for (const trip of trips) {
+    if ((trip.days & mask) && trip.departure <= until && (!patterns || patterns.has(trip.pattern))) count++;
+  }
+  return count;
+}
+
+export function summarize(
+  departures: Pick<Departure, "date" | "deviation">[],
+  scheduled: (date: string) => number = () => 0,
+): DaySummary[] {
   const days = new Map<string, DaySummary>();
   for (const { date, deviation } of departures) {
-    const day = days.get(date) ?? { date, departures: 0, onTimeStandard: 0, onTimeReported: 0 };
+    const day = days.get(date) ?? { date, departures: 0, onTimeStandard: 0, onTimeReported: 0, scheduled: scheduled(date) };
     day.departures += 1;
     if (isOnTime(deviation, WINDOWS.standard)) day.onTimeStandard += 1;
     if (isOnTime(deviation, WINDOWS.reported)) day.onTimeReported += 1;
