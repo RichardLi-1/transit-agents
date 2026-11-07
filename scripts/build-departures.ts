@@ -2,23 +2,15 @@
 // IDs match the live feed. The main TTC schedule feed's IDs do not.
 //
 // Usage: node scripts/build-departures.ts <surface-gtfs-dir>
-import { createReadStream, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 import { gzipSync } from "node:zlib";
+import { rows as readRows } from "./csv.ts";
 
 const GTFS = process.argv[2];
 if (!GTFS) throw new Error("Usage: build-departures.ts <surface-gtfs-dir>");
 const OUT = join(import.meta.dirname, "../services/api/assets/departures.json.gz");
-
-async function* rows(file: string) {
-  let header: string[] | undefined;
-  for await (const raw of createInterface({ input: createReadStream(join(GTFS as string, file)), crlfDelay: Infinity })) {
-    const cells = raw.replace(/^﻿/, "").split(",");
-    if (!header) header = cells;
-    else yield Object.fromEntries(header.map((key, i) => [key, cells[i] ?? ""])) as Record<string, string>;
-  }
-}
+const rows = (file: string) => readRows(GTFS, file);
 
 // Which days each service runs, as a mask: 1 weekday, 2 Saturday, 4 Sunday.
 const days = new Map<string, number>();

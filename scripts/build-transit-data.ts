@@ -5,9 +5,9 @@
 //   studies.json  each study's line, and the scheduled trips that run on it
 //
 // Usage: node scripts/build-transit-data.ts <gtfs-dir> [out-dir]
-import { createReadStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
+import { rows as readRows } from "./csv.ts";
 
 const GTFS = process.argv[2];
 if (!GTFS) throw new Error("Usage: build-transit-data.ts <gtfs-dir> [out-dir]");
@@ -44,39 +44,7 @@ const UNBUILT_EXTENSIONS: Record<string, { stop: RegExp }> = {
 
 type Point = [number, number];
 
-function parseCsvLine(line: string): string[] {
-  if (!line.includes('"')) return line.split(",");
-  const out: string[] = [];
-  let field = "";
-  let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') quoted = !quoted;
-    else if (ch === "," && !quoted) {
-      out.push(field);
-      field = "";
-    } else field += ch;
-  }
-  out.push(field);
-  return out;
-}
-
-async function* rows(file: string): AsyncGenerator<Record<string, string>> {
-  const lines = createInterface({ input: createReadStream(join(GTFS as string, file)), crlfDelay: Infinity });
-  let header: string[] | undefined;
-  for await (const raw of lines) {
-    const line = raw.replace(/^﻿/, "");
-    if (!line) continue;
-    const cells = parseCsvLine(line);
-    if (!header) {
-      header = cells;
-      continue;
-    }
-    const row: Record<string, string> = {};
-    header.forEach((key, i) => (row[key] = cells[i] ?? ""));
-    yield row;
-  }
-}
+const rows = (file: string) => readRows(GTFS as string, file);
 
 const METRES_PER_DEG_LAT = 110_574;
 const METRES_PER_DEG_LON = 111_320 * Math.cos((ORIGIN.lat * Math.PI) / 180);
@@ -137,9 +105,12 @@ async function main() {
   }
 
   const dayOfService = new Map<string, DayType>();
+  let serviceUntil = "";
   for await (const c of rows("calendar.txt")) {
     const day: DayType = c.monday === "1" ? "weekday" : c.saturday === "1" ? "saturday" : "sunday";
     dayOfService.set(c.service_id as string, day);
+    const end = (c.end_date as string).trim();
+    if (end > serviceUntil) serviceUntil = end;
   }
 
   type Trip = { route: string; shape: string; day: DayType; headsign: string };
@@ -243,6 +214,8 @@ async function main() {
     JSON.stringify({
       origin: ORIGIN,
       unitMetres: UNIT_METRES,
+      // The last day the timetable covers. Nothing after it is drawn as scheduled.
+      serviceUntil: `${serviceUntil.slice(0, 4)}-${serviceUntil.slice(4, 6)}-${serviceUntil.slice(6, 8)}`,
       dayTypes: DAY_TYPES,
       routes: [...routes.values()].map((r, i) => ({ ...r, service: service[i] })),
       polylines,

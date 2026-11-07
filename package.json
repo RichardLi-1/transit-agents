@@ -11,7 +11,14 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "node --test --test-force-exit --disable-warning=ExperimentalWarning \"evals/**/*.test.ts\" \"packages/**/*.test.ts\" \"services/**/*.test.ts\"",
+    "build": "vite build apps/display",
+    "demo": "node --disable-warning=ExperimentalWarning scripts/demo.ts",
+    "replay": "node --disable-warning=ExperimentalWarning clients/replay.ts",
+    "decide": "node --disable-warning=ExperimentalWarning clients/decide.ts",
+    "serve": "node --disable-warning=ExperimentalWarning services/api/src/main.ts",
+    "collect": "node --disable-warning=ExperimentalWarning services/api/src/collect.ts",
+    "dev:display": "vite apps/display",
+    "test": "node --test --test-force-exit --disable-warning=ExperimentalWarning \"evals/**/*.test.ts\" \"packages/**/*.test.ts\" \"services/**/*.test.ts\" \"scripts/**/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
