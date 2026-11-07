@@ -48,6 +48,26 @@ describe("scoreCase", () => {
     assert.deepEqual(result.failures, ["forbidden: we are compliant"]);
   });
 
+  it("accepts a hand-over on a judgement case, and reports it as one", () => {
+    const result = scoreCase(byId("check-005"), {
+      text: "The tests pass, but feedback at events was negative. A planner should decide.",
+      behaviour: "flag",
+      checks: { customer_time: "pass", productivity: "pass", ridership_per_dollar: "pass" },
+    });
+    assert.equal(result.passed, true);
+    assert.equal(result.handedOver, true);
+  });
+
+  it("still fails a wrong decision on a judgement case", () => {
+    const result = scoreCase(byId("check-005"), {
+      text: "Adopt.",
+      behaviour: "flag",
+      decision: "adopt",
+      checks: { customer_time: "pass", productivity: "pass", ridership_per_dollar: "pass" },
+    });
+    assert.equal(result.passed, false);
+  });
+
   it("catches an agent that recalls the plan instead of reading the changed numbers", () => {
     const recalled = {
       text: "",
@@ -96,7 +116,7 @@ describe("cases", () => {
 
 describe("summarize", () => {
   it("counts by capability", () => {
-    const score = { id: "find-001", passed: true, failures: [], citationRecall: 1, citationPrecision: 1 };
+    const score = { id: "find-001", passed: true, failures: [], citationRecall: 1, citationPrecision: 1, handedOver: false };
     assert.deepEqual(summarize(cases, [score]), { total: 1, passed: 1, byCapability: { find: { total: 1, passed: 1 } } });
   });
 });

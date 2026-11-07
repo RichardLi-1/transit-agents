@@ -46,6 +46,9 @@ export type Score = {
   failures: string[];
   citationRecall: number | null;
   citationPrecision: number | null;
+  // On a case that needs judgement, flagging it for a planner without deciding
+  // is as good as deciding correctly. Reported apart, so neither hides the other.
+  handedOver: boolean;
 };
 
 const samePage = (a: Citation, b: Citation) => a.source === b.source && a.page === b.page;
@@ -72,7 +75,8 @@ export function scoreCase(c: EvalCase, a: Answer): Score {
     if (text.includes(term.toLowerCase())) failures.push(`forbidden: ${term}`);
   }
 
-  if (e.decision && a.decision !== e.decision) {
+  const handedOver = Boolean(e.judgement) && a.behaviour === "flag" && a.decision === undefined;
+  if (e.decision && !handedOver && a.decision !== e.decision) {
     failures.push(`decision: wanted ${e.decision}, got ${a.decision ?? "nothing"}`);
   }
 
@@ -92,11 +96,12 @@ export function scoreCase(c: EvalCase, a: Answer): Score {
     if (citationRecall < 1) failures.push("citations: expected page not cited");
   }
 
-  return { id: c.id, passed: failures.length === 0, failures, citationRecall, citationPrecision };
+  return { id: c.id, passed: failures.length === 0, failures, citationRecall, citationPrecision, handedOver };
 }
 
-// The control: apply the published tests and nothing else. If an agent can't
-// beat this, it is adding nothing to a spreadsheet.
+// The control: apply the published tests perfectly, using the answer key's test
+// results, and nothing else. It is an upper bound for rules alone, not a model of
+// any real tool, and it can never answer "defer" or "amend".
 export function rulesOnlyDecision(checks: Record<string, CheckResult>): Decision {
   return Object.values(checks).includes("fail") ? "reject" : "adopt";
 }

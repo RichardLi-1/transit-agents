@@ -24,7 +24,7 @@ flowchart LR
     subgraph service["Transit Agents service"]
         direction TB
         api["API<br/>context · studies · figures · assumptions · decisions"]
-        gate{{"Enforced at the door<br/>no source, no figure<br/>quote must be on the cited page<br/>agents cannot decide"}}
+        gate{{"Enforced at the door<br/>no source, no figure<br/>quote must be on the cited page<br/>planners set rules, rate consultation, decide"}}
         log[("Append-only log<br/>hash-chained")]
         views["Views<br/>draft · trace · compare · timeline · usage"]
         out["Event stream<br/>SSE · signed webhooks"]
@@ -32,6 +32,10 @@ flowchart LR
         log --> views
         log --> out
     end
+
+    collector["Collector<br/>separate process<br/>live positions · departures"]
+    feeds -- "GTFS-RT" --> collector
+    collector -- "measurements" --> views
 
     subgraph people["People and places they already work"]
         direction TB
@@ -60,14 +64,20 @@ flowchart LR
    disagree with it.
 2. **Guarantees are enforced by the API, not by prompts.** A figure with no
    source is rejected. A cited figure is rejected if its quote is not on the
-   cited page, or if its value is not in the quote. An agent token cannot record
-   a decision.
-3. **People decide.** Agents draft and check. A named planner signs. When a
-   decision goes against the analysis, it is recorded as an override, with a reason.
+   cited page, if its value is not in the quote, or if its sign contradicts the
+   wording. Only documents added by planners or agency systems can be cited.
+3. **People decide.** Agents draft and check. Planners set the rules a check uses,
+   rate how consultation reads, accept results from skills, and record decisions.
+   A decision against a clear analysis is recorded as an override, with a reason.
 4. **Existing systems stay.** Data arrives through exports they already produce.
    Decisions leave as webhooks. Nothing is migrated.
 5. **Two clocks, never mixed.** The log always uses real time. The display's
-   time control is a view of forecasts and schedules, and it writes nothing.
+   time control is a view of schedules and forecasts, and it writes nothing.
+6. **Measured and forecast stay apart.** Live data is measured by a separate
+   collector. Forecasts are published claims, shown as flat rates, never added up.
+7. **Content can be removed; history can't.** Each entry's content sits outside
+   the hash chain, so it can be removed for retention or privacy while the chain
+   still verifies and shows that something was there.
 
 ## API
 
@@ -80,23 +90,33 @@ Full schema at `GET /openapi.json`.
 | Report agent activity, tokens and cost | `POST /v1/studies/{id}/activity` |
 | Add a figure | `POST /v1/studies/{id}/figures` |
 | Test a figure against a rule | `POST /v1/studies/{id}/checks` |
-| Set or change an assumption | `PUT /v1/assumptions/{key}` |
+| Add a finding, such as consultation | `POST /v1/studies/{id}/findings` |
+| Rate how a finding reads | `PUT /v1/studies/{id}/findings/{finding}/tone` |
+| Approve a skill version | `PUT /v1/skills/{name}` |
+| Accept a skill's result | `POST /v1/studies/{id}/figures/{figure}/accept` |
+| Set or change a rule or assumption | `PUT /v1/assumptions/{key}` |
 | Try a change without recording it | `POST /v1/studies/{id}/preview` |
 | Record a decision (planners only) | `POST /v1/studies/{id}/decisions` |
 | Read a study | `GET /v1/studies/{id}` |
 | Trace a figure to its source | `GET /v1/figures/{id}/trace` |
 | See what changed between versions | `GET /v1/studies/{id}/compare` |
 | See results over time | `GET /v1/studies/{id}/timeline` |
-| Read or verify the log | `GET /v1/log`, `GET /v1/log/verify` |
+| Read or verify the log | `GET /v1/log`, `GET /v1/log/verify`, `GET /v1/log/head` |
+| Remove an entry's content | `POST /v1/log/{seq}/remove-content` |
+| See live vehicles | `GET /v1/live/vehicles` |
 | See tokens and cost | `GET /v1/usage` |
 | Stream everything live | `GET /v1/events` |
 | Be told about decisions | `POST /v1/subscriptions` |
 
 ## Who may do what
 
-| Role | Reads | Adds context | Adds figures | Changes assumptions | Decides |
+Every request needs a token, unless open access is switched on for a local demo.
+
+| Role | Reads | Adds context | Subscribes webhooks | Adds figures and findings | Sets rules, rates, accepts, decides |
 |---|---|---|---|---|---|
 | Viewer | Yes | | | | |
-| Integration | Yes | Yes | | | |
-| Agent | Yes | Yes | Yes | | |
-| Planner | Yes | Yes | Yes | Yes | Yes |
+| Integration | Yes | Yes, citable | Yes | | |
+| Agent | Yes | Yes, not citable | | Yes | |
+| Planner | Yes | Yes, citable | Yes | Yes | Yes |
+
+Webhooks can only go to hosts listed in `WEBHOOK_HOSTS`.

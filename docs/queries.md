@@ -26,13 +26,14 @@ Apply the published tests to a proposal, with the recommendation hidden.
 | Does Downsview Park pass? | Pass, with no customer-time test run | Adopted |
 | Does Highland Creek pass? | Fails customer time, passes the rest | Adopted, because it saves service hours |
 | Does Yorkville pass? | Passes customer time, fails the financial tests | Not adopted |
-| Does Rosedale pass? | All pass | Not adopted, after public feedback |
+| Does Rosedale pass? | Passes customer time; consultation split, with events negative and the survey positive | Not adopted, after public feedback |
 | Did the 200 Toronto Zoo pass its review? | Fails | Deferred one year |
 
-The rules alone match 3 of the 8 real decisions in the eval set. Highland Creek,
-Rosedale, the Zoo and the two other trial reviews needed judgement. That gap is
-the point: this is where planners decide, and where the agent has to show its
-reasoning and hand over, not guess.
+Applying the published tests perfectly, and nothing else, matches 3 of the 8 real
+decisions in the eval set. Highland Creek, Rosedale, the Zoo and the two other
+trial reviews needed judgement. This is where planners decide, and where an agent
+should show its reasoning and hand over rather than guess. A hand-over counts as
+a correct answer on these cases.
 
 ## 3. Calculate
 
