@@ -1,0 +1,33 @@
+# One machine in Toronto, always on, so the collector never misses a day.
+app = "transit-agents"
+primary_region = "yyz"
+
+[env]
+  HOST = "0.0.0.0"
+  PORT = "4100"
+  DATA_DIR = "/data"
+  # Public demo: visitors can look without signing in, and writes need a token.
+  AUTH = "demo"
+  PUBLIC_URL = "https://transit-agents.fly.dev"
+
+[[mounts]]
+  source = "transit_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 4100
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
