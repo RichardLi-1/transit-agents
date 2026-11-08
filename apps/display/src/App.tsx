@@ -192,6 +192,7 @@ export function App() {
         {TEST_BUILD && <p class="tag build">Test build</p>}
         <Shelf
           contexts={store.contexts}
+          drafts={store.documents.filter((document) => document.studyId === studyId)}
           reading={store.reading}
           highlight={targetFolder ?? null}
           canAdd={canAdd(session?.me ?? null)}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Context } from "@transit-agents/contracts";
+import type { DocumentItem } from "../store.ts";
 import { api } from "../api.ts";
 import { webUrl } from "../host.ts";
 import { DocumentIcon, FileIcon, FolderIcon, PlusIcon } from "./icons.tsx";
@@ -20,9 +21,12 @@ const kind = (context: Context | undefined) =>
 // on its own. Shown before they arrive, it would jump along the shelf as they do.
 const FOLDERS_WAIT_MS = 2000;
 
-type Props = { contexts: Context[]; reading: string | null; highlight: string | null; canAdd: boolean };
+type Props = { contexts: Context[]; drafts?: DocumentItem[]; reading: string | null; highlight: string | null; canAdd: boolean };
 
-export function Shelf({ contexts, reading, highlight, canAdd }: Props) {
+// A draft's short name for the shelf: its title up to the colon, "TPAP brief".
+const shortTitle = (title: string) => title.split(":")[0]?.trim() || title;
+
+export function Shelf({ contexts, drafts = [], reading, highlight, canAdd }: Props) {
   const [dragging, setDragging] = useState(false);
   const [waited, setWaited] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -98,6 +102,24 @@ export function Shelf({ contexts, reading, highlight, canAdd }: Props) {
               <FileIcon label={extension(context.title)} />
               <span>{context.title}</span>
             </span>
+          </li>
+        ))}
+        {/* The study's drafts, which agents made from the sources: kept beside them to
+            open and edit, but never a source themselves, so no agent cites its own work. */}
+        {drafts.map((draft) => (
+          <li key={`draft-${draft.seq}`} data-folder={`draft-${draft.seq}`} class="item draft">
+            <a href={draft.url} target="_blank" rel="noopener">
+              <span class="draft-icon">
+                <DocumentIcon color="#b03488" />
+                <span class="draft-tag">Draft</span>
+              </span>
+              <span>
+                {shortTitle(draft.title)}
+                <span class="sr-only">
+                  : {draft.title}, {draft.kind === "slides" ? "slides" : "a report"} you can ask to change. Opens the PDF in a new tab
+                </span>
+              </span>
+            </a>
           </li>
         ))}
         {/* With the folders, not ahead of them: they would push it along as they arrive.

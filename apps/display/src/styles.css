@@ -1361,6 +1361,30 @@ input[type="range"] {
   font-size: 13px;
 }
 
+.doc-edit {
+  color: var(--accent-ink);
+  font-size: 13px;
+}
+
+.shelf .draft-icon {
+  position: relative;
+  display: grid;
+}
+
+.shelf .item .draft-tag {
+  position: absolute;
+  top: 6px;
+  right: -10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
 .doc-open {
   padding: 6px 14px;
   border-radius: 999px;

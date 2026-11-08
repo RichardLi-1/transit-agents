@@ -12,7 +12,8 @@ export function DocumentCard({ document }: { document: DocumentItem }) {
       </svg>
       <p id={about}>
         <span class="doc-title">{document.title}</span>
-        <span class="doc-kind">{document.kind === "slides" ? "Slides, PDF" : "Report, PDF"}</span>
+        <span class="doc-kind">{document.kind === "slides" ? "Slides, PDF" : "Report, PDF"} · Draft, in the study's files</span>
+        <span class="doc-edit">Tell me what to change and I'll make a new version.</span>
       </p>
       <a class="doc-open" href={document.url} target="_blank" rel="noopener" aria-describedby={about}>
         Open<span class="sr-only"> in a new tab</span>

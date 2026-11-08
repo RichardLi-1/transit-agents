@@ -384,7 +384,7 @@ class DocumentTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(core.WRITES["create_document"], "studyId")
         self.assertIn("call get_study and read_skill together", lead.INSTRUCTIONS)
         self.assertIn("Then call create_document once", lead.INSTRUCTIONS)
-        self.assertIn('"Document ready: <title>. <link>"', lead.INSTRUCTIONS)
+        self.assertIn('"Document ready: <title>. <link> It\'s a draft, saved in the study\'s files: tell me what to change and I\'ll make a new version."', lead.INSTRUCTIONS)
         self.assertIn("Never say a document is ready without the link create_document returned", lead.INSTRUCTIONS)
         # Asked to "generate tpap", it makes a draft brief for planners rather than refusing.
         self.assertIn("or just to generate or draft a TPAP", lead.INSTRUCTIONS)
