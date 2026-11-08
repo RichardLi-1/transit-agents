@@ -6,24 +6,22 @@
 <title>Transit Agents System</title>
 <link rel="icon" href="/icons/icon-192.png">
 <style>
-/* Four lanes, left to right: what agencies have, the agents, the service that checks
-   and keeps everything, and the people who decide. Short labels, strong contrast, for
-   a projector. Stacks on a phone. */
+/* A funnel: everything an agency has goes in on the left, one system does the work
+   inside, and finished, cited work comes out on the right. Stacks on a phone. */
 *, *::before, *::after { box-sizing: border-box; }
 :root {
   color-scheme: light;
   --bg: #f4f3f6; --surface: #ffffff; --ink: #111114; --soft: #3a3842; --rule: #c9c5d1;
-  --accent: #a32a7c; --accent-ink: #7f1f60; --accent-wash: #f6e4ef; --line3: #006fae;
-  --gemini: #5b6cff; --slack: #4a154b;
+  --accent: #a32a7c; --accent-ink: #7f1f60; --wash: #f3dcea; --gemini: #5b6cff; --slack: #4a154b;
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --serif: "New York", "Iowan Old Style", Georgia, serif;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #111014; --surface: #1c1b20; --ink: #f7f6fa; --soft: #cfccd8; --rule: #48444f;
-  --accent: #ec86c8; --accent-ink: #f6b3dd; --accent-wash: #3a1b30; --line3: #5cbcf0; --gemini: #9aa6ff; --slack: #e9c7ea; color-scheme: dark; } }
+  --accent: #ec86c8; --accent-ink: #f6b3dd; --wash: #3a1b30; --gemini: #9aa6ff; --slack: #e9c7ea; color-scheme: dark; } }
 :root[data-theme="dark"] {
   --bg: #111014; --surface: #1c1b20; --ink: #f7f6fa; --soft: #cfccd8; --rule: #48444f;
-  --accent: #ec86c8; --accent-ink: #f6b3dd; --accent-wash: #3a1b30; --line3: #5cbcf0; --gemini: #9aa6ff; --slack: #e9c7ea; color-scheme: dark; }
+  --accent: #ec86c8; --accent-ink: #f6b3dd; --wash: #3a1b30; --gemini: #9aa6ff; --slack: #e9c7ea; color-scheme: dark; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.4 var(--sans);
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 36px 48px; }
 .page { max-width: 1240px; margin: 0 auto; display: grid; gap: 28px; }
@@ -31,37 +29,31 @@ header { display: flex; gap: 16px; align-items: center; }
 header img { width: 52px; height: 52px; border-radius: 12px; flex: none; }
 h1 { font: 600 clamp(28px, 4vw, 40px)/1.1 var(--serif); margin: 0; text-wrap: balance; }
 header p { margin: 4px 0 0; color: var(--soft); font-size: 18px; }
-.flow { display: grid; grid-template-columns: minmax(0,1fr) 46px minmax(0,1fr) 46px minmax(0,1.15fr) 46px minmax(0,1fr); }
-.lane { display: grid; align-content: start; gap: 10px; min-width: 0; }
-.lane h2 { display: flex; align-items: center; gap: 8px; font: 700 13px/1.2 var(--sans); letter-spacing: .07em; text-transform: uppercase; color: var(--soft); margin: 0 0 2px; min-height: 22px; }
-.box { background: var(--surface); border: 1.5px solid var(--rule); border-radius: 12px; padding: 12px 14px; display: grid; gap: 2px; }
-.box b { font-weight: 650; font-size: 16.5px; display: flex; align-items: center; gap: 8px; }
-.box span { color: var(--soft); font-size: 14.5px; }
+.flow { display: grid; grid-template-columns: minmax(0,1fr) 110px minmax(0,1.25fr) 110px minmax(0,1fr); align-items: center; }
+.col { display: grid; gap: 8px; min-width: 0; }
+.col h2 { font: 700 13px/1.2 var(--sans); letter-spacing: .07em; text-transform: uppercase; color: var(--soft); margin: 0 0 4px; }
+.chip { background: var(--surface); border: 1.5px solid var(--rule); border-radius: 10px; padding: 9px 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.chip small { font-weight: 400; color: var(--soft); font-size: 14px; }
+.funnel { width: 100%; height: 400px; display: block; }
+.core { background: var(--surface); border: 3px solid var(--accent); border-radius: 22px; padding: 22px; display: grid; gap: 14px; box-shadow: 0 18px 40px rgb(163 42 124 / 0.12); }
+.core h2 { margin: 0; font: 600 26px/1.15 var(--serif); }
+.core > p { margin: 0; color: var(--soft); }
+.inside { display: grid; gap: 8px; }
+.step { display: flex; gap: 10px; align-items: baseline; }
+.step b { font-weight: 650; }
+.step span { color: var(--soft); font-size: 15px; }
+.step .n { color: var(--surface); font-size: 13px; }
+.n { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--surface); font-size: 13px; font-weight: 700; flex: none; transform: translateY(3px); }
 .logo { width: 20px; height: 20px; flex: none; }
 .logo.gemini { fill: var(--gemini); }
 .logo.slack { fill: var(--slack); }
-.agents .lead { border-color: var(--line3); border-width: 2px; }
-.service { background: var(--accent-wash); border: 2.5px solid var(--accent); border-radius: 18px; padding: 14px; display: grid; gap: 8px; align-content: start; }
-.service h2 { color: var(--accent-ink); }
-.service .box { border-color: transparent; }
-.n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--surface); font-size: 13px; font-weight: 700; flex: none; }
-.box .n { color: var(--surface); font-size: 13px; }
-.checks { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 5px; font-size: 15px; }
-.checks li { display: flex; gap: 8px; align-items: baseline; }
-.checks li::before { content: "✓"; color: var(--accent); font-weight: 800; }
-.down { justify-self: center; color: var(--accent); line-height: 0; }
-.link { display: grid; place-items: center; align-content: center; gap: 8px; color: var(--soft); }
-.link small { font: 700 11.5px/1.2 var(--sans); letter-spacing: .06em; text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); }
-.chip { font: 700 12px/1 var(--sans); letter-spacing: .04em; padding: 5px 7px; border-radius: 6px; border: 1.5px solid var(--soft); color: var(--ink); background: var(--surface); }
-.people .planner { border: 2px solid var(--ink); }
+.by { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--soft); border-top: 1.5px solid var(--rule); padding-top: 12px; }
+.people { border: 2px solid var(--ink); }
 footer { display: flex; flex-wrap: wrap; gap: 10px 32px; color: var(--soft); font-size: 15px; border-top: 1.5px solid var(--rule); padding-top: 16px; }
-footer span { display: inline-flex; align-items: center; gap: 8px; }
 footer strong { color: var(--ink); font-weight: 650; }
 @media (max-width: 980px) {
-  .flow { grid-template-columns: minmax(0,1fr); }
-  .link { padding-block: 10px; grid-auto-flow: column; }
-  .link > svg { transform: rotate(90deg); }
-  .link small { writing-mode: horizontal-tb; transform: none; }
+  .flow { grid-template-columns: minmax(0,1fr); gap: 12px; }
+  .funnel { height: 60px; width: 60px; justify-self: center; transform: rotate(90deg); }
 }
 </style>
 </head>
@@ -71,54 +63,55 @@ footer strong { color: var(--ink); font-weight: 650; }
     <img src="/icons/icon-192.png" alt="">
     <div>
       <h1>How Transit Agents works</h1>
-      <p>Agents do the first pass. The service checks everything. Planners decide.</p>
+      <p>Throw everything at it. It works out what to do, and people decide.</p>
     </div>
   </header>
 
   <div class="flow">
-    <section class="lane" aria-labelledby="l1">
-      <h2 id="l1">What agencies have</h2>
-      <div class="box"><b>Public data</b><span>Timetables, live buses, plans</span></div>
-      <div class="box"><b>Agency files</b><span>PDFs, model exports, SharePoint</span></div>
-      <div class="box"><b>Legacy software</b><span>Tools with no API</span></div>
+    <section class="col" aria-labelledby="in">
+      <h2 id="in">Throw in anything</h2>
+      <div class="chip">PDFs and plans <small>drag them in</small></div>
+      <div class="chip">Timetables <small>GTFS</small></div>
+      <div class="chip">Live buses <small>live feed</small></div>
+      <div class="chip">Agency exports <small>models, SharePoint</small></div>
+      <div class="chip">A question <small>chat or Slack</small></div>
+      <div class="chip">Old software <small>no API</small></div>
     </section>
 
-    <div class="link" aria-hidden="true"><svg width="30" height="16" viewBox="0 0 30 16" aria-hidden="true"><path d="M2 8h22M18 2l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/></svg><small>read &amp; cite</small></div>
+    <svg class="funnel" viewBox="0 0 120 400" preserveAspectRatio="none" aria-hidden="true">
+  <path d="M0 10 L120 150 L120 250 L0 390 Z" fill="var(--wash)"/>
+  <path d="M6 40 C70 60 90 170 116 186M6 110 C70 120 90 180 116 193M6 200 L116 200M6 290 C70 280 90 220 116 207M6 360 C70 340 90 230 116 214" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>
+</svg>
 
-    <section class="lane agents" aria-labelledby="l2">
-      <h2 id="l2"><svg class="logo gemini" viewBox="0 0 24 24" role="img" aria-label="Gemini"><path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg> Agents, on Gemini</h2>
-      <div class="box lead"><b>Lead agent</b><span>Splits each question</span></div>
-      <div class="box"><b>Subagents &amp; 13 skills</b><span>Agency methods, cited</span></div>
-      <div class="box"><b>Media agent</b><span>Renders and videos</span></div>
-      <div class="box"><b>Computer use</b><span>Works old software by sight</span></div>
-    </section>
-
-    <div class="link" aria-hidden="true"><svg width="30" height="16" viewBox="0 0 30 16" aria-hidden="true"><path d="M5 8h20M19 2l6 6-6 6M11 2L5 8l6 6" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="chip">MCP</span></div>
-
-    <section class="service lane" aria-labelledby="l3">
-      <h2 id="l3">Transit Agents service</h2>
-      <div class="box"><b><span class="n">1</span> Checks at the door</b>
-        <ul class="checks"><li>No source, no number</li><li>Quotes must match the page</li><li>Only planners decide</li></ul>
+    <section class="core" aria-labelledby="core">
+      <h2 id="core">Transit Agents</h2>
+      <p>One system does the study work inside.</p>
+      <div class="inside">
+        <div class="step"><span class="n">1</span><div><b>Reads and remembers</b> <span>every source, in one shared record</span></div></div>
+        <div class="step"><span class="n">2</span><div><b>Splits the work</b> <span>a lead agent and subagents with 13 planning skills</span></div></div>
+        <div class="step"><span class="n">3</span><div><b>Checks itself</b> <span>no source, no number; quotes must match the page</span></div></div>
+        <div class="step"><span class="n">4</span><div><b>Hands up decisions</b> <span>to a planner, or an executive</span></div></div>
       </div>
-      <div class="down" aria-hidden="true"><svg width="16" height="18" viewBox="0 0 16 18"><path d="M8 1v14M2 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-      <div class="box"><b><span class="n">2</span> One shared record</b><span>Can't be quietly edited</span></div>
-      <div class="down" aria-hidden="true"><svg width="16" height="18" viewBox="0 0 16 18"><path d="M8 1v14M2 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-      <div class="box"><b><span class="n">3</span> Live views</b><span>Study, sources, AI spend</span></div>
+      <div class="by"><svg class="logo gemini" viewBox="0 0 24 24" role="img" aria-label="Gemini"><path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg> Run by Gemini · open to any agent through MCP</div>
     </section>
 
-    <div class="link" aria-hidden="true"><svg width="30" height="16" viewBox="0 0 30 16" aria-hidden="true"><path d="M5 8h20M19 2l6 6-6 6M11 2L5 8l6 6" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/></svg><small>updates &amp; decisions</small></div>
+    <svg class="funnel" viewBox="0 0 120 400" preserveAspectRatio="none" aria-hidden="true">
+  <path d="M0 150 L120 10 L120 390 L0 250 Z" fill="var(--wash)"/>
+  <path d="M4 186 C30 170 50 60 114 40M4 193 C30 180 50 120 114 110M4 200 L114 200M4 207 C30 220 50 280 114 290M4 214 C30 230 50 340 114 360" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>
+</svg>
 
-    <section class="lane people" aria-labelledby="l4">
-      <h2 id="l4">People</h2>
-      <div class="box"><b>The study on a map</b><span>Numbers, routes, chat</span></div>
-      <div class="box"><b><svg class="logo slack" viewBox="0 0 24 24" role="img" aria-label="Slack"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg> Slack</b><span>Ask, get PDFs, get pinged</span></div>
-      <div class="box planner"><b>The planner</b><span>Signs every decision</span></div>
-      <div class="box"><b>The public</b><span>Can trace every number</span></div>
+    <section class="col" aria-labelledby="out">
+      <h2 id="out">Get back finished work</h2>
+      <div class="chip">Cited answers <small>every number to its page</small></div>
+      <div class="chip">Route options <small>on the map</small></div>
+      <div class="chip">Renders and video <small>for public meetings</small></div>
+      <div class="chip">TPAP brief <small>a PDF draft</small></div>
+      <div class="chip"><svg class="logo slack" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg> In Slack <small>answers and pings</small></div>
+      <div class="chip people">Decisions <small>made by people, on the record</small></div>
     </section>
   </div>
 
   <footer>
-    <span><svg class="logo gemini" viewBox="0 0 24 24" role="img" aria-label="Gemini"><path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg> <strong>Gemini</strong> runs every agent</span>
     <span><strong>Every AI call counted:</strong> tokens, cost, energy</span>
     <span><strong>Accessibility:</strong> Lighthouse 100</span>
   </footer>
