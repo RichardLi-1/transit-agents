@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { StudyView } from "@transit-agents/contracts";
 import { chime, listenForUse, wake } from "../chime.ts";
 import { spokenTogether, type Notice } from "../notify.ts";
-import { overflow } from "../toasts.ts";
+import { overflow, toastless } from "../toasts.ts";
 
 // At most this many toasts at once, each for this long while nothing holds it.
 // A phone, as styles.css lays it out, has room for one.
@@ -167,12 +167,14 @@ type Props = {
   // page from assistive technology, so the toasts wait for it to close, and so
   // do their words.
   covered: boolean;
+  // The study on screen, whose answers and pictures show without a toast.
+  onScreen: string | null;
   onReview: (notice: Notice) => void;
 };
 
 type Shown = { id: number; leaving: boolean };
 
-export function Notices({ notices, studies, covered, onReview }: Props) {
+export function Notices({ notices, studies, covered, onScreen, onReview }: Props) {
   const [toasts, setToasts] = useState<Shown[]>([]);
   const [open, setOpen] = useState(false);
   // Each notice's seq when the planner last saw it: a notice is unread until then.
@@ -259,7 +261,7 @@ export function Notices({ notices, studies, covered, onReview }: Props) {
       // Newest on top. A finding folded into a toast that has gone shows it again.
       const all = shownNow.current;
       const showing = new Set(all.filter((t) => !t.leaving).map((t) => t.id));
-      const toShow = new Set(changed.filter((n) => !showing.has(n.id)).map((n) => n.id));
+      const toShow = new Set(changed.filter((n) => !showing.has(n.id) && !toastless(n, onScreen)).map((n) => n.id));
       if (toShow.size) {
         const next = [...[...toShow].reverse().map((id) => ({ id, leaving: false })), ...all.filter((t) => !toShow.has(t.id))];
         setToasts(next);

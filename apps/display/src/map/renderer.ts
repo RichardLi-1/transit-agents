@@ -5,7 +5,9 @@ import { MapEngine } from "./engine.ts";
 
 export interface MapRenderer {
   setNetwork(data: NetworkData): void;
-  setStudyLines(lines: Point[][], proposed?: Point[][], color?: string): void;
+  // `color` is the line's colour as hex, such as "0082c9". Always given, so no
+  // caller can leave a study in the wrong colour.
+  setStudyLines(lines: Point[][], proposed: Point[][], color: string): void;
   setStudyFailing(failing: boolean): void;
   setVehicles(data: Float32Array): void;
   setClock(dayType: number | null, hour: number): void;
@@ -36,7 +38,7 @@ class WorkerRenderer implements MapRenderer {
   setNetwork(data: NetworkData) {
     this.call("setNetwork", data);
   }
-  setStudyLines(lines: Point[][], proposed: Point[][] = [], color?: string) {
+  setStudyLines(lines: Point[][], proposed: Point[][], color: string) {
     this.call("setStudyLines", lines, proposed, color);
   }
   setStudyFailing(failing: boolean) {

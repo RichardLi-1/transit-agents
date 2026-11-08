@@ -7,6 +7,7 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fromFile, setting } from "./dev-settings.ts";
 
 const root = join(import.meta.dirname, "..");
 const port = process.env.PORT ?? "4100";
@@ -14,35 +15,25 @@ const url = `http://127.0.0.1:${port}`;
 const python = join(root, "agents/.venv/bin/python");
 const children: ChildProcess[] = [];
 
-// Whether Slack's two tokens are set, in the environment or agents/.env. Only that is
-// read here: the bridge reads the tokens themselves.
-const slackTokens = (() => {
-  let file = "";
+// agents/.env, for the settings below. Only these are read here: the agents and the
+// Slack bridge read their own keys and tokens.
+const envFile = (() => {
   try {
-    file = readFileSync(join(root, "agents/.env"), "utf8");
-  } catch {}
-  return ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"].every(
-    (name) => process.env[name]?.trim() || new RegExp(`^[ \\t]*(?:export[ \\t]+)?${name}[ \\t]*=[ \\t]*['"]?[^\\s'"#]`, "m").test(file),
-  );
+    return readFileSync(join(root, "agents/.env"), "utf8");
+  } catch {
+    return "";
+  }
 })();
 
-// The service's Slack settings, from the environment or else agents/.env, so one
-// file holds every setting for the demo: the webhook it posts notices to, the
-// executive a planner can ping, and the address its links open.
-const serviceSettings = (() => {
-  let file = "";
-  try {
-    file = readFileSync(join(root, "agents/.env"), "utf8");
-  } catch {}
-  const found: Record<string, string> = {};
-  for (const name of ["SLACK_WEBHOOK_URL", "SLACK_EXECUTIVE", "PUBLIC_URL"]) {
-    if (process.env[name]?.trim()) continue;
-    const match = new RegExp(`^[ \\t]*(?:export[ \\t]+)?${name}[ \\t]*=[ \\t]*(.*)$`, "m").exec(file);
-    const value = match?.[1]?.trim().replace(/^(['"])(.*)\1$/, "$2");
-    if (value) found[name] = value;
-  }
-  return found;
-})();
+// Whether Slack's two tokens are set, in the environment or agents/.env. An empty
+// value in the environment (SLACK_BOT_TOKEN=) switches the bridge off.
+const slackTokens = ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"].every((name) => setting(process.env, envFile, name));
+
+// The service's settings, from the environment or else agents/.env, so one file
+// holds every setting for the demo: the webhook it posts notices to, the executive
+// a planner can ping, the address its links open, and the presenter's name, which
+// their decisions carry.
+const serviceSettings = fromFile(process.env, envFile, ["SLACK_WEBHOOK_URL", "SLACK_EXECUTIVE", "PUBLIC_URL", "PLANNER_NAME"]);
 
 // Each process's lines, with its name in front, so one terminal reads clearly.
 const run = (name: string, command: string, args: string[], env: NodeJS.ProcessEnv = {}) => {

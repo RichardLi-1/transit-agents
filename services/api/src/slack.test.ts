@@ -19,6 +19,7 @@ const PORT = 4521;
 const SECRET_PATH = `/services/T000/B000/${randomBytes(12).toString("hex")}`;
 const TOKENS = new Map<string, Actor>([
   ["agent-token", { role: "agent", name: "lead" }],
+  ["replay-token", { role: "agent", name: "replay" }],
   ["planner-token", { role: "planner", name: "ana" }],
   ["integration-token", { role: "integration", name: "hastus" }],
 ]);
@@ -114,10 +115,9 @@ describe("Slack", () => {
   });
 
   it("posts the shared record's notices, each naming the study and linking to it", async () => {
-    // Setting up the study set the brief once, before any figure rested on it, so the
-    // notice names no study and links to the display's root.
-    assert.deepEqual(posted(), ["Brief changed: growth set to 1. No study's figures change. <https://transit.example/|Open>"]);
-    slack.received.length = 0;
+    // Setting up the study set the brief once, before any figure rested on it: a
+    // change that moves no study's figures isn't posted.
+    assert.deepEqual(posted(), []);
 
     await say(lead, { kind: "run.started" });
     await say(lead, { kind: "message", text: "First pass, ready for planners, not a final answer." });
@@ -150,6 +150,31 @@ describe("Slack", () => {
     // Nobody's words: not the agent's answer, the planner's question or reason.
     const all = JSON.stringify(slack.received);
     for (const words of ["1,680", "riders in 2030", "private reasoning", "Enough riders"]) assert.ok(!all.includes(words), words);
+  });
+
+  it("posts nothing from the scripted replay", async () => {
+    slack.received.length = 0;
+    const replay: Who = { token: "replay-token" };
+    await say(replay, { kind: "run.started" });
+    await say(replay, { kind: "message", text: "First pass, ready for planners, not a final answer." });
+    await say(replay, { kind: "run.finished" });
+    await notifier.settled();
+    assert.deepEqual(posted(), []);
+  });
+
+  it("posts a document as ready, not as an answer", async () => {
+    slack.received.length = 0;
+    await say(lead, { kind: "run.started" });
+    const made = await ok(lead, "POST", "/v1/studies/lawrence/documents", {
+      kind: "report",
+      title: "Lawrence brief",
+      sections: [{ heading: "Riders", points: [{ text: "1,680 weekly riders", citation: CITATION }] }],
+    });
+    const { link } = (await made.json()) as { link: string };
+    await say(lead, { kind: "message", text: `Document ready: Lawrence brief. ${link}` });
+    await say(lead, { kind: "run.finished" });
+    await notifier.settled();
+    assert.deepEqual(posted(), ["Document ready: Lawrence brief. Lawrence &amp; Sunnybrook. <https://transit.example/#lawrence|Open>"]);
   });
 
   it("posts nothing from a visitor's sandbox, nor from the agents acting for them", async () => {

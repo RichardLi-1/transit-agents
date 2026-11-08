@@ -4,9 +4,11 @@ import { EXECUTIVE } from "@transit-agents/contracts";
 import { api } from "../api.ts";
 import { spentUsd } from "../money.ts";
 import { withCites } from "../cites.ts";
+import { echoesDocument } from "../echo.ts";
 import { refusal, setNotice, unsaid, useNotice } from "../notice.ts";
 import { plain } from "../plain.ts";
 import { EMPTY_USAGE, type Store } from "../store.ts";
+import { unasked, withAsked, type Asked } from "../suggestions.ts";
 import { foldAt, waiting } from "../typing.ts";
 import { DocumentCard } from "./DocumentCard.tsx";
 import { ExecutiveCard, withoutExecutive, type Ping } from "./ExecutiveCard.tsx";
@@ -14,32 +16,24 @@ import { CheckIcon, SendIcon, StaleIcon } from "./icons.tsx";
 
 const number = new Intl.NumberFormat("en-CA");
 
-// Offered in each study until the viewer says something there, so a first look
-// isn't a wall of text. Four at most.
-const SUGGESTIONS = [
-  "What would it cost to extend the Ontario Line up Don Mills to Sheppard?",
-  "Compare the two alignment options",
-  "Who needs to hear about this?",
-  "Make a TPAP brief as a PDF",
-];
-
-// The studies the viewer has said something in, kept for the tab, so a reload
-// doesn't offer the suggestions again.
-const SENT_KEY = "chat.sent";
-function readSent(): ReadonlySet<string> {
+// The suggestions asked in each study, kept for the tab, so a reload doesn't offer
+// them again.
+const ASKED_KEY = "chat.asked";
+function readAsked(): Asked {
   try {
-    return new Set(JSON.parse(sessionStorage.getItem(SENT_KEY) ?? "[]") as string[]);
+    const kept = JSON.parse(sessionStorage.getItem(ASKED_KEY) ?? "{}") as unknown;
+    return kept && typeof kept === "object" && !Array.isArray(kept) ? (kept as Asked) : {};
   } catch {
-    return new Set();
+    return {};
   }
 }
-function keepSent(sent: Set<string>): Set<string> {
+function keepAsked(asked: Asked): Asked {
   try {
-    sessionStorage.setItem(SENT_KEY, JSON.stringify([...sent]));
+    sessionStorage.setItem(ASKED_KEY, JSON.stringify(asked));
   } catch {
     // Kept for the page only.
   }
-  return sent;
+  return asked;
 }
 
 // With the agent at work and nothing new from it for this long, it's taken to
@@ -125,7 +119,7 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
   const [text, setText] = useState("");
   // Whether the earlier messages show, and the studies the viewer has said something in.
   const [expanded, setExpanded] = useState(false);
-  const [sentIn, setSentIn] = useState<ReadonlySet<string>>(readSent);
+  const [asked, setAsked] = useState<Asked>(readAsked);
   const [sending, setSending] = useState(false);
   const log = useRef<HTMLDivElement>(null);
   // Whether the log is at its foot, so it follows what comes next.
@@ -174,8 +168,13 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
   // question still being answered.
   const since = foldAt(store.since, run, items);
   const earlier = items.filter((item) => item.seq <= since).length;
-  const shown = expanded ? items : items.filter((item) => item.seq > since);
+  const urls = documents.map((d) => d.url);
+  // The lead's "Document ready" line repeats its document's card, so only the card shows.
+  const shown = (expanded ? items : items.filter((item) => item.seq > since)).filter(
+    (item) => !("text" in item && item.from === "agent" && echoesDocument(item.text, urls)),
+  );
   const question = messages.filter((m) => m.from === "planner").at(-1)?.text;
+  const left = studyId ? unasked(asked, studyId) : [];
 
   const toFoot = () => {
     const element = log.current;
@@ -187,8 +186,9 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
   };
   // Whatever changes in the log, such as a message, an answer typing out or
   // showing whole, or the dots, keeps the last message in view, unless the viewer
-  // has scrolled up to read. So does the notice, which takes room from its foot.
-  useLayoutEffect(toFoot, [studyId, notice]);
+  // has scrolled up to read. So do the notice and the suggestions, which take room
+  // from its foot: the suggestions come back as a run finishes.
+  useLayoutEffect(toFoot, [studyId, notice, working, left.length]);
   useEffect(() => {
     const element = log.current;
     if (!element) return;
@@ -217,7 +217,7 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
     }).catch(() => undefined);
     setSending(false);
     if (response?.ok) {
-      setSentIn((now) => keepSent(new Set(now).add(studyId)));
+      setAsked((now) => keepAsked(withAsked(now, studyId, trimmed)));
       return setNotice(null);
     }
     setText((now) => now || trimmed);
@@ -303,11 +303,12 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
           </p>
         )}
       </div>
-      {canPost && studyId && !sentIn.has(studyId) && (
+      {/* Not while the agent works: the answer coming has the room. */}
+      {canPost && studyId && !working && left.length > 0 && (
         <div class="suggestions">
           <p id="suggestions-title">Some things I can do</p>
           <ul aria-labelledby="suggestions-title">
-            {SUGGESTIONS.map((suggestion) => (
+            {left.map((suggestion) => (
               <li key={suggestion}>
                 <button type="button" disabled={sending} onClick={() => void post(suggestion, false)}>
                   {suggestion}

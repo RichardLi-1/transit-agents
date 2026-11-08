@@ -4,7 +4,7 @@ import type { UsageEstimate } from "@transit-agents/contracts";
 import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { isTestBuild } from "../host.ts";
-import { aboutEstimate, calls, co2e, dollars, energy, tokens, unitFor } from "./format.ts";
+import { aboutEstimate, calls, co2e, dollars, energy, tokens, unitFor, water } from "./format.ts";
 import { spentUsd } from "../money.ts";
 import { useUsage } from "./usage.ts";
 import "./spend.css";
@@ -53,16 +53,24 @@ function Figure({ unit, one = unit, value, format }: { unit: string; one?: strin
   );
 }
 
-// The energy the model calls used, with their CO₂e in the unit line: both at
+// The energy the model calls used, with their CO₂e and water in the unit line: all at
 // least, since each call counts as a median prompt. Its lines are held empty
 // until the first numbers come, as the others are. A service too old to
 // estimate them shows a dash.
 function Energy({ estimate, loaded }: { estimate: UsageEstimate | null; loaded: boolean }) {
   const wh = useCountUp(estimate ? estimate.energyWh : null);
   const grams = useCountUp(estimate ? estimate.co2eGrams : null);
+  const ml = useCountUp(estimate ? estimate.waterMl : null);
   return (
     <div>
-      <dt>{loaded && <>energy, at least{grams !== null && ` · ${co2e(grams)}`}</>}</dt>
+      <dt>
+        {loaded && (
+          <>
+            energy, at least{grams !== null && ` · ${co2e(grams)}`}
+            {ml !== null && ` · ${water(ml)}`}
+          </>
+        )}
+      </dt>
       <dd aria-describedby={estimate ? ABOUT_ENERGY : undefined}>{!loaded ? null : wh === null ? "—" : energy(wh)}</dd>
     </div>
   );

@@ -73,6 +73,9 @@ export type AppOptions = {
   // viewer, and writes still need a token. "open" makes it a local planner, for a
   // machine you control. A token that is sent is always checked, in every mode.
   access: AccessMode;
+  // In "open" mode, the name of the planner a request without a token acts as,
+  // such as the presenter's, so their decisions carry it. "local" without one.
+  openName?: string;
   // How people sign in. /v1/config tells the display.
   signIn?: SignIn | null;
   // Hosts webhooks may send to. Except in open mode, an empty list allows none,
@@ -266,6 +269,13 @@ function securityHeaders(signIn: SignIn | null): Record<string, string> {
   };
 }
 
+// A planner's name for open mode, from PLANNER_NAME: letters, numbers, spaces and
+// . ' -, at most 80, so it reads well in the log as role:name. Undefined otherwise.
+export function plannerName(raw: string | undefined): string | undefined {
+  const name = raw?.trim().replace(/\s+/g, " ");
+  return name && /^[\p{L}\p{N} .'-]{1,80}$/u.test(name) ? name : undefined;
+}
+
 export function createApp(options: AppOptions) {
   const { service, webhooks, tokens, verifyToken, access, signIn = null, staticDir, live, timeline, webhookHosts = [] } = options;
   const { budget, visitorAgents = [], clock = () => new Date() } = options;
@@ -276,10 +286,10 @@ export function createApp(options: AppOptions) {
   // Guest passes are for a public demo. In token mode they would let anyone in.
   const guests = access === "demo" ? options.guests : undefined;
   const limits = options.limits ?? new VisitorLimits({ clock });
-  const anonymous = ANONYMOUS[access];
+  const anonymous: Actor | undefined = access === "open" && options.openName ? { role: "planner", name: options.openName } : ANONYMOUS[access];
   // A person who signs in can't act as a static token, or as whoever a request
   // without a token acts as. Otherwise the log couldn't tell them apart.
-  const taken = new Set([...tokens.values(), ...Object.values(ANONYMOUS)].map((actor) => actor && `${actor.role}:${actor.name}`));
+  const taken = new Set([...tokens.values(), ...Object.values(ANONYMOUS), anonymous].map((actor) => actor && `${actor.role}:${actor.name}`));
   const headers = securityHeaders(signIn);
   const app = new Hono<Env>();
 

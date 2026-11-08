@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { BUDGET_SPENT, RATE_LIMITED, SIGN_IN_TO_DECIDE, type AccessMode, type NeedView, type SignIn } from "@transit-agents/contracts";
-import { createApp, type Actor, type Verified } from "./app.ts";
+import { createApp, plannerName, type Actor, type Verified } from "./app.ts";
 import { VisitorBudget } from "./budget.ts";
 import { issueGuest, userAudience } from "./guests.ts";
 import { watchInbox } from "./inbox.ts";
@@ -26,6 +26,7 @@ const GUEST_SECRET = "a-guest-secret-of-at-least-32-characters";
 
 type Setup = {
   access?: AccessMode;
+  openName?: string;
   publicUrl?: string;
   signIn?: SignIn;
   verifyToken?: (token: string) => Promise<Verified | undefined>;
@@ -38,7 +39,7 @@ type Setup = {
   limits?: VisitorLimits;
 };
 
-function setup({ access = "token", signIn, verifyToken, post, webhookHosts = ["hook.test"], mediaDir, staticDir, publicUrl, guests, budget, limits }: Setup = {}) {
+function setup({ access = "token", openName, signIn, verifyToken, post, webhookHosts = ["hook.test"], mediaDir, staticDir, publicUrl, guests, budget, limits }: Setup = {}) {
   const service = new Service(":memory:", { mediaDir, budget });
   const webhooks = new Webhooks(service, "https://example.test", post ?? (async () => new Response("ok")));
   const app = createApp({
@@ -47,6 +48,7 @@ function setup({ access = "token", signIn, verifyToken, post, webhookHosts = ["h
     tokens: TOKENS,
     verifyToken,
     access,
+    openName,
     signIn,
     webhookHosts,
     staticDir,
@@ -120,6 +122,23 @@ describe("roles", () => {
     await call("POST", "/v1/studies", "agent-token", STUDY);
     assert.equal((await call("PUT", "/v1/studies/lawrence/findings/f/tone", "agent-token", { tone: "positive" })).status, 403);
     assert.equal((await call("POST", "/v1/studies/lawrence/figures/f/accept", "agent-token")).status, 403);
+  });
+
+  it("names the open planner after PLANNER_NAME, so the presenter's decisions carry their name", async () => {
+    const { call, service } = setup({ access: "open", openName: "Richard Li" });
+    assert.deepEqual(await (await call("GET", "/v1/me")).json(), { role: "planner", name: "Richard Li" });
+    await call("POST", "/v1/studies", undefined, STUDY);
+    assert.equal((await call("POST", "/v1/studies/lawrence/decisions", undefined, { ...DECISION, decidedBy: "Richard Li" })).status, 201);
+    assert.equal(service.log.since(0).at(-1)?.actor, "planner:Richard Li");
+    // Without a name it stays the local planner, and only open mode takes one.
+    assert.deepEqual(await (await setup({ access: "open" }).call("GET", "/v1/me")).json(), { role: "planner", name: "local" });
+    assert.deepEqual(await (await setup({ access: "demo", openName: "Richard Li" }).call("GET", "/v1/me")).json(), { role: "viewer", name: "demo" });
+  });
+
+  it("takes a planner's name of plain characters only", () => {
+    assert.equal(plannerName("  Richard   Li "), "Richard Li");
+    assert.equal(plannerName("Zoë O'Neil-Smith"), "Zoë O'Neil-Smith");
+    for (const bad of [undefined, "", "   ", "a:b", "<script>", "x".repeat(81)]) assert.equal(plannerName(bad), undefined, String(bad));
   });
 
   it("rejects an unknown token", async () => {

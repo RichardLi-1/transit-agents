@@ -61,6 +61,13 @@ export function co2e(grams: number): string {
   return `${metric(grams, ["g", "kg", "t"])}\u00a0CO₂e`;
 }
 
+// In the unit line under energy too: 0.260 mL water, 2.60 L water.
+export function water(ml: number): string {
+  if (ml === 0) return `0${THIN}mL\u00a0water`;
+  if (ml < 0.01) return `<0.01${THIN}mL\u00a0water`;
+  return `${metric(ml, ["mL", "L", "kL", "ML"])}\u00a0water`;
+}
+
 // What a screen reader adds to the energy figure: that it's an estimate and a
 // floor, and its source, in the source's own words.
 export const aboutEstimate = ({ co2e, source }: EstimateBasis) =>

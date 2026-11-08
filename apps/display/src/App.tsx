@@ -197,7 +197,7 @@ export function App() {
           canAdd={canAdd(session?.me ?? null)}
         />
         <Account session={session} />
-        <Notices notices={store.heard.notices} studies={store.studies} covered={opened !== null || viewing} onReview={review} />
+        <Notices notices={store.heard.notices} studies={store.studies} covered={opened !== null || viewing} onScreen={studyId} onReview={review} />
       </header>
       <section aria-label="Map">
         <MapView study={shown} simulator={simulator} canCreate={canCreate(session?.me ?? null)} picked={selected} onCredit={setCredit} onNeed={openNeed} onViewer={setViewing} />

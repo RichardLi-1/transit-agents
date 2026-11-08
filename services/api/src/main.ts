@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { AccessMode, Role } from "@transit-agents/contracts";
 import { mkdirSync } from "node:fs";
-import { createApp, type Actor } from "./app.ts";
+import { createApp, plannerName, type Actor } from "./app.ts";
 import { auth0Settings } from "./auth0.ts";
 import { VisitorBudget } from "./budget.ts";
 import { loadSchedule, Measurements, openMeasurements } from "./collector.ts";
@@ -51,6 +51,9 @@ function parseAccess(value = "token"): AccessMode {
 }
 
 const access = parseAccess(process.env.AUTH || undefined);
+// Who decides on a machine with open access: the presenter, by name.
+const openName = plannerName(process.env.PLANNER_NAME);
+if (process.env.PLANNER_NAME?.trim() && !openName) console.warn("PLANNER_NAME is unused: use letters, numbers, spaces and . ' -, at most 80.");
 const { verifyToken, signIn } = auth0Settings(process.env);
 
 // Visitors get guest passes only in demo mode, and only with a secret long enough
@@ -94,6 +97,7 @@ const app = createApp({
   tokens: parseTokens(process.env.TRANSIT_TOKENS),
   verifyToken,
   access,
+  openName,
   signIn,
   webhookHosts: (process.env.WEBHOOK_HOSTS ?? "").split(",").filter(Boolean),
   staticDir: join(root, "apps/display/dist"),

@@ -54,6 +54,8 @@ function stateOf(need: NeedView, status: NeedStatus): string {
 // Room between a card and its place, and between a card and the map's edges.
 const GAP = 16;
 const EDGE = 8;
+// A place's dot, from its middle to the edge of its white ring.
+const DOT = 7;
 
 type Size = [number, number];
 type Opened = { need: NeedView; media: MediaView; size: Size | null; poster: string | undefined; from: HTMLElement };
@@ -89,6 +91,7 @@ function panels(list: HTMLElement): DOMRect[] {
 }
 
 const covers = (rect: DOMRect, x: number, y: number) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+const around = (rect: DOMRect, by: number) => new DOMRect(rect.left - by, rect.top - by, rect.width + 2 * by, rect.height + 2 * by);
 const overlap = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
 
 // A card's size at rest: not pointed at, focused or opened, when it shows more.
@@ -137,6 +140,9 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
       const over = panels(element);
       // The cards pinned, and those to list once every pinned one is placed.
       const pinned: DOMRect[] = [];
+      // Where each card went, and each pinned card's place, to find the dots a card covers.
+      const cards: { pin: HTMLElement; rect: DOMRect }[] = [];
+      const dots: { pin: HTMLElement; x: number; y: number }[] = [];
       const unpinned: { pin: HTMLElement; card: HTMLElement; size: [number, number] }[] = [];
       for (const pin of element.querySelectorAll<HTMLElement>(".pin")) {
         const card = pin.querySelector<HTMLElement>(".need");
@@ -178,6 +184,8 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
         pin.style.transform = `translate(${x}px, ${y}px)`;
         card.style.transform = `translate(${placed.left - x}px, ${placed.top - y}px)`;
         pinned.push(placed);
+        cards.push({ pin, rect: placed });
+        dots.push({ pin, x, y });
       }
       // Listed in the first clear spot from the map's top left, reading across then
       // down: clear of the panels and of every card already placed, so a listed card
@@ -193,6 +201,7 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
           const kept = new DOMRect(last[0], last[1], cardWidth, cardHeight);
           if (kept.bottom <= height - EDGE && kept.right <= right && ![...over, ...pinned].some((other) => overlap(shrink(kept), other))) {
             pinned.push(kept);
+            cards.push({ pin, rect: kept });
             pin.style.transform = `translate(${kept.left}px, ${kept.top}px)`;
             card.style.transform = "translate(0, 0)";
             continue;
@@ -211,10 +220,19 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
         }
         spot ??= new DOMRect(EDGE * 3, top, cardWidth, cardHeight);
         pinned.push(spot);
+        cards.push({ pin, rect: spot });
         pin.dataset.side = "listed";
         pin.dataset.spot = `${spot.left},${spot.top}`;
         pin.style.transform = `translate(${spot.left}px, ${spot.top}px)`;
         card.style.transform = "translate(0, 0)";
+      }
+      // A place whose dot falls on another card goes under the cards, so the dot
+      // hides beneath it rather than sitting on its words.
+      for (const pin of element.querySelectorAll<HTMLElement>(".pin")) {
+        const dot = dots.find((d) => d.pin === pin);
+        const covered = dot && cards.some(({ pin: other, rect }) => other !== pin && covers(around(rect, DOT), dot.x, dot.y));
+        if (covered) pin.dataset.under = "";
+        else delete pin.dataset.under;
       }
     };
     const later = () => {

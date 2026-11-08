@@ -68,6 +68,9 @@ Cards on the map are what a neighbourhood needs to hear about a change. A
 planner or a visitor presses Create, an agent makes the image or video, and the
 card shows it; click it to view it.
 
+Decisions made on this display carry the name in `PLANNER_NAME`, set in
+`agents/.env` (`PLANNER_NAME=Ana Ruiz`); without it, they say "local".
+
 For a second screen, http://127.0.0.1:4100/spend shows what the agents have
 spent, for visitors too: dollars, tokens, model calls, and at least the energy
 those calls used, with its CO2e. Use the browser's full screen.

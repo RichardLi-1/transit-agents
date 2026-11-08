@@ -36,7 +36,7 @@ export class FlatMap {
     this.draw();
   }
 
-  setStudyLines(lines: Point[][], proposed: Point[][] = [], color = "b03488") {
+  setStudyLines(lines: Point[][], proposed: Point[][], color: string) {
     this.lines = lines;
     this.proposed = proposed;
     this.color = `#${color}`;

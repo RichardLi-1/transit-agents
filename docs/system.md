@@ -164,10 +164,12 @@ Webhooks can only go to hosts listed in `WEBHOOK_HOSTS`.
 Set `SLACK_WEBHOOK_URL` to a Slack incoming webhook
 (`https://hooks.slack.com/services/...`), and the service posts short notices
 to its channel: "Needs your call" when an agent hands a draft over, "Answer
-ready" when an agent answers a planner, "Decided: <outcome>, by <name>", "Brief
-changed" with the assumption and its new value, and "Illustrative image ready"
-or "video ready" for a need. Each names the study and links to it at
-`PUBLIC_URL/#<study>`; a change to the brief names every study it moves. It
+ready" when an agent answers a planner, "Document ready: <title>" when it makes
+a PDF, "Decided: <outcome>, by <name>", "Brief changed" with the assumption and
+its new value, and "Illustrative image ready" or "video ready" for a need. Each
+names the study and links to it at `PUBLIC_URL/#<study>`; a change to the brief
+names every study it moves, and one that moves none isn't posted, nor is the
+scripted replay, so a fresh `npm run dev` posts nothing. It
 needs no `WEBHOOK_HOSTS` entry, and takes no other address but localhost, for
 tests. Only the shared record is posted, never a visitor's sandbox, and never
 anyone's words: not a message, a reason or a prompt. The address is a secret,

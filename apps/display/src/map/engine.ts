@@ -462,7 +462,7 @@ export class MapEngine {
   private studyColor: Vec3 = hexToRgb("b03488");
 
   // `color` is the line's colour as hex, such as "0082c9".
-  setStudyLines(lines: Point[][], proposed: Point[][] = [], color = "b03488") {
+  setStudyLines(lines: Point[][], proposed: Point[][], color: string) {
     this.studyLines = lines;
     this.proposedLines = proposed;
     this.studyColor = hexToRgb(color);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { EstimateBasis } from "@transit-agents/contracts";
-import { aboutEstimate, calls, co2e, dollars, energy, tokens, unitFor } from "./format.ts";
+import { aboutEstimate, calls, co2e, dollars, energy, tokens, unitFor, water } from "./format.ts";
 
 // A number and its unit are kept together by narrow spaces that don't break.
 const plain = (text: string) => text.replace(/[\u202f\u00a0]/g, " ");
@@ -102,6 +102,15 @@ describe("spend screen", () => {
     assert.equal(plain(co2e(1_234)), "1.23 kg CO₂e");
     assert.equal(plain(co2e(3_000_000)), "3.00 t CO₂e");
     assert.doesNotMatch(co2e(0.3), / /);
+  });
+
+  it("writes water in three figures from millilitres up, never broken from its unit", () => {
+    assert.equal(plain(water(0)), "0 mL water");
+    assert.equal(plain(water(0.005)), "<0.01 mL water");
+    assert.equal(plain(water(0.26)), "0.260 mL water");
+    assert.equal(plain(water(18.2)), "18.2 mL water");
+    assert.equal(plain(water(2_600)), "2.60 L water");
+    assert.doesNotMatch(water(0.26), / /);
   });
 
   it("describes energy as an estimate and a floor, with its source's title, month and words", () => {

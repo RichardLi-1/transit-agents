@@ -1,6 +1,6 @@
 // Posts short notices to one Slack incoming webhook, set by SLACK_WEBHOOK_URL:
-// a hand-over that needs a planner's call, an answer, a decision, a change to the
-// brief, and illustrative media. Each names the study and links to it.
+// a hand-over that needs a planner's call, an answer, a document, a decision, a
+// change to the brief, and illustrative media. Each names the study and links to it.
 //
 // Only the shared record is posted. A visitor's sandbox entry, and anyone's own
 // words, never are: a notice says what happened, not what was said.
@@ -25,6 +25,10 @@ const OUTCOME: Record<Outcome, string> = { adopt: "Adopted", reject: "Not adopte
 
 // A person's own words and work, never an agent's.
 const PERSON = /^(planner|guest):/;
+// The scripted replay that npm run dev plays on a fresh log: a re-enactment, not news.
+const REPLAY = "agent:replay";
+// How the lead's answer starts once it has made a document, which has its own notice.
+const DOCUMENT_READY = /^Document ready\b/;
 
 const TIMEOUT_MS = 3000;
 const RETRY_MS = 1000;
@@ -117,7 +121,7 @@ const text = (data: unknown, key: string) => {
 // updated here.
 export function notice(entry: Entry, said: Map<string, string>, service: Service): Notice | null {
   const studyId = entry.studyId;
-  if (entry.audience) return null;
+  if (entry.audience || entry.actor === REPLAY) return null;
   let raised: Notice | null = null;
 
   if (entry.type === "activity" && studyId) {
@@ -132,7 +136,7 @@ export function notice(entry: Entry, said: Map<string, string>, service: Service
       // A decision above a planner's authority. Only a planner's ping @-mentions anyone.
       if (last && EXECUTIVE.test(last)) raised = { headline: "Executive decision required", studies: [studyId] };
       else if (last && HANDOVER.test(last)) raised = { headline: "Needs your call", studies: [studyId] };
-      else if (last && !NO_ANSWER.test(last)) raised = { headline: "Answer ready", studies: [studyId] };
+      else if (last && !NO_ANSWER.test(last) && !DOCUMENT_READY.test(last)) raised = { headline: "Answer ready", studies: [studyId] };
     }
     // A run's answer is its last word: anything it does after a message, but read,
     // means the message wasn't the end.
@@ -151,8 +155,16 @@ export function notice(entry: Entry, said: Map<string, string>, service: Service
     case "assumption.set": {
       const { key, value, unit, label, effects } = entry.data as { key: string; value: number; unit?: string; label?: string; effects?: { studyId: string }[] };
       const name = label ?? service.state.assumptions.get(key)?.label ?? key;
-      // The brief is shared by every study, so a change names the ones it moves.
-      return { headline: "Brief changed", detail: `${name} set to ${value}${unit ? ` ${unit}` : ""}`, studies: (effects ?? []).map((e) => e.studyId) };
+      // The brief is shared by every study, so a change names the ones it moves. One
+      // that moves none, such as setting up the brief on a fresh log, isn't news.
+      const studies = (effects ?? []).map((e) => e.studyId);
+      if (!studies.length) return null;
+      return { headline: "Brief changed", detail: `${name} set to ${value}${unit ? ` ${unit}` : ""}`, studies };
+    }
+    case "document.created": {
+      const title = text(entry.data, "title");
+      if (!studyId || !title) return null;
+      return { headline: "Document ready", detail: title, studies: [studyId] };
     }
     case "media.added": {
       const need = text(entry.data, "need");

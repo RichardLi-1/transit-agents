@@ -203,11 +203,17 @@ button {
   position: absolute;
   top: 0;
   left: 0;
+  z-index: 1;
   visibility: hidden;
 }
 
+/* Its dot falls on another card: under the cards, so the dot never sits on words. */
+.pin[data-under] {
+  z-index: 0;
+}
+
 .pin:focus-within {
-  z-index: 1;
+  z-index: 2;
 }
 
 .pin .dot {
@@ -502,12 +508,25 @@ button {
   scrollbar-width: none;
 }
 
+/* Each a little narrower, down to a floor, before the row scrolls: a dropped file
+   then never pushes Add context half out of sight. */
+.shelf .item {
+  flex: 0 1 auto;
+  min-width: 80px;
+}
+
+.shelf .item:has(> .add) {
+  flex: none;
+  min-width: 0;
+}
+
 .shelf .item > a,
 .shelf .item > .file {
   display: grid;
   justify-items: center;
   gap: 6px;
   width: 108px;
+  max-width: 100%;
   padding: 8px 4px;
   border-radius: 12px;
   color: var(--ink);
@@ -3070,5 +3089,5 @@ input[type="range"] {
 
 /* A card pointed at lies over its neighbours while it shows more. */
 .pin:hover {
-  z-index: 1;
+  z-index: 2;
 }

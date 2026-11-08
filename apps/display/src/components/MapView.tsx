@@ -174,7 +174,7 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
   useEffect(() => {
     const line = lineKey ? lines.current[lineKey] : undefined;
     if (!ready || !line || !optionCount) return;
-    renderer.current?.setStudyLines(line.lines, optionLines(study));
+    renderer.current?.setStudyLines(line.lines, optionLines(study), studyColor(lineKey));
   }, [optionCount, ready, flat]);
 
   // Every frame of the clock: brighten the network with the timetable and move

@@ -1,3 +1,11 @@
+import type { Notice } from "./notify.ts";
+
+// A notice about what already shows where the planner is looking: an answer in the
+// open study's chat, or a picture on its map. It goes to the bell without a toast,
+// so no toast covers the very answer or card it announces.
+export const toastless = (notice: Pick<Notice, "kind" | "studyId">, shown: string | null) =>
+  notice.studyId === shown && (notice.kind === "answer" || notice.kind === "media");
+
 // Which toasts go when more show than there's room for: the oldest, but never
 // the one with keyboard focus, so a planner on it keeps their place. The newest
 // still shows beside it. Ids come newest first.
