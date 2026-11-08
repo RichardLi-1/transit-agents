@@ -54,6 +54,22 @@ def asked(entry: dict[str, Any]) -> str | None:
     return entry["studyId"] if wants_computer(str(data.get("text", ""))) else None
 
 
+def front() -> None:
+    """Bring the simulator's window in front of the browser showing the demo: macOS
+    opens a new app's window behind the one in use. Tries for a few seconds while
+    the window appears; does nothing elsewhere."""
+    if sys.platform != "darwin":
+        return
+    for _ in range(8):
+        time.sleep(1)
+        done = subprocess.run(
+            ["osascript", "-e", 'tell application "System Events" to set frontmost of (first process whose name contains "Chrome for Testing") to true'],
+            capture_output=True,
+        )
+        if done.returncode == 0:
+            return
+
+
 def summary(lines: list[str], ok: bool) -> str:
     """What the run did, in the chat's words, from computer_use.py's last lines."""
     saved = next((line for line in lines if line.startswith("The app saved:")), "")
@@ -99,12 +115,14 @@ def main() -> int:
             try:
                 mark(study, "run.started")
                 say(study, "Opening the intersection simulator on this screen. Gemini will work it by sight, and ask before it saves.")
-                run = subprocess.run(
+                run = subprocess.Popen(
                     [sys.executable, str(HERE / "computer_use.py"), "--app", "microsim", "--headed", "--confirm",
                      "--size", "1500x840", "--steps", "22", "--hold", str(HOLD_SECONDS), "--study", study, "--service", url],
-                    cwd=HERE.parent, capture_output=True, text=True, timeout=600,
+                    cwd=HERE.parent, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                 )
-                lines = (run.stdout + run.stderr).splitlines()
+                front()
+                out, _ = run.communicate(timeout=600)
+                lines = out.splitlines()
                 print("\n".join(lines[-6:]), flush=True)
                 # What was saved is the result, even when the run ran out of steps just after.
                 say(study, summary(lines, True))

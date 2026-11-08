@@ -1076,6 +1076,7 @@ class Agent:
         # journal.
         frame: tuple[bytes, str] | None = None
         grounds: list[dict] = []
+        video_made: tuple[bytes, dict] | None = None  # the video and its record, for a still
         for kind in sorted(missing(need), key=("image", "video").index):
             key = self.key(study_id, need_id, kind)
             # A video's still goes with it.
@@ -1097,6 +1098,8 @@ class Agent:
                     raise MediaError("the file made for it is gone")
                 if kind == "image":
                     frame, grounds = (data, record["mime"]), [given for given in record["inputs"] if "photo" in given]
+                else:
+                    video_made = (data, record)
                 media = await self.attach(study_id, need, kind, record["model"], record["prompt"], record["inputs"], data, record["mime"], record["alt"])
                 for file in done:
                     self.journal.drop(file)
@@ -1113,6 +1116,22 @@ class Agent:
                     continue
                 failed.append((kind, describe(error)))
                 self.note(study_id, need_id, f"{kind} failed", f": {detail(error)}")
+        if video_made and any(kind == "image" for kind, _ in failed):
+            # The image failed but the video passed the same check: its still is the image,
+            # so the need is whole rather than half-made on screen. Its prompt says so.
+            try:
+                data, record = video_made
+                stills = video_stills(data)
+                still = stills[min(1, len(stills) - 1)]
+                prompt = f"A still from this need's video, used as its image because each image made showed words or numbers. The video's prompt: {record['prompt']}"
+                media = await self.attach(study_id, need, "image", record["model"], prompt[:8000], record["inputs"], still, "image/jpeg", record["alt"])
+                failed = [(kind, reason) for kind, reason in failed if kind != "image"]
+                made.insert(0, "image")
+                self.note(study_id, need_id, f"image, a still from the video, {media['size']:,} bytes", f", at {media['url']}")
+            except Exception as error:
+                if lost(error):
+                    raise
+                self.note(study_id, need_id, "no still from the video either", f": {detail(error)}")
         await self.flush()  # what failed calls cost
         outcome = Outcome(made, failed)
         if failed:
