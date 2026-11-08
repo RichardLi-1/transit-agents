@@ -183,7 +183,8 @@ class Screen:
             "width": size[0],
             "height": size[1],
             "headed": headed,
-            "pace": record is not None if pace is None else pace,
+            # Slowed so people can follow it, in a recording or a window they watch.
+            "pace": (record is not None or headed) if pace is None else pace,
             "record": str(Path(record).resolve()) if record else None,
             "captions": captions,
         }
@@ -663,6 +664,7 @@ async def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--record", type=Path, help="record the screen to this .mp4, at 1920x1080")
     parser.add_argument("--no-captions", action="store_true", help="record without the captions under the screen")
     parser.add_argument("--headed", action="store_true", help="show the browser window")
+    parser.add_argument("--size", help="the screen as WIDTHxHEIGHT, such as 1440x810 to fit a laptop (default 1920x1080)")
     parser.add_argument("--hold", type=float, default=0, help="with --headed, keep the window open this many seconds after the run")
     parser.add_argument(
         "--confirm",
@@ -687,6 +689,13 @@ async def main(argv: list[str] | None = None) -> int:
         parser.error("--record takes a path ending in .mp4")
     if args.steps < 1 or not args.max_usd > 0:
         parser.error("--steps must be at least 1, and --max-usd above 0")
+    size = SCREEN
+    if args.size:
+        try:
+            width, height = (int(n) for n in args.size.lower().split("x"))
+        except ValueError:
+            parser.error("--size takes WIDTHxHEIGHT, such as 1440x810")
+        size = (width, height)
     priced(model)  # before the browser or the service starts
 
     async with contextlib.AsyncExitStack() as stack:
@@ -699,7 +708,7 @@ async def main(argv: list[str] | None = None) -> int:
 
         aio = await stack.enter_async_context(core.gemini().aio)
         screen = await stack.enter_async_context(
-            Screen(app=app, record=args.record, captions=not args.no_captions, headed=args.headed)
+            Screen(app=app, record=args.record, captions=not args.no_captions, headed=args.headed, size=size)
         )
         print(f"{display_name(model)} works the mock {app.noun}: {task}")
         result = await run(

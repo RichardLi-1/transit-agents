@@ -32,7 +32,8 @@ const HOME = `${ORIGIN}/`;
 const width = options.width ?? 1920;
 const height = options.height ?? 1080;
 const pace = Boolean(options.pace);
-const reserved = options.record && options.captions ? CAPTION_HEIGHT : 0;
+// A recording, or a window people watch, has captions under the screen.
+const reserved = (options.record || options.headed) && options.captions ? CAPTION_HEIGHT : 0;
 const screen = { width, height: height - reserved };
 const html = readFileSync(options.page, "utf8");
 
@@ -155,7 +156,12 @@ async function startRecording(page, path) {
   };
 }
 
-const browser = await chromium.launch({ executablePath: chromePath(), headless: !options.headed });
+const browser = await chromium.launch({
+  executablePath: chromePath(),
+  headless: !options.headed,
+  // A window people watch opens at the top left, where it fits a laptop screen.
+  ...(options.headed ? { args: ["--window-position=0,0"] } : {}),
+});
 const context = await browser.newContext({
   viewport: { width, height },
   deviceScaleFactor: 1,

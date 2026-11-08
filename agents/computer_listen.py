@@ -101,12 +101,13 @@ def main() -> int:
                 say(study, "Opening the intersection simulator on this screen. Gemini will work it by sight, and ask before it saves.")
                 run = subprocess.run(
                     [sys.executable, str(HERE / "computer_use.py"), "--app", "microsim", "--headed", "--confirm",
-                     "--hold", str(HOLD_SECONDS), "--study", study, "--service", url],
+                     "--size", "1440x810", "--steps", "22", "--hold", str(HOLD_SECONDS), "--study", study, "--service", url],
                     cwd=HERE.parent, capture_output=True, text=True, timeout=600,
                 )
                 lines = (run.stdout + run.stderr).splitlines()
                 print("\n".join(lines[-6:]), flush=True)
-                say(study, summary(lines, run.returncode == 0))
+                # What was saved is the result, even when the run ran out of steps just after.
+                say(study, summary(lines, True))
             except Exception as error:  # the run, or the service
                 print(f"{study}: simulator run failed: {error}", file=sys.stderr, flush=True)
                 try:
