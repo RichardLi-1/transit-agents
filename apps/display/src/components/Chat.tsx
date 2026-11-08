@@ -81,7 +81,7 @@ const executive = (message: { from: string; text: string }) => message.from === 
 // the viewer: the display opens it from that line, for the viewer to try.
 const SIMULATOR_LINE = /^Opening the intersection simulator:/;
 const simulator = (message: { from: string; text: string }) => message.from === "agent" && SIMULATOR_LINE.test(message.text.trim());
-const openSimulator = () => window.open("/simulator/", "simulator", "popup,width=1440,height=860");
+const openSimulator = () => window.open("/simulator/#replay", "simulator", "popup,width=1440,height=860");
 
 // How fast a new answer types out, in characters a second.
 const STREAM_CPS = 320;

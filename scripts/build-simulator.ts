@@ -30,6 +30,8 @@ writeFileSync(
 }
 `,
 );
-html = html.replace("</body>", '<script src="thinking.js"></script>\n</body>');
+// Opened as #replay, it replays a real Gemini run, with Gemini's words beside it.
+writeFileSync(join(out, "replay.js"), readFileSync(join(root, "apps/microsim-mock/replay.js"), "utf8"));
+html = html.replace("</body>", '<script src="thinking.js"></script>\n<script src="replay.js"></script>\n</body>');
 writeFileSync(join(out, "index.html"), html);
 console.log(`Simulator at /simulator, with ${n} scripts.`);
