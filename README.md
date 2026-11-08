@@ -3,6 +3,17 @@
 A service where AI agents do the first pass of transit planning studies. Every
 number traces to the page it came from, and planners make every decision.
 
+![A planner asks about the Ontario Line extension, opens a cited page, and is asked to decide](docs/media/demo.gif)
+
+[Watch it as a video](docs/media/demo.mp4). Recorded from the running display.
+
+| | |
+|---|---|
+| ![The study on the map, with its figures, open questions and the lead's first pass](docs/media/study-map.png) | ![A cited figure, highlighted on the page of the source it came from](docs/media/cited-page.png) |
+| The study on the map: figures, what isn't known yet, and the lead's first pass. | Every figure opens to its source page, highlighted. |
+
+![The lead asks for a planner's decision; the planner reviews it before anything is adopted](docs/media/needs-a-planner.png)
+
 ## What is real
 
 - **Studies:** the lead study, Ontario Line: Don Mills extension, is
