@@ -60,3 +60,32 @@ describe("Activity", () => {
     assert.throws(() => Activity.parse({ kind: "subagent.started", id: "a1", question: "Riders?", skill: "../x" }));
   });
 });
+
+describe("schemas agents are given", () => {
+  // google-genai turns MCP tool schemas into Gemini's and fails on a boolean
+  // subschema such as a tuple's `items: false`, so no tool may carry one.
+  it("carry no boolean subschema that google-genai can't read", async () => {
+    const { z } = await import("zod");
+    const { NewFinding, AlignmentOption } = await import("./index.ts");
+    const found: string[] = [];
+    const walk = (node: unknown, path: string) => {
+      if (Array.isArray(node)) return node.forEach((item, i) => walk(item, `${path}[${i}]`));
+      if (!node || typeof node !== "object") return;
+      for (const [key, value] of Object.entries(node)) {
+        if (typeof value === "boolean" && ["items", "additionalItems", "not", "contains"].includes(key)) found.push(`${path}.${key}`);
+        walk(value, `${path}.${key}`);
+      }
+    };
+    walk(z.toJSONSchema(NewFinding, { io: "input", unrepresentable: "any" }), "NewFinding");
+    walk(z.toJSONSchema(AlignmentOption, { io: "input", unrepresentable: "any" }), "AlignmentOption");
+    assert.deepEqual(found, []);
+  });
+
+  it("still takes an option's line as [longitude, latitude] pairs", async () => {
+    const { AlignmentOption } = await import("./index.ts");
+    const point = AlignmentOption.shape.line.element;
+    assert.equal(point.safeParse([-79.34, 43.72]).success, true);
+    assert.equal(point.safeParse([43.72, -79.34, 0]).success, false);
+    assert.equal(point.safeParse([200, 43.7]).success, false);
+  });
+});

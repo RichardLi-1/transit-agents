@@ -160,6 +160,15 @@ export type NewCheck = z.input<typeof NewCheck>;
 const Lon = z.number().min(-180).max(180);
 const Lat = z.number().min(-90).max(90);
 export const MapPlace = z.object({ lon: Lon, lat: Lat });
+// A point as [longitude, latitude]. A plain two-number array, not a tuple: a tuple's
+// JSON schema says `items: false`, which google-genai's MCP tools can't read, so
+// every agent given record_finding would fail. The type stays a pair.
+const Point = z
+  .array(z.number())
+  .length(2)
+  .refine(([lon, lat]) => Lon.safeParse(lon).success && Lat.safeParse(lat).success, "A point is [longitude, latitude].") as unknown as z.ZodType<
+  [number, number]
+>;
 
 // A draft route for a line, which an agent proposes and planners choose between:
 // the street it follows, its line on the map as longitude and latitude, its length
@@ -169,7 +178,7 @@ export const MapPlace = z.object({ lon: Lon, lat: Lat });
 export const AlignmentOption = z.object({
   letter: z.string().regex(/^[A-Z]$/),
   follows: z.string().min(1).max(60),
-  line: z.array(z.tuple([Lon, Lat])).min(2).max(200),
+  line: z.array(Point).min(2).max(200),
   lengthKm: z.number().positive().max(100),
   stations: z.number().int().nonnegative().max(50),
   costM: z.number().nonnegative(),
