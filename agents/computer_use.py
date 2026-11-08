@@ -663,6 +663,7 @@ async def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--record", type=Path, help="record the screen to this .mp4, at 1920x1080")
     parser.add_argument("--no-captions", action="store_true", help="record without the captions under the screen")
     parser.add_argument("--headed", action="store_true", help="show the browser window")
+    parser.add_argument("--hold", type=float, default=0, help="with --headed, keep the window open this many seconds after the run")
     parser.add_argument(
         "--confirm",
         action="store_true",
@@ -711,6 +712,8 @@ async def main(argv: list[str] | None = None) -> int:
             report=report,
             confirm=confirmed if args.confirm else ask_at_terminal,
         )
+        if args.headed and args.hold > 0:
+            await asyncio.sleep(args.hold)  # so people watching see where it ended
         video = await screen.close()
 
     print(f"\nGemini: {result.text}")

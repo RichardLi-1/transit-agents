@@ -196,7 +196,7 @@ can't ping: the route isn't an MCP tool, and `POST .../activity` takes no
 `SLACK_EXECUTIVE` names who it pings: `SLACK_EXECUTIVE="Jordan Lee <U0123ABCD>"`,
 a name and a Slack member ID (their profile › ⋮ › Copy member ID), which the
 message turns into `<@U0123ABCD>`, a real mention. A name alone is posted in
-bold, with no mention; unset, the name is "the executive sponsor". `GET
+bold, with no mention; unset, the name is "@executive". `GET
 /v1/config` gives only the name, as `executive`, and null without a webhook. It
 is the service's setting: export it in the shell that runs `npm run dev` or
 `npm run serve`, or on Fly run `fly secrets set SLACK_EXECUTIVE="..."`.

@@ -54,7 +54,7 @@ export function slackUrl(raw: string | undefined): URL | null {
 // a name, then their Slack member ID in angle brackets, for an @-mention, as in
 // "Jordan Lee <U0123ABCD>". A name alone is posted in bold, without a mention.
 export type Executive = { name: string; member?: string };
-export const DEFAULT_EXECUTIVE = "the executive sponsor";
+export const DEFAULT_EXECUTIVE = "@executive";
 const MEMBER = /^[UW][A-Z0-9]{2,30}$/;
 
 export function parseExecutive(raw: string | undefined): Executive {

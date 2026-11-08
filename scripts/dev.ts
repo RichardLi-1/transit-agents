@@ -89,8 +89,10 @@ if (!up) {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   const env = { TRANSIT_URL: url, ...(process.env.DATA_DIR ? { DATA_DIR: process.env.DATA_DIR } : {}) };
-  run("agent", python, [join(root, "agents/main.py"), "listen"], env);
+  run("agent", python, [join(root, "agents/main.py"), "listen"], { ...env, COMPUTER_USE_CHAT: "1" });
   run("media", python, [join(root, "agents/media.py"), "listen"], env);
+  // Computer use from the chat: a planner's ask for the simulator opens it here.
+  run("computer", python, [join(root, "agents/computer_listen.py")], env);
   if (slackTokens) run("slack", python, [join(root, "agents/slack_bridge.py")], env);
   else console.log("To ask the lead from Slack, set SLACK_BOT_TOKEN and SLACK_APP_TOKEN in agents/.env (docs/system.md, Command it from Slack).");
   console.log(`\nOpen ${url}. The chat agent and the media agent${slackTokens ? ", and the Slack bridge," : ""} are listening. Ctrl+C stops everything.\n`);

@@ -32,6 +32,8 @@ const clients = [
   { key: "media", role: "agent", name: "media" },
   { key: "planner", role: "planner", name: "demo" },
   { key: "slack", role: "planner", name: "slack" },
+  // The chat's computer use, which posts what the simulator run did.
+  { key: "computer", role: "agent", name: "computer" },
 ];
 const tokens: Record<string, string> = Object.fromEntries(clients.map(({ key }) => [key, randomBytes(18).toString("base64url")]));
 mkdirSync(data, { recursive: true });

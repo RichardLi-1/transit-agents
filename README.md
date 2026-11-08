@@ -82,7 +82,7 @@ When the lead's answer ends "Executive decision required: ...", the chat offers
 a planner a button that pings the executive in that channel. Set
 `SLACK_EXECUTIVE="Jordan Lee <U0123ABCD>"`: their name, and their Slack member
 ID for an @-mention (in Slack, their profile › ⋮ › Copy member ID). A name
-alone is posted in bold, with no mention; unset, it's "the executive sponsor".
+alone is posted in bold, with no mention; unset, it's "@executive".
 Both are the service's settings, so set them in the shell that runs `npm run
 dev` (agents/.env doesn't reach the service), or with `fly secrets set` on Fly.
 See [Slack](docs/system.md#slack).

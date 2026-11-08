@@ -288,8 +288,8 @@ describe("a ping's message", () => {
   });
 
   it("names the executive in bold, with no mention, without a member ID", () => {
-    const body = escalation({ name: "the executive sponsor" }, { ...ping, summary: undefined, decision: "Fund <it> & go" });
-    assert.equal(body.blocks[0]?.text.text.split("\n")[0], "*Executive decision required*, for *the executive sponsor*");
+    const body = escalation({ name: "@executive" }, { ...ping, summary: undefined, decision: "Fund <it> & go" });
+    assert.equal(body.blocks[0]?.text.text.split("\n")[0], "*Executive decision required*, for *@executive*");
     assert.equal(body.blocks[0]?.text.text.split("\n")[1], "Fund &lt;it&gt; &amp; go");
     assert.ok(!JSON.stringify(body).includes("<@"));
   });

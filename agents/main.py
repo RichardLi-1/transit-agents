@@ -17,6 +17,7 @@ visitor's run) and MODEL_PRICES (see agents/prices.py).
 import argparse
 import asyncio
 import contextlib
+import os
 import signal
 import sys
 import time
@@ -28,6 +29,7 @@ import httpx2
 from google.genai.client import AsyncClient
 from mcp import ClientSession, MCPError
 
+from computer_listen import wants_computer
 from core import (
     AUDIENCE,
     BUDGET_SPENT,
@@ -119,6 +121,9 @@ def asked(entry: dict[str, Any]) -> tuple[str, str | None] | None:
     if not isinstance(text, str):
         return None
     if actor.startswith("planner:") and not audience:
+        # With the chat's computer use running (npm run dev), it answers asks for the simulator.
+        if os.environ.get("COMPUTER_USE_CHAT") and wants_computer(text):
+            return None
         return text, None
     if actor.startswith("guest:") and isinstance(audience, str) and AUDIENCE.match(audience):
         return text, audience
