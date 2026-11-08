@@ -20,11 +20,16 @@ number traces to the page it came from, and planners make every decision.
   desktop; 100 for accessibility, best practices and SEO. No axe violations.
 - **Agents and skills:** built, in Python on Gemini, working through the
   service's tools over MCP (`agents/`). A lead agent splits each question among
-  specialists, who read the sources with skills such as the TTC's tests and
-  record figures with their pages; the lead checks the citations and hands any
+  specialists, who read the sources with skills such as the TTC's tests and a
+  glossary that quotes each term of planning jargon from its source, and record
+  figures with their pages; the lead checks the citations and hands any
   judgement to a planner. Before an answer reaches the chat, any page it cites
   that the run didn't read, and no recorded figure or rule cites, is marked.
   The replay's work is scripted, and the display labels it so.
+- **Visitors:** anyone can do everything but decide, in a sandbox only they
+  see, sharing $10 of Gemini a day. See [Visitors](docs/system.md#visitors).
+- **Computer use:** built, on a mock. Gemini works a mock legacy scheduling app
+  through its screen; the app and its data are made up (see Computer use).
 
 ## Run it
 
@@ -51,21 +56,23 @@ model calls or US$2 each, and a listening agent at US$10 a day and 20 runs an
 hour (see `agents/main.py` for the settings).
 
 Open http://127.0.0.1:4100. The demo switches on open access, so this machine
-acts as a planner. Never use open access on a shared network.
+acts as a planner. Never use open access on a shared network. Chrome can install
+the display as an app, Transit Agents, from the address bar.
 
 On studies with a trial, Space plays time; the speed button steps from real time
 to a week a second. Other studies show the present. Vehicles are live at the
 present moment, and scheduled otherwise until the published timetable ends.
 
 Cards on the map are what a neighbourhood needs to hear about a change. A
-planner presses Create, an agent makes the image or video, and the card shows
-it; click it to view it.
+planner or a visitor presses Create, an agent makes the image or video, and the
+card shows it; click it to view it.
 
 For a second screen, http://127.0.0.1:4100/spend shows what the agents have
-spent: dollars, tokens and model calls. Use the browser's full screen.
+spent, for visitors too: dollars, tokens, model calls, and at least the energy
+those calls used, with its CO2e. Use the browser's full screen.
 
-Checks: `npm test` (353 tests), `npm run typecheck`, and `npm run agent:test`
-(198 Python tests, which never call Gemini; set `AGENT_TEST_PORT` and
+Checks: `npm test` (529 tests), `npm run typecheck`, and `npm run agent:test`
+(336 Python tests, which never call Gemini; set `AGENT_TEST_PORT` and
 `EVAL_PORTS` if ports 4171-4174 or 4175-4179 are taken).
 
 ## Plug in your agents
@@ -102,9 +109,9 @@ curl -N 'localhost:4100/v1/events?access_token=SECRET1'
 ```
 
 Python agents can connect over MCP instead, at `/v1/mcp`. Every route except
-the event stream, webhook subscriptions, and file uploads and downloads is a
-tool, and an agent sees only the tools its role may call. A video is larger
-than an MCP message may be, so an agent posts media to
+the event stream, webhook subscriptions, guest passes, and file uploads and
+downloads is a tool, and an agent sees only the tools its role may call. A
+video is larger than an MCP message may be, so an agent posts media to
 `POST /v1/studies/{id}/needs/{need}/media` as a form, with its token. With `pip install mcp google-genai`
 (mcp 2.3, google-genai 3.0), and `TRANSIT_TOKEN_AGENT` and `GEMINI_API_KEY` set:
 
@@ -173,28 +180,80 @@ async def main():
 asyncio.run(main())
 ```
 
-`agents/media.py` is one such agent. Once a planner asks for an engagement need
-to be made, it has Gemini 3.6 Flash write prompts from the study's cited facts,
-makes the image with Nano Banana 2 and the video with Omni Flash, has Gemini read
-each one back, makes it once more if it shows words or numbers beyond its
-headline, and attaches each file to the need. It claims each request before it spends anything, so two
+`agents/media.py` is one such agent. Once a planner or a visitor asks for an
+engagement need to be made, it renders the transit infrastructure the need names,
+at its real site: a station entrance, the elevated guideway, a platform, the line
+on its street, or a bus stop with its bus. Gemini 3.6 Flash writes the prompts from
+the need's cited pages, Nano Banana 2 makes the still in the clean style of agency
+and consultancy renderings, with openly licensed photos of the site for its
+terrain, roads and buildings (`agents/sites`), and Omni Flash animates the still
+into a short camera move through or along it. Each file records the photos its
+still was made with, and the display credits them. Gemini reads each file back, a
+video as stills at full size too (taken with ffmpeg, which the agent needs), and it
+is made once more if it shows any words, numbers, arrows or pictograms, made-up
+lettering included. It claims each request before it spends anything, so two
 agents never both pay for one. When it can't make something, it says why, and
-nothing more is made until a planner asks again. It reports every call's tokens and cost, priced from
-one table at the top of the file. At those prices an image costs about $0.07 and
-a 4-second video about $0.28, so a need with both is about $0.35 with its prompts.
-It spends at most $5 a day (`MEDIA_DAILY_LIMIT_USD`).
+nothing more is made until someone asks again. It reports every call's tokens and
+cost, priced from one table at the top of the file. At those prices an image costs
+about $0.07 and a 4-second video about $0.28, so a need with both is about $0.35
+with its prompts. A need for video alone costs the same: its still is made first.
+It spends at most $5 a day (`MEDIA_DAILY_LIMIT_USD`), visitors' requests included.
+What the service hasn't counted or been given yet waits in `media-journal` in
+`DATA_DIR`, so a restart neither loses the spend nor pays for a file twice.
 
 ```sh
 agents/.venv/bin/python agents/media.py listen  # until stopped
 npm run agent:test                              # with a stand-in for Gemini
 ```
 
+## Computer use
+
+Many agencies still schedule service in old desktop tools with no API.
+`agents/computer_use.py` works one by sight with Gemini's computer use tool: it
+sends Gemini 3.8 Flash a screenshot, does the click or keystroke Gemini picks,
+and sends the next screenshot, until the task is done. The app is
+`apps/legacy-mock`, a mock of an old trip scheduler with sample data, shown in
+Chrome for Testing through Playwright. The agent can't leave it: the browser
+refuses every other address, and Gemini isn't offered navigation.
+
+It needs the agents set up as in Run it, with `GEMINI_API_KEY` in
+`agents/.env`, and Node 24 or later. Recording needs ffmpeg. The service needn't
+run unless the agent reports to a study.
+
+```sh
+npx playwright-core install chromium   # once: Chrome for Testing, or set CHROME_PATH
+agents/.venv/bin/python agents/computer_use.py --confirm                   # the default task
+agents/.venv/bin/python agents/computer_use.py --confirm --record run.mp4  # and a video of it
+agents/.venv/bin/python agents/computer_use.py "<task>" --headed           # another task, in a window
+```
+
+By default it changes route 605 Elm's weekday peak headway from 8 to 6 minutes
+and saves. The mock's routes and headways are made up, so they match no
+agency's. A planner decides the change; the agent only carries it out.
+
+The agent asks, and the planner confirms. In our runs, Gemini's safety check
+asked a person to confirm before it pressed OK and Save. Without `--confirm`,
+the agent asks at the terminal and stops unless told yes. `--confirm` says yes
+in advance, for the planner who set the task. A recording captions that moment
+"The agent asks. The planner confirms.", then says who said yes, and when.
+
+A run stops at 15 model calls, or before one likely to take it past US$1.50,
+judged by what the last call cost; `--steps` and `--max-usd` set other caps. A
+call Gemini didn't answer in time counts as one, at an estimated cost, since
+Gemini may have run it. It refuses a model with no price in `agents/prices.py`
+or `MODEL_PRICES`, whose calls would count as free. Ours took 8 or 9 calls and
+about US$0.02 a run. `--study <id>` reports each call's tokens and cost to that
+study, and `--record` writes a 1920x1080 video with a caption for each step,
+using ffmpeg. Its tests use a stand-in for Gemini, and skip without Chrome for
+Testing.
+
 ## Repo
 
 - `services/api`: the service and the collector (`collect.ts`)
 - `apps/display`: the display, Preact with a WebGL map in a worker
+- `apps/legacy-mock`: a mock legacy trip scheduler, for computer use
 - `packages/contracts`: types and schemas shared by every client
-- `agents`: the Gemini lead and specialists, their skills, the media agent and the eval runner
+- `agents`: the Gemini lead and specialists, their skills, the media and computer-use agents, and the eval runner
 - `clients`: seed, replay and decide, via the public API
 - `evals`: eval cases, inputs and scorer
 - `scripts`: data pipelines from GTFS and the plan PDFs

@@ -28,6 +28,7 @@ function fold(entries: [actor: string, type: string, data: unknown][]): State {
       payloadHash: "",
       prevHash: "",
       hash: "",
+      audience: null,
     };
     apply(state, entry);
   });
@@ -91,7 +92,7 @@ describe("engagement needs in the fold", () => {
         addedAt: "2026-11-07T12:00:03.000Z",
       },
     ]);
-    assert.deepEqual(state.media.get(SHA), { type: "image/png", size: 2048 });
+    assert.deepEqual(state.media.get(SHA), { type: "image/png", size: 2048, need: NEED.id });
   });
 
   it("fail when an agent makes nothing, until a planner asks again", () => {
@@ -133,5 +134,18 @@ describe("engagement needs in the fold", () => {
 
   it("refuse an entry for a need the log never added", () => {
     assert.throws(() => fold([opened, requested]), /unknown id "sunnybrook-poster"/);
+  });
+
+  it("serve a file two needs share under the other's name once one is dismissed, and not at all once both are", () => {
+    const other = { ...NEED, id: "hospital-poster" };
+    const shared: [string, string, unknown][] = [
+      [opened[0], "need.added", other],
+      ["planner:ana", "need.create.requested", { need: other.id }],
+      ["agent:media", "media.added", { ...(media[2] as object), need: other.id }],
+    ];
+    const state = fold([opened, added, requested, media, ...shared, ["planner:ana", "need.dismissed", { need: NEED.id, reason: "Not going ahead" }]]);
+    assert.equal(state.media.get(SHA)?.need, other.id);
+    const gone = fold([opened, added, requested, media, ...shared, ["planner:ana", "need.dismissed", { need: NEED.id, reason: "Not going ahead" }], ["planner:ana", "need.dismissed", { need: other.id, reason: "Not going ahead" }]]);
+    assert.equal(gone.media.get(SHA), undefined);
   });
 });

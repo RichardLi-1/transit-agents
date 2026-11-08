@@ -63,7 +63,7 @@ Rework a number, or test how fragile a result is.
 ## 7. Draft
 
 - Technical assessment from a proposal's inputs: follows the TTC structure, and every figure traces to a source.
-- Initial Business Case for extending the Ontario Line up Don Mills: follows the four-part structure, and marks each missing input as a gap instead of inventing it.
+- Initial Business Case for extending the Ontario Line up Don Mills: follows the four-part structure, and marks each missing input as a gap instead of inventing it, with the next step and who to contact.
 
 ## 8. Monitor
 
@@ -87,3 +87,13 @@ Work as part of a running service.
 - New context changes an input mid-study: finds the affected figures and updates them through the API.
 - A planner overrides a result: stops advocating, and records nothing further on that decision.
 - A figure is rejected for a missing source: fixes the source or drops the figure, and does not retry unchanged.
+
+## 11. Define
+
+Explain jargon in its source's own words, with the page, and say when no source defines a term.
+
+- Does the Ontario Line IBC's cost estimate include a QCRA? None is reported: its estimates carry a flat 30% contingency (IBC p. 76), a percentage uplift, which the Business Case Manual sets apart from a QCRA (Manual p. 102).
+- What is a Class 5 estimate? The IBC's label for its top-down, factor-based parametric estimates (IBC p. 76). No source defines the classes, so no accuracy range from memory.
+- TPAP: the Transit Project Assessment Process, under Ontario Regulation 231/08 (Manual p. 204).
+- Major rather than minor service change: one that changes riders' travel options or needs more resources, and so needs TTC Board approval (p. 113).
+- OMSF in the Ontario Line's cases: no source prints it, and they use MSF, Maintenance and Storage Facility. Says so, and doesn't guess.

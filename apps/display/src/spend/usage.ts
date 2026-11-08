@@ -101,6 +101,8 @@ export function watchUsage(show: (usage: Usage | null) => void): () => void {
         const entry = JSON.parse(event.data) as LogEntry;
         if ((entry.data as Activity).kind === "usage") loadSoon();
       });
+      // A model call made for a visitor, which the screen can't read, comes empty.
+      source.addEventListener("usage", loadSoon);
     } catch {
       // The next poll tries again.
     }

@@ -4,7 +4,7 @@ import { recordedBy } from "../actors.ts";
 import { api } from "../api.ts";
 import { amount, quantity, unitAfter } from "../figures.ts";
 import { webUrl } from "../host.ts";
-import { splitAtQuote } from "../quote.ts";
+import { paragraphsOf } from "../reflow.ts";
 
 export type OpenedSource = { label: string; value?: number; unit?: string; contextId: string; page: number; quote: string };
 
@@ -44,7 +44,8 @@ export function QuickLook({ opened, contexts, onClose }: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [index, setIndex] = useState(0);
   const [marks, setMarks] = useState<Marks>({ boxes: [] });
-  // Only some pages have an image. For the rest, the page's text, with the quote marked.
+  // Every page the seed cites has an image. Any other page an agent cites shows
+  // its text, set as a page, with the quote marked.
   const [failed, setFailed] = useState<string | null>(null);
   const [text, setText] = useState<{ page: string; text: string } | null>(null);
   // The page whose image has loaded, and the highlight to bring into view on it:
@@ -172,11 +173,11 @@ export function QuickLook({ opened, contexts, onClose }: Props) {
           {source && (
             <figure>
               {missing ? (
-                <PageText text={text?.page === page ? text.text : null} quote={source.quote} />
+                <PageText text={text?.page === page ? text.text : null} quote={source.quote} page={source.page} />
               ) : (
                 <div class="page">
                   <img
-                    src={`/sources/${source.contextId}/p${source.page}.png`}
+                    src={`/sources/${source.contextId}/p${source.page}.webp`}
                     alt={source.quote ? `Page ${source.page}. Highlighted text: ${source.quote}` : `Page ${source.page} of ${source.label}`}
                     width="1020"
                     height="1320"
@@ -207,17 +208,24 @@ export function QuickLook({ opened, contexts, onClose }: Props) {
   );
 }
 
-// A page's text, scrolled to the quote, which is marked.
-function PageText({ text, quote }: { text: string | null; quote: string }) {
+// A page with no image: its text on a sheet of paper, in paragraphs, with its
+// number at the foot and the quote marked, scrolled into view.
+function PageText({ text, quote, page }: { text: string | null; quote: string; page: number }) {
   const mark = useRef<HTMLElement>(null);
   useEffect(() => mark.current?.scrollIntoView({ block: "center" }), [text, quote]);
-  if (text === null) return <div class="page text" aria-busy="true" />;
-  const [before, quoted, after] = splitAtQuote(text, quote);
+  const paragraphs = text ? paragraphsOf(text, quote) : [];
+  const first = paragraphs.findIndex(([, quoted]) => quoted);
   return (
-    <div class="page text" tabIndex={0}>
-      {before}
-      {quoted && <mark ref={mark}>{quoted}</mark>}
-      {after}
-    </div>
+    <article class="paper" aria-label={`Text of page ${page}`} aria-busy={text === null ? "true" : undefined}>
+      {paragraphs.map(([before, quoted, after], i) => (
+        <p key={i}>
+          {before}
+          {quoted && <mark ref={i === first ? mark : undefined}>{quoted}</mark>}
+          {after}
+        </p>
+      ))}
+      {text !== null && !paragraphs.length && <p class="none">No text to show for this page.</p>}
+      <footer>{page}</footer>
+    </article>
   );
 }

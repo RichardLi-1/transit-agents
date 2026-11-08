@@ -13,7 +13,7 @@ import os
 import random
 import re
 import sys
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -38,9 +38,18 @@ dotenv.load_dotenv(HERE / ".env")
 
 DEFAULT_MODEL = "gemini-3.6-flash"  # 3.8 Flash is often overloaded
 
-# Code reports activity and tokens, so models never see this tool: a model can't know
-# its own token counts.
-CODE_ONLY = frozenset({"report_activity"})
+# Code reports activity and tokens, and checks the visitors' budget, so models never see
+# these tools: a model can't know its own token counts.
+CODE_ONLY = frozenset({"report_activity", "get_budget"})
+
+# The header that has the service's own agents act for one visitor, in that visitor's
+# sandbox. "*" reads every visitor's entries from read_log, and writes nothing.
+ON_BEHALF_OF = "x-on-behalf-of"
+EVERYONE = "*"
+AUDIENCE = re.compile(r"^(guest|user):[A-Za-z0-9_-]{22}$")
+
+# The service's words when visitors have spent today's budget.
+BUDGET_SPENT = "Visitors have used today's agent budget. Sign in, or come back tomorrow."
 
 # Tools the service lists only for planners. An agent's token never has them.
 PLANNER_ONLY = frozenset(
@@ -54,6 +63,7 @@ WRITES = {
     "record_figure": "studyId",
     "record_check": "studyId",
     "record_finding": "studyId",
+    "add_engagement_need": "studyId",
     "report_activity": "studyId",
 }
 
@@ -65,7 +75,8 @@ WRITES = {
 RETRY = {"attempts": 8, "initial_delay": 2, "max_delay": 60}
 
 # A call that timed out may have run, and been billed, so it's tried again only this
-# many times, and each try takes a call from the run's budget.
+# many times, each try takes a call from the run's budget, and each one that timed out
+# is counted from an estimate.
 TIMEOUT_RETRIES = 1
 
 # Gemini's errors that are retried, and what to check for some that aren't.
@@ -86,6 +97,11 @@ RESULT_LIMIT = 30_000
 
 # The most a model call may write, thinking included. It bounds what one call costs.
 MAX_OUTPUT_TOKENS = 16_384
+
+# A model call stopped before Gemini answered is counted from an estimate: its request
+# at this many characters a token, and this many tokens of answer and thought.
+CHARS_PER_TOKEN = 4
+STOPPED_OUTPUT_TOKENS = 2_000
 
 # What the MCP transport raises as it closes, when a reply comes after the session has
 # closed: a cancelled call's, say. Nothing waits for that reply.
@@ -140,9 +156,19 @@ class ModelError(RuntimeError):
         self.everywhere = everywhere
 
 
+class SpendCapReached(ModelError):
+    """Visitors have spent today's budget, so the run stops: every other call would go over it."""
+
+    def __init__(self, message: str = BUDGET_SPENT):
+        super().__init__(message, everywhere=True)
+
+
 def for_planners(error: BaseException) -> str:
     """A plain line on why the agent stopped, for the chat. The detail, with setting
-    names a planner can't act on, goes to the agent's terminal."""
+    names a planner can't act on, goes to the agent's terminal. The service's words
+    for visitors' spent budget are for people already, so they go as they are."""
+    if isinstance(error, SpendCapReached):
+        return str(error)
     if isinstance(error, ModelError):
         return "Gemini couldn't answer. Try again in a few minutes; the agent's terminal says why."
     return "Something went wrong. The agent's terminal says what."
@@ -165,6 +191,8 @@ class Config:
     max_model_calls: int  # for each agent's tool loop
     max_run_calls: int  # for one run: the lead's and all its specialists' together
     specialist_concurrency: int  # specialists working at once, in this process
+    runs_at_once: int = 2  # visitors' runs the listener answers at once; a planner's never waits for them
+    guest_run_calls: int = 20  # max_run_calls for a visitor's run
     max_run_usd: float = 2.0  # for one run, in US dollars, as priced in prices.py
     max_daily_usd: float = 10.0  # for this process in a UTC day, while it listens
     max_runs_per_hour: int = 20  # runs started while it listens, in any hour
@@ -185,6 +213,8 @@ def config() -> Config:
         max_run_calls=_count("MAX_RUN_CALLS", 60),
         # 2, because the free tier allows 5 requests a minute.
         specialist_concurrency=_count("SPECIALIST_CONCURRENCY", 2),
+        runs_at_once=_count("RUNS_AT_ONCE", 2),
+        guest_run_calls=_count("GUEST_RUN_CALLS", 20),
         max_run_usd=_dollars("MAX_RUN_USD", 2.0),
         max_daily_usd=_dollars("MAX_DAILY_USD", 10.0),
         max_runs_per_hour=_count("MAX_RUNS_PER_HOUR", 20),
@@ -246,14 +276,18 @@ def gemini(api_key: str | None = None, **http_options: Any) -> genai.Client:
 
 
 @asynccontextmanager
-async def open_session(url: str | None = None, token: str | None = None):
+async def open_session(url: str | None = None, token: str | None = None, on_behalf_of: str | None = None):
     """Open an MCP session to the service as an agent, and hold it open.
 
     The session's instructions are the service's rules for agents. A token that isn't
-    an agent's is a SetupError: a planner's would let agents decide.
+    an agent's is a SetupError: a planner's would let agents decide. With `on_behalf_of`,
+    a visitor's audience, every call reads and writes in that visitor's sandbox; with
+    "*", read_log reads every visitor's entries, and every write is refused.
     """
     url = (url or config().service_url).rstrip("/")
     headers = {"authorization": f"Bearer {token or agent_token()}"}
+    if on_behalf_of:
+        headers[ON_BEHALF_OF] = on_behalf_of
     ready = done = False
     try:
         async with (
@@ -270,8 +304,10 @@ async def open_session(url: str | None = None, token: str | None = None):
         if _only(error, LATE_REPLY):
             if done:
                 return
-            # The transport can drop a cancel when a late reply breaks its close.
-            if (task := asyncio.current_task()) is not None and task.cancelling():
+            # The transport can drop a cancel when a late reply breaks its close, and
+            # anyio can uncancel the task as it does. The session's own work stopped
+            # part-way with no error of its own, so it was cancelled.
+            if ready or ((task := asyncio.current_task()) is not None and task.cancelling()):
                 raise asyncio.CancelledError from None
         # The MCP transport wraps every error in task groups, even one raised by the
         # code using the session. Unwrap it, so callers can catch what they raised.
@@ -301,7 +337,13 @@ async def check_agent(session: ClientSession) -> None:
 
 
 @asynccontextmanager
-async def connect(client: genai.Client | None = None, *, url: str | None = None, token: str | None = None):
+async def connect(
+    client: genai.Client | None = None,
+    *,
+    url: str | None = None,
+    token: str | None = None,
+    on_behalf_of: str | None = None,
+):
     """Open the MCP session to the service and the Gemini client, and hold both open.
 
     Yields (session, client): the initialized session, whose instructions are the
@@ -309,7 +351,7 @@ async def connect(client: genai.Client | None = None, *, url: str | None = None,
     """
     client = client or gemini()
     async with (
-        open_session(url, token) as session,
+        open_session(url, token, on_behalf_of) as session,
         # Hold the client open: google-genai closes its connections once it's dropped.
         client.aio as aio,
     ):
@@ -354,12 +396,21 @@ class Budget:
     taken its next call too, so a model call is always left to read their results.
     Without one, its call is its last, with tools off. Once the run has spent its
     dollars, no more calls are given out. Calls with no price count no dollars.
+
+    Once visitors' budget runs out, `capped` is set, and every agent in the run stops
+    before its next model call. One already sent finishes, so its usage is counted.
     """
 
     def __init__(self, calls: int, usd: float | None = None):
         self.left = calls
         self.usd = usd
         self.spent = 0.0
+        self.capped = False
+
+    def check(self) -> None:
+        """Raise SpendCapReached once visitors' budget has run out in this run."""
+        if self.capped:
+            raise SpendCapReached(BUDGET_SPENT)
 
     def take(self) -> bool:
         """Take one call, if one is left and the run hasn't spent its dollars."""
@@ -464,18 +515,44 @@ async def work(
     texts = [task] if isinstance(task, str) else list(task)
     contents = [types.Content(role="user", parts=[types.Part(text=text) for text in texts])]
     limit = max_calls or config().max_model_calls
+
+    async def count(usage: Any) -> None:
+        """Report a model call's tokens and cost, and take the cost from the run's budget."""
+        try:
+            usd = await _report_usage(session, study, model, usage)
+        except SpendCapReached:
+            if budget is not None:
+                budget.capped = True
+            raise
+        if budget is not None:
+            budget.spend(usd)
+
     spare = False  # the run's call taken for this agent's next turn
     try:
         for turn in range(limit):
             spare = False  # the one taken last turn is the one made now
+            if budget is not None:
+                budget.check()
             last = turn == limit - 1
             if not last and budget is not None:
                 spare = budget.take()
                 last = not spare
-            response = await _generate(client, model, contents, _last_call(settings) if last else settings, budget)
-            usd = await _report_usage(session, study, model, response.usage_metadata)
-            if budget is not None:
-                budget.spend(usd)
+            sent = _last_call(settings) if last else settings
+
+            # A try that timed out, which Gemini may have run and billed anyway.
+            async def lost(sent: types.GenerateContentConfig = sent) -> None:
+                await count(estimated_usage(contents, sent))
+
+            try:
+                response = await _generate(client, model, contents, sent, budget, lost)
+            except asyncio.CancelledError:
+                # Stopped with the call sent, as on SIGTERM or when another agent's error
+                # stops the run. Gemini may bill it anyway, so it's counted from an estimate.
+                with contextlib.suppress(Exception):
+                    async with asyncio.timeout(10):
+                        await _report_usage(session, study, model, estimated_usage(contents, sent))
+                raise
+            await count(response.usage_metadata)
             calls = response.function_calls
             if last:
                 # Calls made anyway are never run: no model call is left to read them.
@@ -512,8 +589,12 @@ async def _generate(
     contents: list[types.Content],
     settings: types.GenerateContentConfig,
     budget: Budget | None = None,
+    lost: Callable[[], Awaitable[None]] | None = None,
 ) -> types.GenerateContentResponse:
-    """One model call, tried again as RETRY and TIMEOUT_RETRIES allow."""
+    """One model call, tried again as RETRY and TIMEOUT_RETRIES allow.
+
+    A try that timed out may have run, and been billed, so `lost` is awaited for each
+    one, to count it from an estimate, before the call is tried again or given up."""
     attempt = timeouts = 0
     while True:
         attempt += 1
@@ -521,11 +602,14 @@ async def _generate(
             return await _generate_once(client, model, contents, settings)
         except ModelError as error:
             cause = error.__cause__
+            timed_out = isinstance(cause, httpx2.TimeoutException)
+            if timed_out and lost is not None:
+                await lost()
             if attempt >= RETRY["attempts"]:
                 raise
             if isinstance(cause, errors.APIError) and cause.code in RETRIED:
                 pass
-            elif isinstance(cause, httpx2.TimeoutException):
+            elif timed_out:
                 timeouts += 1
                 if timeouts > TIMEOUT_RETRIES or (budget is not None and not budget.take()):
                     raise
@@ -577,11 +661,18 @@ async def _generate_once(
 
 
 async def _report_usage(session: ClientSession, study: str, model: str, usage: Any) -> float | None:
-    """Report a call's tokens and cost, and return its cost, if it has a price."""
+    """Report a model call's tokens and cost, and return its cost, if it has a price.
+
+    For a visitor, the service answers with what is left of today's budget. Once that
+    is less than this call cost, the next would likely go past it, so the run stops
+    after this call."""
     fields = tokens_and_cost(model, usage)
     day = datetime.now(UTC).date()
     _spent[day] = _spent.get(day, 0.0) + fields.get("costUsd", 0.0)
-    await report(session, study, "usage", model=model, **fields)
+    answer = await call(session, "report_activity", {"studyId": study, "kind": "usage", "model": model, **fields})
+    left = answer.get("budgetLeftUsd") if isinstance(answer, dict) else None
+    if isinstance(left, (int, float)) and (left <= 0 or left < fields.get("costUsd", 0)):
+        raise SpendCapReached(BUDGET_SPENT)
     return fields.get("costUsd")
 
 
@@ -592,6 +683,26 @@ _spent: dict[date, float] = {}
 def spent_today() -> float:
     """What this process has spent today (UTC) on model calls with a price, in US dollars."""
     return _spent.get(datetime.now(UTC).date(), 0.0)
+
+
+def estimated_usage(
+    contents: list[types.Content], settings: types.GenerateContentConfig
+) -> types.GenerateContentResponseUsageMetadata:
+    """What a model call stopped before Gemini answered is counted as: its request's text at
+    about CHARS_PER_TOKEN characters a token, and STOPPED_OUTPUT_TOKENS of answer and thought.
+    An inline file's bytes, such as a screenshot's, aren't text, so they're left out: as
+    text, one screenshot would count as tens of thousands of tokens."""
+    sent = [_without_bytes(content.model_dump(exclude_none=True)) for content in contents]
+    sent += [str(settings.system_instruction or "")]
+    sent += [tool.model_dump_json(exclude_none=True) for tool in settings.tools or [] if hasattr(tool, "model_dump_json")]
+    return types.GenerateContentResponseUsageMetadata(
+        prompt_token_count=sum(map(len, sent)) // CHARS_PER_TOKEN + 1, candidates_token_count=STOPPED_OUTPUT_TOKENS
+    )
+
+
+def _without_bytes(value: Any) -> str:
+    """A request's content as compact JSON, with every inline file's bytes left out."""
+    return json.dumps(value, separators=(",", ":"), default=lambda item: "" if isinstance(item, bytes) else str(item))
 
 
 def tokens_and_cost(model: str, usage: types.GenerateContentResponseUsageMetadata | None) -> dict[str, Any]:
@@ -669,13 +780,26 @@ async def _answer_calls(
             }
         else:
             local[i] = (tool, function_call.args or {})
+    spent: list[SpendCapReached] = []
+
+    async def run(tool: LocalTool, arguments: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return await _call_local(tool, arguments)
+        except SpendCapReached as error:
+            # Visitors' budget ran out. The other calls aren't cancelled: each finishes
+            # the model call it has sent, so what Gemini bills is counted, then stops.
+            spent.append(error)
+            return {"error": str(error)}
+
     try:
         async with asyncio.TaskGroup() as group:
-            tasks = {i: group.create_task(_call_local(tool, arguments)) for i, (tool, arguments) in local.items()}
+            tasks = {i: group.create_task(run(tool, arguments)) for i, (tool, arguments) in local.items()}
     except* ModelError as failed:
         # Out of quota, say: every other call would fail too, and the other local calls
         # have been cancelled, so stop the run.
         _reraise(failed.exceptions[0])
+    if spent:
+        raise spent[0]
     answers.update((i, task.result()) for i, task in tasks.items())
     return [
         types.Part(function_response=types.FunctionResponse(id=c.id, name=c.name, response=answers[i]))

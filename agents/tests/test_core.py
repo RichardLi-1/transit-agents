@@ -6,12 +6,15 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import anyio
 import httpx2
+from google.genai import types
 
 import core
+import lead
 from tests import support
 from tests.support import AGENT, SOURCE, URL, FakeGemini, api, gemini_error, reply
 
@@ -122,6 +125,11 @@ class ToolLoopTest(unittest.IsolatedAsyncioTestCase):
         def figure(study_id, value, page, quote):
             return {"studyId": study_id, "id": "riders", "label": "Riders", "value": value, "basis": cited(page, quote)}
 
+        def need(study_id):
+            citation = {"contextId": SOURCE, "page": 1, "quote": quote}
+            place = {"place": "Test Station", "lon": -79.4, "lat": 43.7}
+            return {"studyId": study_id, "id": "poster", "title": "Poster", **place, "kinds": ["image"], "reason": "Riders there gain a trip.", "citations": [citation]}
+
         fake = FakeGemini(
             lambda request: reply(
                 ("read_page", {"contextId": SOURCE, "page": 2}),
@@ -131,6 +139,8 @@ class ToolLoopTest(unittest.IsolatedAsyncioTestCase):
                 ("open_study", {"id": f"{study}-new", "title": "New"}),
                 ("record_figure", figure(None, 1680, 1, quote)),
                 ("record_figure", figure(study, 1680, 1, quote)),
+                ("add_engagement_need", need(theirs)),
+                ("add_engagement_need", need(study)),
             )
             if request.turn == 0
             else reply(text="Done.")
@@ -145,9 +155,12 @@ class ToolLoopTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results[3], {"error": refused.format("open_study", "id")})
         self.assertIn("error", results[4])
         self.assertEqual(results[5]["output"]["value"], 1680)  # its own study, as before
+        self.assertEqual(results[6], {"error": refused.format("add_engagement_need", "studyId")})
+        self.assertEqual((results[7]["output"]["id"], results[7]["output"]["addedBy"]), ("poster", "agent:lead"))
         [riders] = api("GET", f"/v1/studies/{theirs}")["figures"]
         self.assertEqual((riders["value"], riders["recordedBy"]), (1680, "planner:demo"))
         self.assertEqual(api("GET", f"/v1/studies/{theirs}")["findings"], [])
+        self.assertEqual(api("GET", f"/v1/studies/{theirs}")["needs"], [])
         self.assertNotIn(f"{study}-new", [s["id"] for s in api("GET", "/v1/studies")])
 
     async def test_reports_usage_after_every_model_call(self):
@@ -196,6 +209,49 @@ class ToolLoopTest(unittest.IsolatedAsyncioTestCase):
             "No price for test-model, so its calls are reported without a cost. "
             "Add one with MODEL_PRICES=test-model=<input>/<output>, in US dollars per million tokens.\n",
         )
+
+    async def test_a_call_stopped_before_gemini_answers_is_counted_from_an_estimate(self):
+        # As SIGTERM, or another agent's error, stops a run. Gemini may bill the call anyway.
+        study = support.open_study("stopped")
+        sent = asyncio.Event()
+
+        async def respond(request):
+            sent.set()
+            await asyncio.sleep(10)  # stopped long before this
+
+        working = asyncio.create_task(run(FakeGemini(respond), study, task="How many riders?"))
+        await asyncio.wait_for(sent.wait(), 10)
+        working.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await working
+
+        [usage] = support.activities(study, "usage")
+        self.assertEqual((usage["model"], usage["outputTokens"]), ("test-model", core.STOPPED_OUTPUT_TOKENS))
+        self.assertGreater(usage["inputTokens"], len("Test agent. How many riders?") // core.CHARS_PER_TOKEN)
+
+    async def test_a_try_that_timed_out_is_counted_from_an_estimate_and_takes_a_call(self):
+        # Gemini may have run it, and billed it, so it counts in usage, and so in a
+        # visitor's budget, and in the run's.
+        self.enterContext(mock.patch.dict(os.environ, {"MODEL_PRICES": "test-model=1/10"}))
+        study = support.open_study("timed-out")
+        answers = iter([httpx2.ReadTimeout("timed out"), reply(text="Done.")])
+        fake = FakeGemini(lambda request: next(answers))
+        budget = core.Budget(10)
+
+        self.assertEqual(await run(fake, study, task="How many riders?", budget=budget), "Done.")
+
+        estimate, answer = support.activities(study, "usage")
+        self.assertEqual((estimate["model"], estimate["outputTokens"]), ("test-model", core.STOPPED_OUTPUT_TOKENS))
+        self.assertGreater(estimate["inputTokens"], len("Test agent. How many riders?") // core.CHARS_PER_TOKEN)
+        self.assertEqual((answer["inputTokens"], answer["outputTokens"]), (100, 15))
+        self.assertAlmostEqual(budget.spent, estimate["costUsd"] + answer["costUsd"])
+        self.assertEqual(budget.left, 9)  # the second try's; the next turn's, never made, went back
+
+    def test_an_estimate_leaves_out_a_files_bytes(self):
+        image = types.Part.from_bytes(data=b"\x89PNG" + bytes(400_000), mime_type="image/png")
+        contents = [types.Content(role="user", parts=[types.Part(text="Change the headway."), image])]
+        estimate = core.estimated_usage(contents, types.GenerateContentConfig(system_instruction="Test agent."))
+        self.assertLess(estimate.prompt_token_count, 200)
 
     async def test_stops_after_the_most_model_calls(self):
         study = support.open_study("limit")
@@ -353,6 +409,8 @@ class GeminiErrorTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(budget.left, 9)  # the second try's; its next call, never made, went back
         for writer in accepted:
             writer.close()
+        # Each try is counted from an estimate.
+        self.assertEqual([u["outputTokens"] for u in support.activities(study, "usage")], [core.STOPPED_OUTPUT_TOKENS] * 2)
 
     async def test_a_key_in_geminis_text_is_hidden(self):
         study = support.open_study("key-in-error")
@@ -548,13 +606,156 @@ class SessionTest(unittest.IsolatedAsyncioTestCase):
                 pass
 
 
+class VisitorTest(unittest.IsolatedAsyncioTestCase):
+    """An agent acting for one visitor, or reading for everyone, and the visitors' budget."""
+
+    VISITOR = "guest:" + "v" * 22
+
+    async def test_a_session_for_a_visitor_sends_the_header_on_every_request(self):
+        sent: list[dict[str, str]] = []
+        real = core.streamable_http_client
+
+        @contextlib.asynccontextmanager
+        async def watched(url, *, http_client, **kwargs):
+            async def record(request):
+                sent.append(dict(request.headers))
+
+            http_client.event_hooks["request"].append(record)
+            async with real(url, http_client=http_client, **kwargs) as streams:
+                yield streams
+
+        self.enterContext(mock.patch.object(core, "streamable_http_client", watched))
+        async with core.open_session(URL, AGENT, on_behalf_of=self.VISITOR) as session:
+            await core.call(session, "list_sources")
+        visitor = len(sent)
+        async with core.open_session(URL, AGENT) as session:
+            await core.call(session, "list_sources")
+
+        self.assertGreater(visitor, 2)
+        self.assertEqual({headers.get(core.ON_BEHALF_OF) for headers in sent[:visitor]}, {self.VISITOR})
+        self.assertEqual({headers.get(core.ON_BEHALF_OF) for headers in sent[visitor:]}, {None})
+
+    async def test_a_session_for_everyone_reads_and_can_never_write(self):
+        study = support.open_study("everyone")
+        head = api("GET", "/v1/log/head")["seq"]
+        async with core.open_session(URL, AGENT, on_behalf_of=core.EVERYONE) as session:
+            self.assertIsInstance(await core.call(session, "read_log", {"after": max(head - 3, 0)}), list)
+            with self.assertRaisesRegex(core.ToolError, "^report_activity: 400 read_only"):
+                await core.report(session, study, "message", text="From everyone.")
+        self.assertEqual(api("GET", "/v1/log/head")["seq"], head)
+
+    async def test_the_budget_tool_is_for_code_not_models(self):
+        self.assertIn("get_budget", core.CODE_ONLY)
+
+    async def test_a_usage_report_with_nothing_left_stops_the_agent(self):
+        for left in (0, -0.4):
+            session = _answering({"seq": 7, "budgetLeftUsd": left})
+            with self.assertRaises(core.SpendCapReached) as caught:
+                await core._report_usage(session, "s", "test-model", None)
+            self.assertEqual(str(caught.exception), core.BUDGET_SPENT)
+            self.assertTrue(caught.exception.everywhere)
+            [(tool, arguments)] = [c.args for c in session.call_tool.call_args_list]
+            self.assertEqual((tool, arguments["kind"], arguments["studyId"]), ("report_activity", "usage", "s"))
+        # Some left, or a planner's run, whose reports carry no budget: it goes on.
+        for answer in ({"seq": 7, "budgetLeftUsd": 0.01}, {"seq": 7}):
+            await core._report_usage(_answering(answer), "s", "test-model", None)
+
+    async def test_less_left_than_a_call_cost_stops_the_agent(self):
+        # This call cost $0.30, and the next would likely cost as much.
+        self.enterContext(mock.patch.dict(os.environ, {"MODEL_PRICES": "test-model=1500/10000"}))
+        usage = reply(text="Done.", usage=(100, 15, 0)).usage_metadata
+        with self.assertRaises(core.SpendCapReached):
+            await core._report_usage(_answering({"seq": 7, "budgetLeftUsd": 0.29}), "s", "test-model", usage)
+        await core._report_usage(_answering({"seq": 7, "budgetLeftUsd": 0.31}), "s", "test-model", usage)
+
+    async def test_a_specialists_spend_cap_stops_the_leads_whole_run(self):
+        self.enterContext(
+            mock.patch.dict(os.environ, {"LEAD_MODEL": "lead-model", "SPECIALIST_MODEL": "specialist-model", "MAX_MODEL_CALLS": ""})
+        )
+        real = core._report_usage
+
+        async def capped(session, study, model, usage):
+            await real(session, study, model, usage)
+            if model == "specialist-model":
+                raise core.SpendCapReached()
+
+        self.enterContext(mock.patch.object(core, "_report_usage", capped))
+        study = support.open_study("spent")
+        fake = FakeGemini(
+            lambda request: reply(("ask_specialist", {"question": "How many riders?"}))
+            if request.model == "lead-model"
+            else reply(("read_page", {"contextId": SOURCE, "page": 1}))
+        )
+
+        async with support.session() as session:
+            with self.assertRaises(core.SpendCapReached):
+                await lead.run_lead(session, fake, study, "A visitor asks: how many riders?")
+
+        # The lead's call and the specialist's, then nothing more.
+        self.assertEqual([request.model for request in fake.requests], ["lead-model", "specialist-model"])
+        [finished] = support.activities(study, "subagent.finished")
+        self.assertEqual((finished["ok"], finished["summary"]), (False, f"Stopped. {core.BUDGET_SPENT}"))
+        self.assertEqual(len(support.activities(study, "usage")), 2)
+
+    async def test_once_the_budget_runs_out_calls_already_sent_finish_and_are_counted(self):
+        env = {"LEAD_MODEL": "lead-model", "SPECIALIST_MODEL": "specialist-model", "MAX_MODEL_CALLS": "", "SPECIALIST_CONCURRENCY": "2"}
+        self.enterContext(mock.patch.dict(os.environ, env))
+        real = core._report_usage
+
+        async def capped(session, study, model, usage):
+            await real(session, study, model, usage)
+            if usage is not None and usage.prompt_token_count == 111:  # the fast specialist's call
+                raise core.SpendCapReached()
+
+        self.enterContext(mock.patch.object(core, "_report_usage", capped))
+        study = support.open_study("spent-at-once")
+        slow_sent = asyncio.Event()
+
+        async def respond(request):
+            if request.model == "lead-model":
+                return reply(("ask_specialist", {"question": "Fast?"}), ("ask_specialist", {"question": "Slow?"}))
+            if request.task == "Fast?":
+                await slow_sent.wait()
+                return reply(("list_rules", {}), usage=(111, 10, 0))
+            slow_sent.set()
+            await asyncio.sleep(0.5)  # sent before the budget ran out, answered after
+            return reply(("list_rules", {}), usage=(222, 10, 0))
+
+        fake = FakeGemini(respond)
+        async with support.session() as session:
+            with self.assertRaises(core.SpendCapReached):
+                await lead.run_lead(session, fake, study, "A visitor asks: how many riders?")
+
+        # The slow specialist's call wasn't cancelled: it is counted, and it made no other.
+        self.assertEqual(len(fake.requests), 3)
+        self.assertEqual(sorted(usage["inputTokens"] for usage in support.activities(study, "usage")), [100, 111, 222])
+        finished = support.activities(study, "subagent.finished")
+        self.assertEqual([(f["ok"], f["summary"]) for f in finished], [(False, f"Stopped. {core.BUDGET_SPENT}")] * 2)
+
+
+def _answering(answer: dict) -> mock.AsyncMock:
+    """A session whose every tool call answers this."""
+    session = mock.AsyncMock()
+    session.call_tool.return_value = SimpleNamespace(is_error=False, structured_content=answer, content=[])
+    return session
+
+
 class ConfigTest(unittest.TestCase):
     def test_defaults(self):
-        names = ("TRANSIT_URL", "LEAD_MODEL", "SPECIALIST_MODEL", "MAX_MODEL_CALLS", "MAX_RUN_CALLS", "SPECIALIST_CONCURRENCY")
+        names = (
+            "TRANSIT_URL",
+            "LEAD_MODEL",
+            "SPECIALIST_MODEL",
+            "MAX_MODEL_CALLS",
+            "MAX_RUN_CALLS",
+            "SPECIALIST_CONCURRENCY",
+            "RUNS_AT_ONCE",
+            "GUEST_RUN_CALLS",
+        )
         with mock.patch.dict(os.environ, {name: "" for name in names}):
             settings = core.config()
         self.assertEqual(
-            settings, core.Config("http://127.0.0.1:4100", "gemini-3.6-flash", "gemini-3.6-flash", 30, 60, 2)
+            settings, core.Config("http://127.0.0.1:4100", "gemini-3.6-flash", "gemini-3.6-flash", 30, 60, 2, 2, 20)
         )
 
     def test_from_the_environment(self):
@@ -565,10 +766,12 @@ class ConfigTest(unittest.TestCase):
             "MAX_MODEL_CALLS": "12",
             "MAX_RUN_CALLS": "40",
             "SPECIALIST_CONCURRENCY": "4",
+            "RUNS_AT_ONCE": "3",
+            "GUEST_RUN_CALLS": "9",
         }
         with mock.patch.dict(os.environ, env):
             settings = core.config()
-        self.assertEqual(settings, core.Config("http://example.test", "lead-model", "specialist-model", 12, 40, 4))
+        self.assertEqual(settings, core.Config("http://example.test", "lead-model", "specialist-model", 12, 40, 4, 3, 9))
 
     def test_the_run_budget_in_dollars(self):
         with mock.patch.dict(os.environ, {"MAX_RUN_USD": ""}):
@@ -580,7 +783,7 @@ class ConfigTest(unittest.TestCase):
                 core.config()
 
     def test_counts_must_be_whole_numbers(self):
-        for name in ("SPECIALIST_CONCURRENCY", "MAX_RUN_CALLS"):
+        for name in ("SPECIALIST_CONCURRENCY", "MAX_RUN_CALLS", "RUNS_AT_ONCE", "GUEST_RUN_CALLS"):
             for value in ("0", "-1", "two", "1.5"):
                 with mock.patch.dict(os.environ, {name: value}):
                     with self.assertRaisesRegex(core.SetupError, name):

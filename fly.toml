@@ -1,18 +1,32 @@
 # One machine in Toronto, always on, so the collector never misses a day.
 app = "transit-agents"
 primary_region = "yyz"
+# Room for a spike: the service, the collector and two agents share 1 GB.
+swap_size_mb = 512
 
 [env]
   HOST = "0.0.0.0"
   PORT = "4100"
   DATA_DIR = "/data"
-  # Public demo: visitors can look without signing in, and writes need a token.
+  # Public demo: anyone can read. With the GUEST_SECRET secret set, each visitor gets a
+  # guest pass and a sandbox of their own; deciding still needs a planner's sign-in.
   AUTH = "demo"
   PUBLIC_URL = "https://transit-agents.fly.dev"
   # Planner sign-in. These are public values: the display sends them to every visitor.
   AUTH0_DOMAIN = "dev-oxmtfoynmgqlbppe.us.auth0.com"
   AUTH0_AUDIENCE = "https://transit-agents"
   AUTH0_CLIENT_ID = "n1DeOx1fxiljrXS7gBLehSLVMQGYSA3l"
+  # Visitors share this much Gemini a day, in US dollars, by the Toronto day. New work
+  # stops this margin short of it, and each guest pass may use at most this share.
+  # Passes are free, so the share holds a pass, not a person.
+  GUEST_DAILY_USD = "10"
+  GUEST_MARGIN_USD = "2"
+  GUEST_SHARE_USD = "1"
+  # The service's own agent tokens, by name, that may act for a visitor.
+  VISITOR_AGENTS = "lead,media"
+  # The chat agent: runs answered at once, and the model calls a visitor's run may make.
+  RUNS_AT_ONCE = "2"
+  GUEST_RUN_CALLS = "20"
 
 [[mounts]]
   source = "transit_data"

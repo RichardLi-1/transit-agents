@@ -14,6 +14,20 @@ const near = (actual: Point | null, expected: Point, tolerance = 0.5) => {
   assert.ok(Math.hypot(actual[0] - expected[0], actual[1] - expected[1]) <= tolerance, `${actual} is not near ${expected}`);
 };
 
+// How far a point on screen is from a line drawn there: from its nearest segment, as
+// a need can sit anywhere along one.
+function fromLine([x, y]: Point, line: Point[]): number {
+  let nearest = Infinity;
+  for (let i = 1; i < line.length; i++) {
+    const [ax, ay] = line[i - 1] as Point;
+    const [bx, by] = line[i] as Point;
+    const length = (bx - ax) ** 2 + (by - ay) ** 2;
+    const t = length ? Math.max(0, Math.min(1, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / length)) : 0;
+    nearest = Math.min(nearest, Math.hypot(x - (ax + t * (bx - ax)), y - (ay + t * (by - ay))));
+  }
+  return nearest;
+}
+
 describe("projector", () => {
   it("puts the point the camera looks at in the middle of the canvas", () => {
     near(projector(tilted(LAWRENCE))([LAWRENCE.x, LAWRENCE.y]), [960, 540]);
@@ -58,8 +72,8 @@ describe("projector", () => {
         assert.ok(pin && pin[0] > 0 && pin[0] < width && pin[1] > 0 && pin[1] < height, `${need.id} is off a ${width}x${height} screen at ${pin}`);
         // On a laptop, above the time bar along the bottom, about 115 px tall.
         if (width > 860) assert.ok(pin[1] < height - 130, `${need.id} is under the time bar on a ${width}x${height} screen, at ${pin}`);
-        const vertices = [...(studies[study]?.lines ?? []), ...(studies[study]?.proposed ?? [])].flat().map((p) => project(p) as Point);
-        const closest = Math.min(...vertices.map((v) => Math.hypot(v[0] - pin[0], v[1] - pin[1])));
+        const lines = [...(studies[study]?.lines ?? []), ...(studies[study]?.proposed ?? [])].map((line) => line.map((p) => project(p) as Point));
+        const closest = Math.min(...lines.map((line) => fromLine(pin, line)));
         assert.ok(closest < 2, `${need.id} is ${closest.toFixed(1)} px from its line`);
       }
     }

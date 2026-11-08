@@ -29,14 +29,22 @@ import {
   NewSkill,
   NewStudy,
   NewSubscription,
+  AUDIENCE,
+  ON_BEHALF_OF,
+  SIGN_IN_TO_DECIDE,
   type AccessMode,
+  type GuestPass,
   type Me,
   type Role,
   type ServiceConfig,
   type SignIn,
+  type VisitorBudget as BudgetView,
 } from "@transit-agents/contracts";
+import type { VisitorBudget } from "./budget.ts";
 import { extractPages } from "./extract.ts";
-import type { Entry } from "./log.ts";
+import { issueGuest, userAudience, verifyGuest } from "./guests.ts";
+import { EVERYONE, visible, type Entry } from "./log.ts";
+import { VisitorLimits } from "./limits.ts";
 import { checkOrigin, fixedAddress, mcp, rpcError } from "./mcp.ts";
 import { byteRange, formParts } from "./media.ts";
 import { ApiError, type MediaFile, type Service } from "./service.ts";
@@ -67,14 +75,30 @@ export type AppOptions = {
   webhookHosts?: string[];
   staticDir?: string;
   live?: { vehicles: (routes: string[]) => unknown };
-  timeline?: (studyId: string) => unknown;
+  // A study's timeline, as the caller sees the study.
+  timeline?: (studyId: string, view: Service) => unknown;
   // The address people reach the service at, when it differs from the one it
   // serves on. MCP accepts browser requests from it.
   publicUrl?: string;
+  // With a secret, and only in demo mode, the service gives out guest passes. A
+  // visitor with one can do what a planner does, in a sandbox of their own,
+  // except decide.
+  guests?: { secret: string };
+  // Today's Gemini spend for visitors, which their messages and media requests
+  // must leave room in.
+  budget?: VisitorBudget;
+  // How often a visitor may write.
+  limits?: VisitorLimits;
+  // The static agent tokens, by name, that may act for a visitor with X-On-Behalf-Of.
+  visitorAgents?: string[];
+  clock?: () => Date;
 };
 
-// The principal is the credential behind a request, which a name alone can't tell apart.
-type Env = { Variables: { actor: Actor; principal: string; anonymous?: boolean } };
+// The principal is the credential behind a request, which a name alone can't tell
+// apart. The audience is the visitor whose sandbox the request reads and writes:
+// null for the shared record. Everyone is set only when one of the service's own
+// agents reads the whole log, every sandbox with it.
+type Env = { Variables: { actor: Actor; principal: string; anonymous?: boolean; audience: string | null; everyone: boolean } };
 
 // Who a request without a token acts as, in each mode.
 const ANONYMOUS: Record<AccessMode, Actor | undefined> = {
@@ -83,12 +107,14 @@ const ANONYMOUS: Record<AccessMode, Actor | undefined> = {
   demo: { role: "viewer", name: "demo" },
 };
 
-const anyone: Role[] = ["viewer", "integration", "agent", "planner"];
+const anyone: Role[] = ["viewer", "integration", "agent", "planner", "guest"];
 const contributors: Role[] = ["integration", "agent", "planner"];
 const authors: Role[] = ["agent", "planner"];
 const planners: Role[] = ["planner"];
-// Generated media comes only from agents, while a planner's request is open.
+// Generated media comes only from agents, while a request is open.
 const agents: Role[] = ["agent"];
+// What a planner does that a visitor may also do, in their own sandbox.
+const people: Role[] = ["planner", "guest"];
 // Agents can't create subscriptions: one could otherwise send the log anywhere.
 const integrators: Role[] = ["integration", "planner"];
 
@@ -102,6 +128,16 @@ const FORM_ROOM = 64 * 1024;
 const MEDIA_UPLOAD = /^\/v1\/studies\/[^/]+\/needs\/[^/]+\/media$/;
 // Uploads read at once. Each is held in memory while it's checked.
 const UPLOADS_AT_ONCE = 2;
+
+// Why a visitor can't do something only planners and agents do.
+const SIGN_IN_AS_PLANNER = "Sign in as a planner to do this.";
+
+// A whole number from a query, kept within bounds. Anything else is the fallback.
+function whole(value: string | undefined, fallback: number, low: number, high: number): number {
+  const number = value === undefined || value.trim() === "" ? Number.NaN : Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(Math.max(Math.trunc(number), low), high);
+}
 
 const Preview = z.object({
   assumptions: z.record(z.string(), z.number()).optional(),
@@ -152,11 +188,13 @@ function serveMedia(c: HonoContext<Env>, file: MediaFile): Response {
   const etag = `"${file.id}"`;
   const headers: Record<string, string> = {
     "content-type": file.type,
-    "cache-control": "public, no-cache",
+    // A visitor's media is theirs, so no shared cache keeps a copy.
+    "cache-control": `${file.private ? "private" : "public"}, no-cache`,
     etag,
     "accept-ranges": "bytes",
-    // Saved, it keeps its own name, never one an upload chose.
-    "content-disposition": `inline; filename="${file.id}${EXTENSIONS[file.type]}"`,
+    // Saved or shared, its name says it's illustrative, and for which need: never a
+    // name an upload chose. A need's id is a slug, safe in a header.
+    "content-disposition": `inline; filename="${file.need}-illustrative${EXTENSIONS[file.type]}"`,
   };
   const cached = c.req.header("if-none-match")?.split(",").map((tag) => tag.trim().replace(/^W\//, ""));
   if (cached?.includes(etag) || cached?.includes("*")) return c.body(null, 304, headers);
@@ -175,6 +213,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json",
+  ".webmanifest": "application/manifest+json",
   ".map": "application/json",
   ".svg": "image/svg+xml",
   ".webp": "image/webp",
@@ -185,7 +224,8 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 // When people can sign in, the page talks to the Auth0 tenant, and renews their
-// token in a hidden frame from it.
+// token in a hidden frame from it. The manifest, which makes the display an app
+// Chrome can install, comes from the service too.
 function securityHeaders(signIn: SignIn | null): Record<string, string> {
   const tenant = signIn ? ` https://${signIn.domain}` : "";
   const policy = [
@@ -193,6 +233,7 @@ function securityHeaders(signIn: SignIn | null): Record<string, string> {
     "img-src 'self' data:",
     "media-src 'self'",
     "style-src 'self' 'unsafe-inline'",
+    "manifest-src 'self'",
     `connect-src 'self'${tenant}`,
     ...(signIn ? [`frame-src 'self'${tenant}`] : []),
     "base-uri 'none'",
@@ -210,6 +251,10 @@ function securityHeaders(signIn: SignIn | null): Record<string, string> {
 
 export function createApp(options: AppOptions) {
   const { service, webhooks, tokens, verifyToken, access, signIn = null, staticDir, live, timeline, webhookHosts = [] } = options;
+  const { budget, visitorAgents = [], clock = () => new Date() } = options;
+  // Guest passes are for a public demo. In token mode they would let anyone in.
+  const guests = access === "demo" ? options.guests : undefined;
+  const limits = options.limits ?? new VisitorLimits({ clock });
   const anonymous = ANONYMOUS[access];
   // A person who signs in can't act as a static token, or as whoever a request
   // without a token acts as. Otherwise the log couldn't tell them apart.
@@ -248,6 +293,8 @@ export function createApp(options: AppOptions) {
     publicRoutes.some((route) => route.method === (method === "HEAD" ? "GET" : method) && route.path.test(path));
   app.use("/v1/*", async (c, next) => {
     if (isPublic(c.req.method, c.req.path)) return next();
+    c.set("audience", null);
+    c.set("everyone", false);
     const header = c.req.header("authorization");
     // The scheme is case-insensitive. Any other Authorization header still presents
     // a credential, so it is refused, never read as no token.
@@ -255,21 +302,65 @@ export function createApp(options: AppOptions) {
     if (header !== undefined && bearer === undefined) throw new ApiError(401, "bad_token", "Unknown token");
     // EventSource can't send headers, so the event stream also takes a query token.
     const token = bearer ?? (c.req.path === "/v1/events" ? c.req.query("access_token") : undefined);
+    const known = token === undefined ? undefined : tokens.get(token);
     if (token !== undefined) {
       // A bad token is refused. It never falls back to acting without one.
-      const known = tokens.get(token);
-      const actor: Verified | undefined = known ?? (await verifyToken?.(token).catch(() => undefined));
-      if (!actor || (!known && taken.has(`${actor.role}:${actor.name}`))) throw new ApiError(401, "bad_token", "Unknown token");
-      c.set("actor", actor);
-      // A static token is told apart by its hash, and a person by their subject.
-      const credential = known ? `token:${createHash("sha256").update(token).digest("hex")}` : `person:${actor.subject ?? `${actor.role}:${actor.name}`}`;
-      c.set("principal", credential);
+      if (known) {
+        c.set("actor", known);
+        // A static token is told apart by its hash.
+        c.set("principal", `token:${createHash("sha256").update(token).digest("hex")}`);
+      } else if (token.startsWith("g1.")) {
+        // A guest pass is checked only here: never by the verifier, never as no token.
+        const pass = guests && verifyGuest(guests.secret, token, clock());
+        if (!pass) throw new ApiError(401, "bad_token", "Unknown token");
+        c.set("actor", { role: "guest", name: pass.id });
+        c.set("principal", `guest:${pass.id}`);
+        c.set("audience", `guest:${pass.id}`);
+      } else {
+        const actor = await verifyToken?.(token).catch(() => undefined);
+        if (!actor || taken.has(`${actor.role}:${actor.name}`)) throw new ApiError(401, "bad_token", "Unknown token");
+        // A person is told apart by their subject.
+        const person = actor.subject ?? `${actor.role}:${actor.name}`;
+        c.set("principal", `person:${person}`);
+        if (guests && actor.role === "viewer") {
+          // Someone signed in who isn't a planner gets a sandbox, as a visitor does,
+          // and the same one each time.
+          const audience = userAudience(guests.secret, person);
+          c.set("actor", { role: "guest", name: audience.slice("user:".length) });
+          c.set("audience", audience);
+        } else {
+          c.set("actor", actor);
+        }
+      }
     } else if (anonymous) {
       c.set("actor", anonymous);
       c.set("principal", "anonymous");
       c.set("anonymous", true);
     } else {
       throw new ApiError(401, "token_required", "A token is required");
+    }
+
+    // The service's own agents act for one visitor, in that visitor's sandbox. Only
+    // a static agent token named in visitorAgents may: never a person, whatever
+    // their permissions, and never the replay client.
+    const behalf = c.req.header(ON_BEHALF_OF);
+    if (behalf !== undefined) {
+      const actor = c.get("actor");
+      if (!known || actor.role !== "agent" || !visitorAgents.includes(actor.name)) {
+        throw new ApiError(403, "forbidden", "Only the service's own agents act for a visitor");
+      }
+      if (behalf === "*") {
+        // Every sandbox, only to read the log. MCP carries the header to each tool
+        // call, and each call is checked again as its own request.
+        if (!["GET", "HEAD"].includes(c.req.method) && c.req.path !== "/v1/mcp") {
+          throw new ApiError(400, "read_only", "Acting for everyone only reads. Act for one visitor to write");
+        }
+        c.set("everyone", true);
+      } else if (AUDIENCE.test(behalf)) {
+        c.set("audience", behalf);
+      } else {
+        throw new ApiError(400, "bad_audience", `${ON_BEHALF_OF} names a visitor, as guest:<id> or user:<id>, or * to read the whole log`);
+      }
     }
     await next();
   });
@@ -319,10 +410,15 @@ export function createApp(options: AppOptions) {
     const key = c.req.header("idempotency-key");
     // Not on /v1/mcp: a client sends its headers with every message there, so one
     // key would answer each later message with the first one's reply. A viewer can
-    // only preview, which writes nothing, so it keeps no record either. Otherwise
-    // anyone reading a public demo could fill this table.
-    if (!key || ["GET", "HEAD"].includes(c.req.method) || c.req.path === "/v1/mcp" || c.get("actor").role === "viewer") return next();
-    const principal = c.get("principal");
+    // only preview, which writes nothing, so it keeps no record either. Nor does a
+    // guest, or a public route. Otherwise anyone reading a public demo could fill
+    // this table.
+    const role = c.get("actor")?.role;
+    if (!key || ["GET", "HEAD"].includes(c.req.method) || c.req.path === "/v1/mcp" || !role || role === "viewer" || role === "guest") return next();
+    // An agent acting for a visitor keeps its records apart for each visitor, so no
+    // visitor gets another's reply.
+    const audience = c.get("audience");
+    const principal = audience ? `${c.get("principal")}|${audience}` : c.get("principal");
     const seen = service.log.db.prepare("SELECT status, body FROM idempotency WHERE actor = ? AND key = ?").get(principal, key) as
       | { status: number; body: string }
       | undefined;
@@ -347,14 +443,53 @@ export function createApp(options: AppOptions) {
     handler: (c: HonoContext<Env>) => Response | Promise<Response>;
   };
 
+  // The service as the caller sees it: the shared record, plus their own sandbox
+  // when they are a visitor or act for one.
+  const view = (c: HonoContext<Env>) => service.viewFor(c.get("audience") ?? null);
+  const audienceOf = (c: HonoContext<Env>) => c.get("audience") ?? null;
+  // The entries a caller reads of the log: every sandbox's for an agent acting for
+  // everyone, and otherwise the caller's own.
+  const scopeOf = (c: HonoContext<Env>) => (c.get("everyone") ? EVERYONE : audienceOf(c));
+  const isGuest = (c: HonoContext<Env>) => c.get("actor")?.role === "guest";
+
+  // A visitor's message or media request needs this much of today's budget left.
+  // A message starts a run of model calls; an image and a short video cost more.
+  const MESSAGE_USD = 0.1;
+  const MEDIA_USD = 0.7;
+  const requireBudget = (c: HonoContext<Env>, usd: number) => {
+    const audience = audienceOf(c);
+    if (audience) budget?.require(audience, usd);
+  };
+
   const routes: Route[] = [
     {
       method: "get",
       path: "/v1/config",
-      summary: "How to sign in, and what a request without a token may do. Needs no token",
+      summary: "How to sign in, what a request without a token may do, and whether visitors get guest passes. Needs no token",
       roles: anyone,
       public: true,
-      handler: (c) => c.json({ auth: access, signIn } satisfies ServiceConfig),
+      handler: (c) => c.json({ auth: access, signIn, guests: Boolean(guests) } satisfies ServiceConfig),
+    },
+    {
+      method: "post",
+      path: "/v1/guests",
+      summary: "Get a guest pass, to act as a visitor in a sandbox of your own. Needs no token, and writes nothing",
+      roles: anyone,
+      public: true,
+      handler: (c) => {
+        if (!guests) throw new ApiError(404, "not_found", "This service gives out no guest passes");
+        return c.json(issueGuest(guests.secret, clock()) satisfies GuestPass, 201, { "cache-control": "no-store" });
+      },
+    },
+    {
+      method: "get",
+      path: "/v1/budget",
+      summary: "What is left of today's Gemini budget for visitors, for the visitor you are or act for",
+      roles: anyone,
+      handler: (c) => {
+        const audience = audienceOf(c);
+        return c.json((budget && audience ? budget.view(audience) : { capped: false }) satisfies BudgetView);
+      },
     },
     {
       method: "get",
@@ -375,7 +510,7 @@ export function createApp(options: AppOptions) {
       handler: async (c) => {
         const type = c.req.header("content-type") ?? "";
         if (!type.startsWith("multipart/form-data")) {
-          return c.json(service.addContext(actorName(c), await bodyOf(c, NewContext)), 201);
+          return c.json(view(c).addContext(actorName(c), await bodyOf(c, NewContext)), 201);
         }
         const form = await c.req.parseBody();
         const file = form.file;
@@ -384,7 +519,7 @@ export function createApp(options: AppOptions) {
         const pages = await extractPages(file.name, bytes);
         const input = NewContext.parse({ title: String(form.title ?? file.name), folder: String(form.folder ?? "Inbox"), pages });
         const fileHash = createHash("sha256").update(bytes).digest("hex");
-        return c.json(service.addContext(actorName(c), input, fileHash), 201);
+        return c.json(view(c).addContext(actorName(c), input, fileHash), 201);
       },
     },
     {
@@ -392,14 +527,14 @@ export function createApp(options: AppOptions) {
       path: "/v1/context",
       summary: "List context",
       roles: anyone,
-      handler: (c) => c.json([...service.state.contexts.values()]),
+      handler: (c) => c.json([...view(c).state.contexts.values()]),
     },
     {
       method: "get",
       path: "/v1/context/:id/pages/:page",
       summary: "Read one page of a document",
       roles: anyone,
-      handler: (c) => c.json({ text: service.contextPage(c.req.param("id") as string, Number(c.req.param("page"))) }),
+      handler: (c) => c.json({ text: view(c).contextPage(c.req.param("id") as string, Number(c.req.param("page"))) }),
     },
     {
       method: "get",
@@ -411,7 +546,7 @@ export function createApp(options: AppOptions) {
         if (!q) throw new ApiError(400, "invalid_query", "Say what to look for in q");
         const limit = c.req.query("limit") ?? "10";
         if (!/^\d+$/.test(limit) || Number(limit) < 1) throw new ApiError(400, "invalid_query", "limit must be a whole number, 1 or more");
-        return c.json({ results: service.search(q, Math.min(Number(limit), 50)) });
+        return c.json({ results: view(c).search(q, Math.min(Number(limit), 50)) });
       },
     },
     {
@@ -420,21 +555,21 @@ export function createApp(options: AppOptions) {
       summary: "Open a study",
       roles: authors,
       body: NewStudy,
-      handler: async (c) => c.json(service.openStudy(actorName(c), await bodyOf(c, NewStudy)), 201),
+      handler: async (c) => c.json(view(c).openStudy(actorName(c), await bodyOf(c, NewStudy)), 201),
     },
     {
       method: "get",
       path: "/v1/studies",
       summary: "List studies",
       roles: anyone,
-      handler: (c) => c.json(service.studies()),
+      handler: (c) => c.json(view(c).studies()),
     },
     {
       method: "get",
       path: "/v1/studies/:id",
       summary: "Read a study: figures, checks, findings and decision",
       roles: anyone,
-      handler: (c) => c.json(service.viewStudy(c.req.param("id") as string)),
+      handler: (c) => c.json(view(c).viewStudy(c.req.param("id") as string)),
     },
     {
       method: "post",
@@ -442,7 +577,7 @@ export function createApp(options: AppOptions) {
       summary: "Add a figure. Rejected if it has no valid source",
       roles: authors,
       body: NewFigure,
-      handler: async (c) => c.json(service.addFigure(actorName(c), c.req.param("id") as string, await bodyOf(c, NewFigure)), 201),
+      handler: async (c) => c.json(view(c).addFigure(actorName(c), c.req.param("id") as string, await bodyOf(c, NewFigure)), 201),
     },
     {
       method: "post",
@@ -450,7 +585,7 @@ export function createApp(options: AppOptions) {
       summary: "Test a figure against a rule",
       roles: authors,
       body: NewCheck,
-      handler: async (c) => c.json(service.addCheck(actorName(c), c.req.param("id") as string, await bodyOf(c, NewCheck)), 201),
+      handler: async (c) => c.json(view(c).addCheck(actorName(c), c.req.param("id") as string, await bodyOf(c, NewCheck)), 201),
     },
     {
       method: "post",
@@ -458,25 +593,25 @@ export function createApp(options: AppOptions) {
       summary: "Add a finding the service can't compute, such as public feedback",
       roles: authors,
       body: NewFinding,
-      handler: async (c) => c.json(service.addFinding(actorName(c), c.req.param("id") as string, await bodyOf(c, NewFinding)), 201),
+      handler: async (c) => c.json(view(c).addFinding(actorName(c), c.req.param("id") as string, await bodyOf(c, NewFinding)), 201),
     },
     {
       method: "put",
       path: "/v1/studies/:id/findings/:finding/tone",
-      summary: "Rate how a finding reads. Agents can only propose a tone. Planners only",
-      roles: planners,
+      summary: "Rate how a finding reads. Agents can only propose a tone. Planners, or a visitor in their own sandbox",
+      roles: people,
       body: FindingRating,
       handler: async (c) => {
         const { tone } = await bodyOf(c, FindingRating);
-        return c.json(service.rateFinding(actorName(c), c.req.param("id") as string, c.req.param("finding") as string, tone));
+        return c.json(view(c).rateFinding(actorName(c), c.req.param("id") as string, c.req.param("finding") as string, tone));
       },
     },
     {
       method: "post",
       path: "/v1/studies/:id/figures/:figure/accept",
-      summary: "Accept a skill's result so it can pass or fail a check. Planners only",
-      roles: planners,
-      handler: (c) => c.json(service.acceptFigure(actorName(c), c.req.param("id") as string, c.req.param("figure") as string)),
+      summary: "Accept a skill's result so it can pass or fail a check. Planners, or a visitor in their own sandbox",
+      roles: people,
+      handler: (c) => c.json(view(c).acceptFigure(actorName(c), c.req.param("id") as string, c.req.param("figure") as string)),
     },
     {
       method: "post",
@@ -484,32 +619,35 @@ export function createApp(options: AppOptions) {
       summary: "Propose something to make for public engagement in one place, such as a poster or a short video",
       roles: authors,
       body: NewNeed,
-      handler: async (c) => c.json(service.addNeed(actorName(c), c.req.param("id") as string, await bodyOf(c, NewNeed)), 201),
+      handler: async (c) => c.json(view(c).addNeed(actorName(c), c.req.param("id") as string, await bodyOf(c, NewNeed)), 201),
     },
     {
       method: "post",
       path: "/v1/studies/:id/needs/:need/create",
-      summary: "Ask for a need's image or video to be made. Asking again changes nothing. Planners only",
-      roles: planners,
-      handler: (c) => c.json(service.requestCreation(actorName(c), c.req.param("id") as string, c.req.param("need") as string), 202),
+      summary: "Ask for a need's image or video to be made. Asking again changes nothing. Planners, or a visitor in their own sandbox",
+      roles: people,
+      handler: (c) => {
+        if (isGuest(c)) requireBudget(c, MEDIA_USD);
+        return c.json(view(c).requestCreation(actorName(c), c.req.param("id") as string, c.req.param("need") as string), 202);
+      },
     },
     {
       method: "post",
       path: "/v1/studies/:id/needs/:need/claim",
-      summary: "Take on a planner's request to make a need, before spending anything. One agent holds it at a time, for 20 minutes. Agents only",
+      summary: "Take on a request to make a need, before spending anything: a planner's, or, acting for a visitor, theirs. One agent holds it at a time, for 20 minutes. Agents only",
       roles: agents,
       body: NeedClaim,
       handler: async (c) =>
-        c.json(service.claimCreation(actorName(c), c.req.param("id") as string, c.req.param("need") as string, await bodyOf(c, NeedClaim))),
+        c.json(view(c).claimCreation(actorName(c), c.req.param("id") as string, c.req.param("need") as string, await bodyOf(c, NeedClaim))),
     },
     {
       method: "post",
       path: "/v1/studies/:id/needs/:need/failed",
-      summary: "Say why a need's image or video couldn't be made, with the request's claim. Nothing more is made until a planner asks again. Agents only",
+      summary: "Say why a need's image or video couldn't be made, with the request's claim. Nothing more is made until someone asks again. Agents only",
       roles: agents,
       body: NeedFailure,
       handler: async (c) =>
-        c.json(service.failCreation(actorName(c), c.req.param("id") as string, c.req.param("need") as string, await bodyOf(c, NeedFailure))),
+        c.json(view(c).failCreation(actorName(c), c.req.param("id") as string, c.req.param("need") as string, await bodyOf(c, NeedFailure))),
     },
     {
       method: "post",
@@ -518,7 +656,7 @@ export function createApp(options: AppOptions) {
       roles: planners,
       body: NeedWithdrawal,
       handler: async (c) =>
-        c.json(service.dismissNeed(actorName(c), c.req.param("id") as string, c.req.param("need") as string, await bodyOf(c, NeedWithdrawal))),
+        c.json(view(c).dismissNeed(actorName(c), c.req.param("id") as string, c.req.param("need") as string, await bodyOf(c, NeedWithdrawal))),
     },
     {
       method: "post",
@@ -528,7 +666,7 @@ export function createApp(options: AppOptions) {
       body: NeedWithdrawal,
       handler: async (c) =>
         c.json(
-          service.withdrawMedia(actorName(c), c.req.param("id") as string, c.req.param("need") as string, c.req.param("media") as string, await bodyOf(c, NeedWithdrawal)),
+          view(c).withdrawMedia(actorName(c), c.req.param("id") as string, c.req.param("need") as string, c.req.param("media") as string, await bodyOf(c, NeedWithdrawal)),
         ),
     },
     {
@@ -542,7 +680,7 @@ export function createApp(options: AppOptions) {
         const needId = c.req.param("need") as string;
         // Checked before the body is read, so an upload nobody asked for costs nothing,
         // and one that is asked for gets room for what it still lacks.
-        const kinds = service.uploadable(actorName(c), studyId, needId);
+        const kinds = view(c).uploadable(actorName(c), studyId, needId);
         const room = Math.max(...kinds.map((kind) => MEDIA_MAX_BYTES[kind])) + FORM_ROOM;
         const contentType = c.req.header("content-type") ?? "";
         if (!contentType.startsWith("multipart/form-data")) throw new ApiError(400, "invalid_body", "Send the file and its fields as multipart/form-data");
@@ -582,7 +720,7 @@ export function createApp(options: AppOptions) {
             alt: field("alt"),
           });
           if (!parsed.success) throw new ApiError(400, "invalid_body", z.prettifyError(parsed.error));
-          return c.json(service.addMedia(actorName(c), studyId, parsed.data, { bytes: file.data, ...(file.type ? { type: file.type } : {}) }), 201);
+          return c.json(view(c).addMedia(actorName(c), studyId, parsed.data, { bytes: file.data, ...(file.type ? { type: file.type } : {}) }), 201);
         } finally {
           uploading -= 1;
         }
@@ -599,11 +737,24 @@ export function createApp(options: AppOptions) {
     {
       method: "post",
       path: "/v1/studies/:id/activity",
-      summary: "Report agent progress, messages, tokens and cost",
-      roles: authors,
+      summary: "Report agent progress, messages, tokens and cost. A visitor may only send a message",
+      roles: [...authors, "guest"],
       body: Activity,
       handler: async (c) => {
-        const entry = service.recordActivity(actorName(c), c.req.param("id") as string, await bodyOf(c, Activity));
+        const activity = await bodyOf(c, Activity);
+        // A visitor chats, and the agents report the rest. Usage from a visitor
+        // would misstate what the agents spent.
+        if (isGuest(c)) {
+          if (activity.kind !== "message") throw new ApiError(403, "sign_in_required", SIGN_IN_AS_PLANNER);
+          requireBudget(c, MESSAGE_USD);
+        }
+        const entry = view(c).recordActivity(actorName(c), c.req.param("id") as string, activity);
+        // An agent acting for a visitor learns what is left after each model call,
+        // so a run can stop once the budget is spent.
+        const audience = audienceOf(c);
+        if (budget && audience && activity.kind === "usage" && c.get("actor").role === "agent") {
+          return c.json({ seq: entry.seq, budgetLeftUsd: budget.left(audience) }, 201);
+        }
         return c.json({ seq: entry.seq }, 201);
       },
     },
@@ -613,7 +764,7 @@ export function createApp(options: AppOptions) {
       summary: "Try a change. Writes nothing",
       roles: anyone,
       body: Preview,
-      handler: async (c) => c.json(service.viewStudy(c.req.param("id") as string, await bodyOf(c, Preview))),
+      handler: async (c) => c.json(view(c).viewStudy(c.req.param("id") as string, await bodyOf(c, Preview))),
     },
     {
       method: "post",
@@ -621,7 +772,7 @@ export function createApp(options: AppOptions) {
       summary: "Record a decision. Planners only",
       roles: planners,
       body: NewDecision,
-      handler: async (c) => c.json(service.recordDecision(actorName(c), c.req.param("id") as string, await bodyOf(c, NewDecision)), 201),
+      handler: async (c) => c.json(view(c).recordDecision(actorName(c), c.req.param("id") as string, await bodyOf(c, NewDecision)), 201),
     },
     {
       method: "get",
@@ -630,8 +781,8 @@ export function createApp(options: AppOptions) {
       roles: anyone,
       handler: (c) => {
         const from = Number(c.req.query("from") ?? 0);
-        const to = Number(c.req.query("to") ?? service.log.head().seq);
-        return c.json(service.compare(c.req.param("id") as string, from, to));
+        const to = Number(c.req.query("to") ?? service.log.headFor(audienceOf(c)).seq);
+        return c.json(view(c).compare(c.req.param("id") as string, from, to));
       },
     },
     {
@@ -641,7 +792,7 @@ export function createApp(options: AppOptions) {
       roles: anyone,
       handler: (c) => {
         if (!timeline) throw new ApiError(404, "not_found", "Timeline is not available");
-        return c.json(timeline(c.req.param("id") as string) as object);
+        return c.json(timeline(c.req.param("id") as string, view(c)) as object);
       },
     },
     {
@@ -649,22 +800,22 @@ export function createApp(options: AppOptions) {
       path: "/v1/studies/:id/figures/:figure/trace",
       summary: "Trace a figure back to its source",
       roles: anyone,
-      handler: (c) => c.json(service.trace(c.req.param("id") as string, c.req.param("figure") as string)),
+      handler: (c) => c.json(view(c).trace(c.req.param("id") as string, c.req.param("figure") as string)),
     },
     {
       method: "put",
       path: "/v1/assumptions/:key",
-      summary: "Set or change an assumption, with a reason. Planners only",
-      roles: planners,
+      summary: "Set or change an assumption, with a reason. Planners, or a visitor in their own sandbox",
+      roles: people,
       body: NewAssumption,
-      handler: async (c) => c.json(service.setAssumption(actorName(c), c.req.param("key") as string, await bodyOf(c, NewAssumption))),
+      handler: async (c) => c.json(view(c).setAssumption(actorName(c), c.req.param("key") as string, await bodyOf(c, NewAssumption))),
     },
     {
       method: "get",
       path: "/v1/assumptions",
       summary: "List assumptions with their history",
       roles: anyone,
-      handler: (c) => c.json([...service.state.assumptions.values()]),
+      handler: (c) => c.json([...view(c).state.assumptions.values()]),
     },
     {
       method: "put",
@@ -672,17 +823,17 @@ export function createApp(options: AppOptions) {
       summary: "Approve a skill version, so its results can enter studies. Planners only",
       roles: planners,
       body: NewSkill,
-      handler: async (c) => c.json(service.registerSkill(actorName(c), c.req.param("name") as string, await bodyOf(c, NewSkill)), 201),
+      handler: async (c) => c.json(view(c).registerSkill(actorName(c), c.req.param("name") as string, await bodyOf(c, NewSkill)), 201),
     },
     {
       method: "post",
       path: "/v1/log/:seq/remove-content",
-      summary: "Remove an entry's content for retention or privacy. The entry and chain stay. Planners only",
+      summary: "Remove an entry's content for retention or privacy. The entry and chain stay. For a visitor's entry, give their audience. Planners only",
       roles: planners,
       body: ContentRemoval,
       handler: async (c) => {
-        const { reason } = await bodyOf(c, ContentRemoval);
-        return c.json(service.removeContent(actorName(c), Number(c.req.param("seq")), reason), 201);
+        const { reason, audience } = await bodyOf(c, ContentRemoval);
+        return c.json(view(c).removeContent(actorName(c), Number(c.req.param("seq")), reason, audience ?? null), 201);
       },
     },
     {
@@ -691,31 +842,39 @@ export function createApp(options: AppOptions) {
       summary: "Read the log from a position",
       roles: anyone,
       handler: (c) => {
-        const after = Number(c.req.query("after") ?? 0);
-        const limit = Math.min(Number(c.req.query("limit") ?? 200), 1000);
-        return c.json(service.log.since(after, limit));
+        const after = whole(c.req.query("after"), 0, 0, Number.MAX_SAFE_INTEGER);
+        const limit = whole(c.req.query("limit"), 200, 1, 1000);
+        return c.json(service.log.since(after, limit, scopeOf(c)));
       },
     },
     {
       method: "get",
       path: "/v1/log/verify",
-      summary: "Check the hash chain",
+      summary: "Check the hash chain, and get the hash of the latest entry you can read",
       roles: anyone,
-      handler: (c) => c.json(service.log.verify()),
+      handler: (c) => {
+        // The whole chain is checked, visitors' sandboxes too. Its length and last
+        // hash would show when visitors work, so only an agent acting for everyone
+        // gets them.
+        const verified = service.log.verify();
+        const scope = scopeOf(c);
+        if (!verified.ok || scope === EVERYONE) return c.json(verified);
+        return c.json({ ok: true, head: service.log.headFor(scope).hash });
+      },
     },
     {
       method: "get",
       path: "/v1/log/head",
-      summary: "Read the latest position and hash, to keep as a witness",
+      summary: "Read the latest position and hash you can read, to keep as a witness",
       roles: anyone,
-      handler: (c) => c.json(service.log.head()),
+      handler: (c) => c.json(service.log.headFor(scopeOf(c))),
     },
     {
       method: "get",
       path: "/v1/usage",
-      summary: "Tokens and cost, in total and by study",
+      summary: "Everything agents have spent: tokens and cost, in total, with visitors' sandboxes added in, and by study, for the shared record. Each comes with an estimate of the energy, CO2e and water the calls used, at least",
       roles: anyone,
-      handler: (c) => c.json(service.usage()),
+      handler: (c) => c.json(view(c).usage()),
     },
     {
       method: "post",
@@ -743,12 +902,19 @@ export function createApp(options: AppOptions) {
 
   for (const route of routes) {
     if (route.public) publicRoutes.push({ method: route.method.toUpperCase(), path: new RegExp(`^${route.path.replace(/:\w+/g, "[^/]+")}$`) });
+    // Writes, which a visitor may make only so often. A preview writes nothing.
+    const writes = route.method !== "get" && !route.path.endsWith("/preview");
     app[route.method](route.path, async (c) => {
-      if (!route.public && !route.roles.includes(c.get("actor").role)) {
+      if (route.public) return route.handler(c);
+      const { role } = c.get("actor");
+      if (!route.roles.includes(role)) {
         // Without a token, anything beyond reading needs one, as in token mode.
         if (c.get("anonymous")) throw new ApiError(401, "token_required", "A token is required");
-        throw new ApiError(403, "forbidden", `This needs a ${route.roles.join(" or ")} token, not ${c.get("actor").role}`);
+        // A visitor can do everything a planner can but decide, so signing in is the way.
+        if (role === "guest") throw new ApiError(403, "sign_in_required", route.path.endsWith("/decisions") ? SIGN_IN_TO_DECIDE : SIGN_IN_AS_PLANNER);
+        throw new ApiError(403, "forbidden", `This needs a ${route.roles.join(" or ")} token, not ${role}`);
       }
+      if (role === "guest" && writes) limits.take(audienceOf(c) as string);
       return route.handler(c);
     });
   }
@@ -760,7 +926,15 @@ export function createApp(options: AppOptions) {
   app.get("/v1/events", (c) => {
     const wanted = c.req.query("types")?.split(",").filter(Boolean);
     const after = Number(c.req.header("last-event-id") ?? c.req.query("after") ?? 0);
-    const matches = (entry: Entry) => !wanted || wanted.includes(entry.type);
+    // The shared record, and the caller's own sandbox. Never the whole log.
+    const audience = audienceOf(c);
+    const wants = (type: string) => !wanted || wanted.includes(type);
+    const matches = (entry: Entry) => visible(entry, audience) && wants(entry.type);
+    // A model call made in someone else's sandbox. The stream can't show it, but
+    // says one was made, as everyone's /v1/usage total does, so the spend screen
+    // loads the new total at once.
+    const unseenUsage = (entry: Entry) =>
+      !visible(entry, audience) && entry.type === "activity" && (entry.data as { kind?: string }).kind === "usage" && wants("activity");
     return streamSSE(c, async (stream) => {
       const queue: Entry[] = [];
       let wake: (() => void) | undefined;
@@ -772,10 +946,12 @@ export function createApp(options: AppOptions) {
         unsubscribe();
         wake?.();
       });
-      for (const entry of service.log.since(after, 100_000)) {
+      // The replay ends at the head as it is now. An entry written later, even while
+      // the replay is still being sent, comes from the queue, once.
+      const sent = service.log.head().seq;
+      for (const entry of service.log.since(after, 100_000, audience)) {
         if (matches(entry)) await stream.writeSSE({ id: String(entry.seq), event: entry.type, data: JSON.stringify(entry) });
       }
-      const sent = service.log.head().seq;
       while (!stream.aborted) {
         const entry = queue.shift();
         if (!entry) {
@@ -789,8 +965,13 @@ export function createApp(options: AppOptions) {
           clearTimeout(timer);
           continue;
         }
-        if (entry.seq > sent && matches(entry)) {
+        if (entry.seq <= sent) continue;
+        if (matches(entry)) {
           await stream.writeSSE({ id: String(entry.seq), event: entry.type, data: JSON.stringify(entry) });
+        } else if (unseenUsage(entry)) {
+          // Nothing of the entry: no content, and no id, so a stream that starts
+          // again carries on from the last entry it could show.
+          await stream.writeSSE({ event: "usage", data: "{}" });
         }
       }
     });
@@ -812,7 +993,13 @@ export function createApp(options: AppOptions) {
         responses: { default: { description: "See summary" } },
       };
     }
-    paths["/v1/events"] = { get: { summary: "Stream the log as server-sent events", "x-roles": anyone, responses: { default: { description: "Event stream" } } } };
+    paths["/v1/events"] = {
+      get: {
+        summary: "Stream the log as server-sent events. A model call in a sandbox you can't read comes as an empty usage event",
+        "x-roles": anyone,
+        responses: { default: { description: "Event stream" } },
+      },
+    };
     return c.json({
       openapi: "3.1.0",
       info: { title: "Transit Agents", version: "0.1.0" },
@@ -822,7 +1009,8 @@ export function createApp(options: AppOptions) {
     });
   });
 
-  app.get("/health", (c) => c.json({ ok: true, head: service.log.head() }));
+  // Anyone may ask, so it gives the shared record's head.
+  app.get("/health", (c) => c.json({ ok: true, head: service.log.headFor(null) }));
 
   if (staticDir && existsSync(staticDir)) {
     const root = resolve(staticDir);

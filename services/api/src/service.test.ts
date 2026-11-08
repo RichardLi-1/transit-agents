@@ -4,7 +4,8 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { NewAssumption, NewCheck, NewContext, NewDecision, NewFigure, NewFinding, NewMedia, NewNeed, NewStudy } from "@transit-agents/contracts";
+import { NewAssumption, NewCheck, NewContext, NewDecision, NewFigure, NewFinding, NewMedia, NewNeed, NewStudy, type Usage } from "@transit-agents/contracts";
+import { GEMINI_PROMPT } from "./footprint.ts";
 import { padded, SAMPLE } from "./sample-media.ts";
 import { ApiError, CLAIM_MS, Service } from "./service.ts";
 
@@ -41,6 +42,18 @@ function seed(service: Service) {
 
 const rejects = (fn: () => unknown, code: string) =>
   assert.throws(fn, (error) => error instanceof ApiError && error.code === code, code);
+
+const need = (id: string, title = "Engagement poster") =>
+  NewNeed.parse({
+    id,
+    title,
+    place: "Sunnybrook Hospital",
+    lon: -79.375262,
+    lat: 43.722663,
+    kinds: ["image"],
+    reason: "Riders can now reach the hospital without a transfer.",
+    citations: [{ contextId: "plan", page: 1, quote: "ridership increase of 1,680 customers" }],
+  });
 
 describe("Service", () => {
   let service: Service;
@@ -284,6 +297,41 @@ describe("Service", () => {
       assert.equal(total.unpricedCalls, 1);
       assert.equal(byStudy.lawrence?.unpricedCalls, 1);
     });
+
+    it("estimates at least the energy, CO2e and water of each call, in total and by study", () => {
+      service.openStudy("agent:lead", NewStudy.parse({ id: "sherbourne", title: "Sherbourne–Castle Frank" }));
+      // A call without a cost still used energy.
+      for (let i = 0; i < 11; i++) service.recordActivity("agent:a", "lawrence", { kind: "usage", model: "m", inputTokens: 1000, outputTokens: 200 });
+      service.recordActivity("agent:a", "sherbourne", { kind: "usage", model: "m", inputTokens: 1000, outputTokens: 200, costUsd: 0.5 });
+      const { total, byStudy } = service.usage();
+      const amounts = (usage?: Usage) => {
+        const { atLeast, energyWh, co2eGrams, waterMl } = usage?.estimate ?? {};
+        return { atLeast, energyWh, co2eGrams, waterMl };
+      };
+      // 11 calls are 2.64 Wh, without floating-point noise such as 2.6399999999999997.
+      assert.deepEqual(amounts(byStudy.lawrence), { atLeast: true, energyWh: 2.64, co2eGrams: 0.33, waterMl: 2.86 });
+      assert.deepEqual(amounts(byStudy.sherbourne), { atLeast: true, energyWh: 0.24, co2eGrams: 0.03, waterMl: 0.26 });
+      assert.deepEqual(amounts(total), { atLeast: true, energyWh: 2.88, co2eGrams: 0.36, waterMl: 3.12 });
+    });
+
+    it("estimates nothing before any call", () => {
+      assert.deepEqual(service.usage().total.estimate, { atLeast: true, energyWh: 0, co2eGrams: 0, waterMl: 0, basis: GEMINI_PROMPT });
+    });
+
+    it("cites the per-prompt figures it counts each call as, word for word", () => {
+      const basis = service.usage().total.estimate?.basis;
+      assert.deepEqual(basis?.source, {
+        title: "Measuring the environmental impact of delivering AI at Google Scale",
+        url: "https://arxiv.org/abs/2508.15734",
+        date: "2025-08-21",
+        quote: "For Google’s Gemini Apps products, a median text prompt consumes 0.24 Wh of energy, generates 0.03 gCO2e, and consumes 0.26 mL of water.",
+      });
+      assert.equal(basis?.co2e, "market-based");
+      // Each figure the estimate uses is in the quote.
+      for (const figure of [`${basis?.perCallWh} Wh`, `${basis?.perCallCo2eGrams} gCO2e`, `${basis?.perCallWaterMl} mL`]) {
+        assert.ok(basis?.source.quote.includes(figure), figure);
+      }
+    });
   });
 
   describe("context", () => {
@@ -442,7 +490,7 @@ describe("engagement", () => {
     assert.deepEqual(ready?.media, [attached]);
     assert.equal(attached.url, `/v1/media/${sha256}`);
     assert.equal(attached.label, "Illustrative");
-    assert.deepEqual(service.mediaFile(sha256), { id: sha256, path: join(dir, "media", sha256), type: "image/png", size: SAMPLE.png.length });
+    assert.deepEqual(service.mediaFile(sha256), { id: sha256, path: join(dir, "media", sha256), type: "image/png", size: SAMPLE.png.length, private: false, need: "poster" });
   });
 
   it("attaches the same file once", () => {
@@ -553,6 +601,218 @@ describe("engagement", () => {
     claim("poster", bare);
     rejects(() => bare.addMedia("agent:media", "lawrence", media(), { bytes: SAMPLE.png }), "no_media_store");
     assert.equal(bare.log.since(0).some((entry) => entry.type === "media.added"), false);
+  });
+});
+
+describe("visitors", () => {
+  const A = `guest:${"a".repeat(22)}`;
+  const B = `guest:${"b".repeat(22)}`;
+  const CANARY = "canary-7f3a9c";
+  let dir: string;
+  let root: Service;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "transit-visitors-"));
+    root = new Service(":memory:", { mediaDir: join(dir, "media") });
+    seed(root);
+    root.addNeed("agent:lead", "lawrence", need("poster"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  // What a visitor does, and what the agents do for them.
+  function work(view: Service, text = CANARY, file = SAMPLE.png) {
+    view.recordActivity("guest:a", "lawrence", { kind: "message", text });
+    view.setAssumption("guest:a", "ridership-realised", NewAssumption.parse({ value: 0.25, reason: text }));
+    view.rateFinding("guest:a", "lawrence", "survey", "negative");
+    view.addFigure("agent:lead", "lawrence", cited("mine", 25, 1, "cost 25 weekly service hours", text));
+    view.addNeed("agent:lead", "lawrence", need("mine", text));
+    view.requestCreation("guest:a", "lawrence", "poster");
+    view.claimCreation("agent:media", "lawrence", "poster", { claim: CLAIM });
+    view.recordActivity("agent:lead", "lawrence", { kind: "usage", model: "m", inputTokens: 100, outputTokens: 10, costUsd: 0.5 });
+    return view.addMedia("agent:media", "lawrence", NewMedia.parse({ needId: "poster", claim: CLAIM, kind: "image", model: "m", prompt: text }), { bytes: file });
+  }
+
+  it("never change the shared record", () => {
+    const state = structuredClone(root.state);
+    const studies = root.studies();
+    const usage = structuredClone(root.usage());
+    const head = root.log.head().seq;
+    const { id } = work(root.viewFor(A));
+    assert.deepEqual(root.state, state);
+    assert.deepEqual(root.studies(), studies);
+    // Only its spend counts, added to everyone's.
+    assert.equal(root.usage().total.costUsd, usage.total.costUsd + 0.5);
+    assert.equal(root.state.assumptions.get("ridership-realised")?.value, 1);
+    assert.equal(root.log.since(0).length, head);
+    assert.ok(root.log.since(head, 1000, A).every((entry) => entry.audience === A));
+    assert.equal(root.mediaFile(id).private, true);
+
+    const mine = root.viewFor(A);
+    const lawrence = mine.viewStudy("lawrence");
+    assert.ok(lawrence.figures.some((f) => f.id === "mine" && f.label === CANARY));
+    assert.deepEqual(lawrence.needs.map((n) => [n.id, n.status]), [["poster", "ready"], ["mine", "needed"]]);
+    assert.equal(lawrence.findings[0]?.tone, "negative");
+    assert.equal(mine.state.assumptions.get("ridership-realised")?.reason, CANARY);
+    assert.deepEqual(mine.usage(), root.usage());
+    assert.ok(mine.state.media.has(id));
+  });
+
+  it("keep one visitor's work from another", () => {
+    const { id } = work(root.viewFor(A));
+    assert.deepEqual(root.viewFor(B).state, root.state);
+    const theirs = work(root.viewFor(B), "theirs", SAMPLE.jpeg);
+    const other = root.viewFor(B);
+    const seen = JSON.stringify([...other.studies(), [...other.state.assumptions.values()], other.usage()]);
+    assert.equal(seen.includes(CANARY), false);
+    assert.equal(seen.includes(id), false);
+    assert.ok(seen.includes("theirs") && seen.includes(theirs.id));
+    assert.equal(other.state.media.has(id), false);
+    assert.deepEqual(other.viewStudy("lawrence").needs[0]?.media.map((m) => m.id), [theirs.id]);
+    assert.deepEqual(other.usage(), root.usage());
+    assert.equal(root.viewFor(null), root);
+    assert.equal(other.viewFor(null), root);
+  });
+
+  it("let a visitor use ids another visitor used, but not twice in their own sandbox", () => {
+    const a = root.viewFor(A);
+    const b = root.viewFor(B);
+    for (const view of [a, b]) {
+      view.addNeed("agent:lead", "lawrence", need("mine"));
+      view.addFigure("agent:lead", "lawrence", cited("mine", 25, 1, "cost 25 weekly service hours"));
+      view.addFinding("agent:lead", "lawrence", NewFinding.parse({ id: "mine", label: "Mine", text: "Mine", tone: "positive", citation: { contextId: "plan", page: 2, quote: "Survey feedback was overwhelmingly positive" } }));
+    }
+    rejects(() => root.viewFor(A).addNeed("agent:lead", "lawrence", need("mine")), "need_exists");
+    assert.doesNotThrow(() => root.addNeed("agent:lead", "lawrence", need("mine")));
+  });
+
+  it("compare a visitor's changes with the shared record's, never another visitor's", () => {
+    const from = root.log.head().seq;
+    root.setAssumption("planner:ana", "ridership-realised", NewAssumption.parse({ value: 0.75, reason: "Planner's change" }));
+    root.viewFor(A).setAssumption("guest:a", "ridership-realised", NewAssumption.parse({ value: 0.5, reason: "A's change" }));
+    root.viewFor(B).setAssumption("guest:b", "ridership-realised", NewAssumption.parse({ value: 0.25, reason: "B's change" }));
+    const to = root.log.head().seq;
+    const causes = (view: Service) => {
+      const [figure] = view.compare("lawrence", from, to).figures;
+      return [figure?.from, figure?.to, figure?.causes.map((c) => c.reason)];
+    };
+    assert.deepEqual(causes(root), [40, 30, ["Planner's change"]]);
+    assert.deepEqual(causes(root.viewFor(A)), [40, 20, ["Planner's change", "A's change"]]);
+    assert.deepEqual(causes(root.viewFor(B)), [40, 10, ["Planner's change", "B's change"]]);
+  });
+
+  it("can't open a study, add a source, approve a skill, remove content, drop a need or take a file down", () => {
+    const view = root.viewFor(A);
+    const { seq } = view.recordActivity("guest:a", "lawrence", { kind: "message", text: CANARY });
+    const head = root.log.head().seq;
+    rejects(() => view.openStudy("guest:a", NewStudy.parse({ id: "mine", title: "Mine" })), "shared_only");
+    rejects(() => view.addContext("agent:lead", NewContext.parse({ id: "mine", title: "Mine", text: CANARY })), "shared_only");
+    rejects(() => view.registerSkill("agent:lead", "mine", { version: "1", description: "Mine" }), "shared_only");
+    rejects(() => view.removeContent("agent:lead", seq, "Mine"), "shared_only");
+    rejects(() => view.dismissNeed("guest:a", "lawrence", "poster", { reason: "Not wanted" }), "shared_only");
+    rejects(() => view.withdrawMedia("guest:a", "lawrence", "poster", "f".repeat(64), { reason: "Not wanted" }), "shared_only");
+    assert.equal(root.log.head().seq, head);
+    assert.equal(root.state.contexts.has("mine"), false);
+    // The shared record can't reach a visitor's entry either.
+    rejects(() => root.removeContent("planner:ana", seq, "Privacy"), "not_found");
+    assert.equal((root.log.get(seq, A)?.data as { text: string }).text, CANARY);
+  });
+
+  it("let a planner remove what a visitor wrote, given their audience, and show only them the removal", () => {
+    const { seq } = root.viewFor(A).recordActivity("guest:a", "lawrence", { kind: "message", text: CANARY });
+    const state = structuredClone(root.state);
+    const shared = root.log.since(0, 1000, null).length;
+    // Without their audience, or with another visitor's, it is as if nobody wrote there.
+    for (const audience of [null, B]) rejects(() => root.removeContent("planner:ana", seq, "Privacy", audience), "not_found");
+    const removal = root.removeContent("planner:ana", seq, "Privacy", A);
+    assert.equal(removal.audience, A);
+    assert.deepEqual(root.log.get(seq, A)?.data, { redacted: true });
+    assert.equal(JSON.stringify(root.log.since(0, 1000, A)).includes(CANARY), false);
+    assert.equal(root.log.since(0, 1000, A).at(-1)?.type, "content.removed");
+    assert.equal(root.log.since(0, 1000, null).length, shared);
+    assert.equal(root.log.since(0, 1000, B).some((entry) => entry.type === "content.removed"), false);
+    assert.deepEqual(root.state, state);
+    assert.equal(root.log.verify().ok, true);
+    rejects(() => root.removeContent("planner:ana", seq, "Again", A), "already_removed");
+  });
+
+  it("skip an entry of a visitor's that the shared record doesn't allow", () => {
+    const spent = root.usage().total.costUsd;
+    root.log.append({ actor: "agent:lead", type: "figure.recorded", studyId: "gone", data: { id: "x" }, audience: A });
+    root.viewFor(A).recordActivity("agent:lead", "lawrence", { kind: "usage", model: "m", inputTokens: 1, outputTokens: 1, costUsd: 0.25 });
+    const view = root.viewFor(A);
+    assert.equal(view.state.studies.has("gone"), false);
+    assert.equal(view.usage().total.costUsd, spent + 0.25);
+  });
+
+  it("count what agents spend for every visitor in everyone's total, added up, never by study, and the same again on restart", () => {
+    const path = join(dir, "log.db");
+    const first = new Service(path);
+    seed(first);
+    const spend = (view: Service, model: string, costUsd: number) =>
+      view.recordActivity("agent:lead", "lawrence", { kind: "usage", model, inputTokens: 100, outputTokens: 10, costUsd });
+    spend(first, "shared", 1);
+    spend(first.viewFor(A), CANARY, 0.25);
+    spend(first.viewFor(B), "theirs", 0.5);
+    first.viewFor(A).recordActivity("guest:a", "lawrence", { kind: "message", text: CANARY });
+
+    // The same totals for everyone, a visitor or not, with no visitor's apart.
+    const usage = first.usage();
+    for (const view of [first.viewFor(A), first.viewFor(B)]) assert.deepEqual(view.usage(), usage);
+    assert.deepEqual(Object.keys(usage), ["total", "byStudy"]);
+    assert.deepEqual(Object.keys(usage.byStudy), ["lawrence"]);
+    const counted = ({ inputTokens, outputTokens, costUsd, calls }: Usage) => [inputTokens, outputTokens, costUsd, calls];
+    assert.deepEqual(counted(usage.total), [300, 30, 1.75, 3]);
+    // By study, only the shared record's call: visitors' would show where they work.
+    assert.deepEqual(counted(usage.byStudy.lawrence as Usage), [100, 10, 1, 1]);
+    const text = JSON.stringify(usage);
+    for (const secret of [CANARY, "theirs", A, B]) assert.equal(text.includes(secret), false, secret);
+    first.close();
+
+    const second = new Service(path);
+    assert.deepEqual(second.usage(), usage);
+    second.close();
+  });
+
+  it("lose the files made for a need a planner drops, but keep theirs when a planner takes a shared file down", () => {
+    root.addNeed("agent:lead", "lawrence", need("leaflet"));
+    root.requestCreation("planner:ana", "lawrence", "leaflet");
+    root.claimCreation("agent:media", "lawrence", "leaflet", { claim: CLAIM });
+    const shared = root.addMedia("agent:media", "lawrence", NewMedia.parse({ needId: "leaflet", claim: CLAIM, kind: "image", model: "m", prompt: "p" }), { bytes: SAMPLE.jpeg });
+    const theirs = work(root.viewFor(A), CANARY, SAMPLE.webp);
+    assert.deepEqual(root.viewFor(A).viewStudy("lawrence").needs.find((n) => n.id === "poster")?.media.map((m) => m.id), [theirs.id]);
+
+    // The shared leaflet's file goes, and the visitor's poster stays theirs.
+    root.withdrawMedia("planner:ana", "lawrence", "leaflet", shared.id, { reason: "Not right" });
+    rejects(() => root.mediaFile(shared.id), "not_found");
+    assert.equal(root.mediaFile(theirs.id).private, true);
+
+    // Dropping the poster drops it from the visitor's sandbox too, with their file.
+    root.dismissNeed("planner:ana", "lawrence", "poster", { reason: "The change won't go ahead" });
+    assert.equal(root.viewFor(A).viewStudy("lawrence").needs.some((n) => n.id === "poster"), false);
+    rejects(() => root.mediaFile(theirs.id), "not_found");
+    assert.deepEqual(readdirSync(join(dir, "media")), []);
+  });
+
+  it("are rebuilt from the log on restart, with the media each one made", () => {
+    const path = join(dir, "log.db");
+    const options = { mediaDir: join(dir, "media") };
+    const first = new Service(path, options);
+    seed(first);
+    first.addNeed("agent:lead", "lawrence", need("poster"));
+    first.addNeed("agent:lead", "lawrence", need("shared"));
+    first.requestCreation("planner:ana", "lawrence", "shared");
+    first.claimCreation("agent:media", "lawrence", "shared", { claim: CLAIM });
+    const shared = first.addMedia("agent:media", "lawrence", NewMedia.parse({ needId: "shared", claim: CLAIM, kind: "image", model: "m", prompt: "p" }), { bytes: SAMPLE.jpeg });
+    const { id } = work(first.viewFor(A));
+    const state = structuredClone(first.state);
+    const mine = first.viewFor(A).viewStudy("lawrence");
+    first.close();
+
+    const second = new Service(path, options);
+    assert.deepEqual(second.state, state);
+    assert.deepEqual(second.viewFor(A).viewStudy("lawrence"), mine);
+    assert.deepEqual([second.mediaFile(id).private, second.mediaFile(shared.id).private], [true, false]);
+    assert.equal(second.log.verify().ok, true);
+    second.close();
   });
 });
 

@@ -100,9 +100,14 @@ class SpecialistTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("read_page", specialist[0].tools)
         self.assertFalse({"ask_specialist", "list_skills", "report_activity"} & specialist[0].tools)
         # Reading and recording, and nothing that fills its context or tidies the log.
-        self.assertTrue({"read_page", "list_rules", "record_figure", "record_check", "record_finding"} <= specialist[0].tools)
+        recording = {"record_figure", "record_check", "record_finding"}
+        self.assertTrue({"read_page", "list_rules", *recording} <= specialist[0].tools)
         self.assertLessEqual(specialist[0].tools, specialists.TOOLS)
         self.assertFalse({"list_studies", "read_log", "open_study", "add_source", "verify_log"} & specialist[0].tools)
+        # Only the engagement-needs skill's own tool proposes a need, and only a planner
+        # asks for one to be made, or drops one.
+        engagement = {"add_engagement_need", "request_engagement_media", "dismiss_engagement_need", "withdraw_engagement_media"}
+        self.assertFalse(engagement & specialist[0].tools)
         self.assertEqual(specialist[1].results, [("ask_specialist", {"error": "You have no tool named ask_specialist."})])
         self.assertEqual([a["question"] for a in support.activities(study, "subagent.started")], ["Ask someone else?"])
 

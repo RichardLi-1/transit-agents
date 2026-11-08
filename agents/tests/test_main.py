@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import io
+import json
 import os
 import signal
 import time
@@ -37,9 +38,10 @@ async def until(check, timeout=10.0):
 
 
 @contextlib.asynccontextmanager
-async def listening(fake, after):
-    async with support.session() as session:
-        listener = asyncio.create_task(main.listen(session, fake, after=after, poll_seconds=0.05))
+async def listening(fake, after, url=URL):
+    """The listener, reading for everyone from `after`, as the lead."""
+    async with core.open_session(url, AGENT, on_behalf_of=core.EVERYONE) as session:
+        listener = asyncio.create_task(main.listen(session, fake, url=url, token=AGENT, after=after, poll_seconds=0.05))
         try:
             yield
         finally:
@@ -51,6 +53,8 @@ async def listening(fake, after):
 class ListenTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.enterContext(mock.patch.dict(os.environ, {"LEAD_MODEL": "lead-model", "MAX_MODEL_CALLS": ""}))
+        # Nothing spent today: what other tests spent would count toward MAX_DAILY_USD.
+        self.enterContext(mock.patch.dict(core._spent, clear=True))
         self.enterContext(contextlib.redirect_stdout(io.StringIO()))
         self.err = self.enterContext(contextlib.redirect_stderr(io.StringIO()))
 
@@ -93,7 +97,7 @@ class ListenTest(unittest.IsolatedAsyncioTestCase):
         messages = chat(study)
         # Plain words in the chat. The detail, with its settings, is for the terminal.
         self.assertEqual(messages[1][1], "That failed. Gemini couldn't answer. Try again in a few minutes; the agent's terminal says why.")
-        self.assertIn("That failed: Gemini refused lead-model with 429", self.err.getvalue())
+        self.assertIn(f"{study}, planner: that failed: Gemini refused lead-model with 429", self.err.getvalue())
         self.assertEqual(messages[3], ("agent:lead", "Second answer."))
         self.assertEqual(len(support.activities(study, "run.finished")), 2)
 
@@ -198,42 +202,49 @@ class ListenTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(said[3], "Quick answer.")
         self.assertEqual(len(support.activities(study, "run.finished")), 2)
 
-    async def test_never_answers_its_own_messages(self):
-        # Even with a planner's token, which the session refuses, so let it through here.
-        self.enterContext(mock.patch.object(core, "check_agent", mock.AsyncMock()))
-        study = support.open_study("listen-own")
+    async def test_stopping_the_listener_stops_each_run_and_says_so(self):
+        # As SIGTERM does, through until_stopped.
+        study = support.open_study("listen-stop")
         head = api("GET", "/v1/log/head")["seq"]
         say(study, "How many riders?", PLANNER)
-        fake = FakeGemini(lambda request: reply(text="1,680 a week."))
+        started = asyncio.Event()
 
-        async with core.open_session(URL, PLANNER) as session:
-            listener = asyncio.create_task(main.listen(session, fake, after=head, poll_seconds=0.05))
-            try:
-                await until(lambda: len(chat(study)) == 2)
-                await asyncio.sleep(0.5)  # time to answer its own reply, as a planner's
-            finally:
-                listener.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await listener
+        async def respond(request):
+            started.set()
+            await asyncio.sleep(10)  # stopped long before this
 
-        self.assertEqual(len(fake.requests), 1)
-        self.assertEqual(chat(study), [("planner:demo", "How many riders?"), ("planner:demo", "1,680 a week.")])
+        async with listening(FakeGemini(respond), head):
+            await asyncio.wait_for(started.wait(), 10)
 
-    async def test_the_display_message_filter(self):
-        def entry(actor, data, study="s", type="activity"):
-            return {"type": type, "actor": actor, "studyId": study, "data": data}
+        self.assertEqual(chat(study)[-1], ("agent:lead", "Stopped before answering."))
+        self.assertEqual(len(support.activities(study, "run.finished")), 1)
+
+    async def test_the_message_filter(self):
+        visitor = "guest:" + "v" * 22
+
+        def entry(actor, data, study="s", type="activity", audience=None):
+            return {"type": type, "actor": actor, "studyId": study, "data": data, "audience": audience}
 
         message = {"kind": "message", "text": "Hi"}
-        self.assertEqual(main.planner_message(entry("planner:ana", message)), "Hi")
-        self.assertIsNone(main.planner_message(entry("agent:lead", message)))
-        self.assertIsNone(main.planner_message(entry("planner:ana", message, study=None)))
-        self.assertIsNone(main.planner_message(entry("planner:ana", {"kind": "run.started"})))
-        self.assertIsNone(main.planner_message(entry("planner:ana", message, type="study.opened")))
+        self.assertEqual(main.asked(entry("planner:ana", message)), ("Hi", None))
+        self.assertEqual(main.asked(entry(f"guest:{'v' * 22}", message, audience=visitor)), ("Hi", visitor))
+        # An Auth0 viewer is a guest with a user: sandbox.
+        self.assertEqual(main.asked(entry("guest:u", message, audience="user:" + "u" * 22)), ("Hi", "user:" + "u" * 22))
+        # The sandbox comes from the entry, never from the actor.
+        self.assertIsNone(main.asked(entry(f"guest:{'v' * 22}", message)))
+        self.assertIsNone(main.asked(entry("guest:x", message, audience="guest:short")))
+        self.assertIsNone(main.asked(entry("planner:ana", message, audience=visitor)))
+        self.assertIsNone(main.asked(entry("agent:lead", message)))
+        self.assertIsNone(main.asked(entry("agent:lead", message, audience=visitor)))
+        self.assertIsNone(main.asked(entry("planner:ana", message, study=None)))
+        self.assertIsNone(main.asked(entry("planner:ana", {"kind": "run.started"})))
+        self.assertIsNone(main.asked(entry("planner:ana", message, type="study.opened")))
 
 
 class KeepListeningTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.enterContext(mock.patch.dict(os.environ, {"LEAD_MODEL": "lead-model", "MAX_MODEL_CALLS": ""}))
+        self.enterContext(mock.patch.dict(core._spent, clear=True))  # as in ListenTest
         self.out = self.enterContext(contextlib.redirect_stdout(io.StringIO()))
         self.err = self.enterContext(contextlib.redirect_stderr(io.StringIO()))
 
@@ -247,7 +258,7 @@ class KeepListeningTest(unittest.IsolatedAsyncioTestCase):
         timing = {"poll_seconds": 0.05, "retry_seconds": 0.05, "most_seconds": 0.2}
         listener = asyncio.create_task(main.keep_listening(fake, url=url, token=AGENT, **timing))
         try:
-            await until(lambda: "Listening for planners' messages" in self.out.getvalue())
+            await until(lambda: "Listening for messages" in self.out.getvalue())
             say("outage", "First?", PLANNER, url)
             await until(lambda: len(chat("outage", url)) == 2)
 
@@ -271,6 +282,262 @@ class KeepListeningTest(unittest.IsolatedAsyncioTestCase):
     async def test_must_connect_the_first_time(self):
         with self.assertRaisesRegex(core.SetupError, "Can't connect to the service at http://127.0.0.1:9"):
             await main.keep_listening(FakeGemini(lambda request: None), url="http://127.0.0.1:9", token=AGENT)
+
+
+class VisitorListenTest(unittest.IsolatedAsyncioTestCase):
+    """The listener answering visitors in their own sandboxes, on a service with guests on."""
+
+    service: support.Service
+
+    @classmethod
+    def setUpClass(cls):
+        cls.service = support.Service(support.PORT + 1, guests=True)  # the next port, as KeepListeningTest's
+        cls.service.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.service.stop()
+
+    def setUp(self):
+        self.url = self.service.url
+        env = {"LEAD_MODEL": "lead-model", "MAX_MODEL_CALLS": "", "RUNS_AT_ONCE": "", "GUEST_RUN_CALLS": ""}
+        self.enterContext(mock.patch.dict(os.environ, env))
+        self.enterContext(mock.patch.dict(core._spent, clear=True))  # as in ListenTest
+        self.out = self.enterContext(contextlib.redirect_stdout(io.StringIO()))
+        self.err = self.enterContext(contextlib.redirect_stderr(io.StringIO()))
+        self.study = f"visit-{os.urandom(3).hex()}"
+        api("POST", "/v1/studies", {"id": self.study, "title": "Visitors"}, token=AGENT, url=self.url)
+
+    def head(self):
+        return api("GET", "/v1/log/head", url=self.url)["seq"]
+
+    def chat(self, token=PLANNER):
+        """The study's chat as this token sees it: a planner sees the shared record."""
+        return [(a["actor"], a["text"]) for a in support.activities(self.study, "message", self.url, token=token)]
+
+    def run_entries(self):
+        """Every entry of the study, from every sandbox."""
+        return support.entries(self.study, self.url, token=AGENT, on_behalf_of=core.EVERYONE)
+
+    def spend(self, audience, usd):
+        """Report usage made for a visitor, as the lead acting for them."""
+        usage = {"kind": "usage", "model": "lead-model", "inputTokens": 1, "outputTokens": 1, "costUsd": usd}
+        return api("POST", f"/v1/studies/{self.study}/activity", usage, token=AGENT, url=self.url, on_behalf_of=audience)
+
+    async def test_answers_a_visitor_in_their_own_sandbox(self):
+        canary = f"canary-{os.urandom(4).hex()}"
+        token, audience = support.guest(self.url)
+        head = self.head()
+        say(self.study, f"How many riders? {canary}", token, self.url)
+        say(self.study, "And the planners?", PLANNER, self.url)
+        sessions = self.enterContext(watching_sessions())
+        fake = FakeGemini(lambda request: reply(text=f"Answer to: {request.task}"))
+
+        async with listening(fake, head, self.url):
+            await until(lambda: len(self.chat(token)) == 4)
+
+        self.assertEqual(
+            sorted(request.task for request in fake.requests),
+            ["A planner asks: And the planners?", f"A visitor asks: How many riders? {canary}"],
+        )
+        # The visitor sees the shared record and their own run.
+        mine = self.chat(token)
+        self.assertIn(("agent:lead", f"Answer to: A visitor asks: How many riders? {canary}"), mine)
+        self.assertIn(("agent:lead", "Answer to: A planner asks: And the planners?"), mine)
+        # Every entry of the visitor's run is in their sandbox; the planner's run is shared.
+        runs = [e for e in self.run_entries() if e["actor"] == "agent:lead" and e["type"] == "activity"]
+        self.assertEqual({e.get("audience") for e in runs}, {audience, None})
+        for sandbox in (audience, None):
+            kinds = [e["data"]["kind"] for e in runs if e.get("audience") == sandbox]
+            self.assertEqual(kinds, ["run.started", "usage", "message", "run.finished"])
+        [answer] = [e for e in runs if canary in json.dumps(e)]
+        self.assertEqual(answer.get("audience"), audience)
+        # Planners, and the shared read_log, see none of it.
+        shared = support.entries(self.study, self.url)
+        self.assertNotIn(canary, json.dumps(shared))
+        self.assertEqual([e for e in shared if e.get("audience")], [])
+        self.assertEqual(self.chat(), [("planner:demo", "And the planners?"), ("agent:lead", "Answer to: A planner asks: And the planners?")])
+        # The poll acts for everyone; each run's session acts for whoever asked, on every request.
+        self.assertEqual(sorted(map(str, sessions)), sorted(map(str, [core.EVERYONE, audience, None])))
+        # The terminal never shows a visitor's words, or the answer that quotes them.
+        self.assertNotIn(canary, self.out.getvalue() + self.err.getvalue())
+        self.assertIn(f"{self.study}, {audience[:8]}", self.out.getvalue())
+
+    async def test_two_visitors_at_once_and_each_ones_messages_in_order(self):
+        (a, _), (b, _) = support.guest(self.url), support.guest(self.url)
+        head = self.head()
+        say(self.study, "A first", a, self.url)
+        say(self.study, "B only", b, self.url)
+        running, most, order = set(), 0, []
+
+        async def respond(request):
+            nonlocal most
+            question = request.first_turn[-1]
+            running.add(question)
+            most = max(most, len(running))
+            order.append(question)
+            await asyncio.sleep(0.4)
+            running.discard(question)
+            return reply(text="Done.")
+
+        async with listening(FakeGemini(respond), head, self.url):
+            await until(lambda: len(order) == 2)
+            say(self.study, "A second", a, self.url)  # while A's first is answered
+            await until(lambda: len(order) == 3 and not running, timeout=20)
+
+        self.assertEqual(most, 2)  # RUNS_AT_ONCE
+        # A's second waits for A's first, and B goes meanwhile.
+        self.assertEqual(set(order[:2]), {"A visitor asks: A first", "A visitor asks: B only"})
+        self.assertEqual(order[2], "A visitor asks: A second")
+        self.assertEqual(self.chat(), [])  # none of it is shared
+
+    async def test_a_planner_never_waits_for_visitors_runs(self):
+        (a, _), (b, _) = support.guest(self.url), support.guest(self.url)
+        head = self.head()
+        say(self.study, "A first", a, self.url)
+        say(self.study, "B first", b, self.url)
+        say(self.study, "And the planners?", PLANNER, self.url)
+        visitors_may_go = asyncio.Event()
+        started = []
+
+        async def respond(request):
+            started.append(request.task)
+            if request.task.startswith("A visitor"):
+                await visitors_may_go.wait()  # both of RUNS_AT_ONCE's slots stay taken
+            return reply(text="Done.")
+
+        finished = lambda: support.activities(self.study, "run.finished", self.url, token=AGENT, on_behalf_of=core.EVERYONE)
+        async with listening(FakeGemini(respond), head, self.url):
+            # All three going at once: the visitors' runs hold both slots, and the planner's needs none.
+            await until(lambda: len(started) == 3)
+            visitors_may_go.set()
+            await until(lambda: len(finished()) == 3)
+
+        self.assertEqual(sorted(started), ["A planner asks: And the planners?", "A visitor asks: A first", "A visitor asks: B first"])
+
+    async def test_a_runs_history_is_the_chat_as_whoever_asked_sees_it(self):
+        canary = f"canary-{os.urandom(4).hex()}"
+        (a, _), (b, _) = support.guest(self.url), support.guest(self.url)
+        say(self.study, "What changes here?", PLANNER, self.url)  # before it listens
+        head = self.head()
+        say(self.study, f"Mine: {canary}", a, self.url)
+        say(self.study, "And then?", a, self.url)  # sent with A's first: one answer, to the last
+        say(self.study, "Hello?", b, self.url)
+        say(self.study, "Riders?", PLANNER, self.url)
+        fake = FakeGemini(lambda request: reply(text="Done."))
+
+        finished = lambda: support.activities(self.study, "run.finished", self.url, token=AGENT, on_behalf_of=core.EVERYONE)
+        async with listening(fake, head, self.url):
+            await until(lambda: len(finished()) == 3)
+            await asyncio.sleep(0.3)  # time to answer A's first too, if it would
+
+        runs = {request.first_turn[-1]: request.first_turn[:-1] for request in fake.requests}
+        self.assertEqual(sorted(runs), ["A planner asks: Riders?", "A visitor asks: And then?", "A visitor asks: Hello?"])
+        self.assertEqual(
+            runs["A visitor asks: And then?"],
+            [f"Earlier in this study's chat, oldest first, for context:\n<chat>\nPlanner: What changes here?\nVisitor: Mine: {canary}\n</chat>"],
+        )
+        # Nobody else's run is given A's words: not B's, nor the planner's, whose answer is shared.
+        for question in ("A visitor asks: Hello?", "A planner asks: Riders?"):
+            self.assertEqual(runs[question], ["Earlier in this study's chat, oldest first, for context:\n<chat>\nPlanner: What changes here?\n</chat>"])
+
+    async def test_a_visitors_run_takes_guest_run_calls(self):
+        self.enterContext(mock.patch.dict(os.environ, {"GUEST_RUN_CALLS": "1", "MAX_RUN_CALLS": "60"}))
+        token, _ = support.guest(self.url)
+        head = self.head()
+        say(self.study, "How many?", token, self.url)
+        fake = FakeGemini(lambda request: reply(text="Done."))
+
+        async with listening(fake, head, self.url):
+            await until(lambda: len(self.chat(token)) == 2)
+
+        # One call for the whole run, so it is the lead's last, with its tools off.
+        [request] = fake.requests
+        self.assertTrue(request.system.endswith(core.LAST_CALL))
+
+    async def test_a_run_stops_once_visitors_budget_is_spent(self):
+        # A visitor may spend $1 a day here, and one call of this model costs $1.15.
+        self.enterContext(mock.patch.dict(os.environ, {"LEAD_MODEL": "pricey-model", "MODEL_PRICES": "pricey-model=10000/10000"}))
+        token, audience = support.guest(self.url)
+        head = self.head()
+        say(self.study, "How many riders?", token, self.url)
+        # Asked for a tool, so the run would go on.
+        fake = FakeGemini(lambda request: reply(("list_sources", {})) if request.turn == 0 else reply(text="Done."))
+
+        async with listening(fake, head, self.url):
+            await until(lambda: len(support.activities(self.study, "run.finished", self.url, token=token)) == 1)
+
+        self.assertEqual(len(fake.requests), 1)
+        self.assertEqual(self.chat(token)[-1], ("agent:lead", core.BUDGET_SPENT))
+        self.assertEqual(api("GET", "/v1/budget", token=token, url=self.url)["leftUsd"], 0)
+        self.assertNotIn("That failed", self.err.getvalue())
+
+    async def test_a_run_stops_before_a_call_would_take_a_visitor_past_their_share(self):
+        # Each call costs $0.30 here, and a visitor may spend $1 a day: three leave $0.10.
+        self.enterContext(mock.patch.dict(os.environ, {"LEAD_MODEL": "pricey-model", "MODEL_PRICES": "pricey-model=1500/10000"}))
+        token, _ = support.guest(self.url)
+        head = self.head()
+        say(self.study, "How many riders?", token, self.url)
+        fake = FakeGemini(lambda request: reply(("list_rules", {})))  # it would go on
+
+        async with listening(fake, head, self.url):
+            await until(lambda: len(support.activities(self.study, "run.finished", self.url, token=token)) == 1)
+
+        self.assertEqual(len(fake.requests), 3)
+        self.assertEqual(self.chat(token)[-1], ("agent:lead", core.BUDGET_SPENT))
+        self.assertAlmostEqual(api("GET", "/v1/budget", token=token, url=self.url)["leftUsd"], 0.1)
+
+    async def test_a_visitor_with_nothing_left_gets_no_model_call(self):
+        token, audience = support.guest(self.url)
+        head = self.head()
+        say(self.study, "How many riders?", token, self.url)
+        self.spend(audience, 5)  # after the message got in
+        fake = FakeGemini(lambda request: reply(text="Done."))
+
+        async with listening(fake, head, self.url):
+            await until(lambda: len(self.chat(token)) == 2)
+
+        self.assertEqual(fake.requests, [])
+        self.assertEqual(self.chat(token)[-1], ("agent:lead", core.BUDGET_SPENT))
+        kinds = [a["kind"] for a in support.activities(self.study, url=self.url, token=token)]
+        self.assertEqual(kinds, ["message", "usage", "message"])
+
+    async def test_a_planners_run_is_never_stopped_by_visitors_budget(self):
+        self.enterContext(mock.patch.dict(os.environ, {"LEAD_MODEL": "pricey-model", "MODEL_PRICES": "pricey-model=10000/10000"}))
+        head = self.head()
+        say(self.study, "How many riders?", PLANNER, self.url)
+        fake = FakeGemini(lambda request: reply(("list_sources", {})) if request.turn < 2 else reply(text="1,680 a week."))
+
+        async with listening(fake, head, self.url):
+            await until(lambda: len(self.chat()) == 2)
+
+        self.assertEqual(len(fake.requests), 3)  # $3.45, more than any visitor may spend
+        self.assertEqual(self.chat()[-1], ("agent:lead", "1,680 a week."))
+
+
+@contextlib.contextmanager
+def watching_sessions():
+    """The x-on-behalf-of header of every request each MCP session sends, one value per
+    session (None for none); a session whose requests differ shows as a set."""
+    real = core.streamable_http_client
+    sessions: list = []
+
+    @contextlib.asynccontextmanager
+    async def watched(url, *, http_client, **kwargs):
+        seen: set = set()
+
+        async def record(request):
+            seen.add(request.headers.get(core.ON_BEHALF_OF))
+
+        http_client.event_hooks["request"].append(record)
+        try:
+            async with real(url, http_client=http_client, **kwargs) as streams:
+                yield streams
+        finally:
+            sessions.append(next(iter(seen)) if len(seen) == 1 else seen)
+
+    with mock.patch.object(core, "streamable_http_client", watched):
+        yield sessions
 
 
 class RunTest(unittest.IsolatedAsyncioTestCase):

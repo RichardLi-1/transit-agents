@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { NewContext, NewNeed, NewStudy } from "@transit-agents/contracts";
 import { Service } from "../services/api/src/service.ts";
+import { ONTARIO_NEEDS } from "./ontario-needs.ts";
 import { SOURCES, STUDIES } from "./seed-data.ts";
+import { ONTARIO } from "./seed-ontario.ts";
 
 const data = join(import.meta.dirname, "../apps/display/public/data");
 const { origin } = JSON.parse(readFileSync(join(data, "network.json"), "utf8")) as { origin: { lat: number; lon: number } };
@@ -32,6 +34,29 @@ function distanceToLine([x, y]: [number, number], line: [number, number][]): num
 describe("the replay's engagement needs", () => {
   it("give each study one or two", () => {
     for (const { study, needs } of STUDIES) assert.ok(needs.length >= 1 && needs.length <= 2, study.id);
+  });
+
+  it("each name the transit infrastructure their render shows: for bus routes, the stop and its bus", () => {
+    // Without one, the media agent falls back to a station entrance for a line,
+    // wherever the need is.
+    for (const { study, needs, outcome } of STUDIES) {
+      for (const need of [...needs, ...(outcome?.needs ?? [])]) {
+        const { subject } = NewNeed.parse(need);
+        assert.ok(subject, need.id);
+        if (study.routes?.length) assert.equal(subject, "bus-stop", need.id);
+      }
+    }
+  });
+
+  it("ask the Ontario Line for its viaduct over the parkway, and a station entrance on the extension, saying which rendering is missing", () => {
+    assert.equal(ONTARIO.needs, ONTARIO_NEEDS);
+    assert.deepEqual(
+      ONTARIO_NEEDS.map((need) => [need.id, need.title, NewNeed.parse(need).subject, need.kinds]),
+      [
+        ["don-valley-viaduct", "Viaduct rendering missing", "guideway", ["image", "video"]],
+        ["lawrence-entrance", "Station rendering missing", "station-entrance", ["image", "video"]],
+      ],
+    );
   });
 
   it("sit on their study's line, or its proposed part", () => {

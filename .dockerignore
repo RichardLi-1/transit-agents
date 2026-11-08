@@ -3,7 +3,9 @@
 **/node_modules
 **/dist
 data
-agents
+agents/.venv
+agents/tests
+**/__pycache__
 clients
 evals
 docs

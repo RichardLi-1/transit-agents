@@ -11,21 +11,26 @@ All run on public data today.
 
 - `ttc-standards-check` (script): tests a proposal against the [TTC Service Standards, May 2024](https://cdn.ttc.ca/-/media/Project/TTC/DevProto/Documents/Home/About-the-TTC/Projects-Landing-Page/Transit-Planning/Service-Standards_May-2024.pdf?rev=6c96a85cc0a64147ad424f949dabce64).
 - `standards-navigator` (model): answers rule questions with page citations. Uses [Wang & Shalaby](https://arxiv.org/abs/2410.14147)'s method. Their GPT-3.5 demos on GO Transit had no evaluation.
-- `gtfs-analyst` (model writes code, a sandbox runs it): answers service, stop and headway questions. Uses [TransitGPT](https://github.com/UTEL-UIUC/TransitGPT)'s method, the best evidence: up to 93% on 100 tasks, graded by its authors. No licence, so ask them before reusing code. Replace its bare `exec` sandbox.
 - `otp-check` (script): measures on-time performance from live data. Uses [TTC ScheduleWatch](https://github.com/neil-simmons/TTC-ScheduleWatch)'s method; its code is all rights reserved. ScheduleWatch measures arrivals, not departures, and rarely finds the origin stop, so it can't test the TTC rule as shipped.
 - `travel-time-compare` (script around [r5py](https://github.com/r5py/r5py)): compares travel times before and after a route change, replacing the simulator. r5py has no scenario feature, so testing a change means editing the GTFS.
 
+## Built
+
+In `agents/skills`. Printed page numbers, as below; the skills cite read_page's.
+
+- `metrolinx-business-case`: sets out the four cases, optimism bias and the appraisal rules, and which figures are precedents or gaps.
+- `ttc-service-change`: classifies a change as minor or major by the Standards' Table 7 (p. 21), and lists the steps each class needs (pp. 20–30). Its script never guesses: what the sources don't say, it names as missing, and a change Table 7 doesn't list goes to a planner. So does a change of minor kinds that needs more than existing equipment and the adopted budget, unless the sources say its effect on resources is significant: the standards don't settle it (pp. 21, 28).
+- `metrolinx-bca`: discounts a project's own benefit and cost streams to an NPV and a benefit-cost ratio, with the values below. Its script computes nothing while an input is missing or a planner's rule differs. It asks whether the costs include escalation, and where they leave it out, grows capital and O&M costs 1% a year to 30 years from the base year (pp. 84, 170). Where Table 5.6's printed formula reads inverted, it keeps the total uplift at the published one, as the study's seed does, and flags that for a planner to confirm.
+- `business-case-template`: lays out the chapters, and what each case needs at each stage, from the stage matrix (Business Case Manual Volume 2, p. 20).
+- `engagement-needs`: proposes what to make so people near a change can picture it before they are consulted: a poster or a short video at one place. Specialists add a need only with its script, which pins the need to the study's line, refusing a place more than 500 m from it, and refuses one without a citation. Only a planner asks for one to be made.
+- `gtfs-analyst`: counts a TTC route's scheduled trips by hour and in each period of the Standards' Table 3 (p. 13), and its first and last trips, from the TTC timetable in the repo, with the timetable's last day. Fixed functions, not model-written code. The timetable keeps only where each trip starts, so every count is for both directions together, and it can't answer questions about a stop or one direction.
+- `transit-cost-benchmark`: compares a rail line's capital cost per km with the Ontario Line's and Relief Line South's, from Table 31 of the Ontario Line Initial Business Case (p. 78), on that case's own basis, and says what the comparison can't tell. It uses only the business cases' own figures: other projects' costs, such as the [Transit Costs data](https://ultraviolet.library.nyu.edu/records/9wnjp-kez15) (CC BY-NC), aren't in the sources.
+- `planning-glossary`: for every study, 40 entries of business-case and service-planning jargon, each in its source's words with the page, which the tests check.
+
 ## Build next
 
-- `ttc-service-change`: classifies a change as minor or major, and lists required steps (Standards pp. 21–22).
-- `metrolinx-bca`: runs a benefit-cost analysis by the Metrolinx method (values below).
-- `business-case-template`: lays out the four-part case and its required contents (Business Case Manual Volume 2, stage matrix p. 20).
-
-Built so far for the lead study: `metrolinx-business-case` in `agents/skills`, which
-sets out the four cases, optimism bias and the appraisal rules, and which figures
-are precedents or gaps. It computes no benefit-cost ratio.
 - `tpap-clock`: tracks Transit Project Assessment deadlines under [O. Reg. 231/08](https://www.ontario.ca/laws/regulation/080231).
-- `transit-cost-benchmark`: compares cost per km with other projects, using [Transit Costs data](https://ultraviolet.library.nyu.edu/records/9wnjp-kez15) (CC BY-NC).
+- `gtfs-analyst` for stops and directions: needs each trip's stop times and direction, which the repo's timetable files don't keep. [TransitGPT](https://github.com/UTEL-UIUC/TransitGPT)'s method, a model writing code that a sandbox runs, is the best evidence: up to 93% on 100 tasks, graded by its authors. No licence, so ask them before reusing code, and replace its bare `exec` sandbox.
 - `edsta-watch`: tracks Bill 194 regulations in Ontario proclamations and e-Laws.
 - `comment-tagger`: tags consultation comments by topic, route and sentiment. Needs agency comments, and the method from [Abedini & Dianat](https://easychair.org/smart-program/TD-2026/2026-06-24.html#talk:316250), known only from an abstract with self-reported claims (see [corrections](report-corrections.md)).
 
@@ -81,6 +86,7 @@ Business Case Manual [Volume 2](https://assets.metrolinx.com/image/upload/v16632
 | Discount rate, financial | 5.5%, with 2% inflation, nominal | 176 |
 | Method | Increment over business as usual, excluding sunk costs, rule of a half | 85, 103, 110 |
 | Capital optimism bias | 64% / 18% / 9% / 4% at 0–10 / 11–20 / 21–30 / 31–100% design | 94 |
+| Cost growth, capital and O&M | 1% a year real, to 30 years from the base year, where estimates leave escalation out | 84, 170 |
 
 Watch out for: rebase value of time before use. The City of Toronto
 [used $21.09](https://www.toronto.ca/legdocs/mmis/2023/ex/bgrd/backgroundfile-240130.pdf)

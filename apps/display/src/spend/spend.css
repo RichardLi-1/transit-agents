@@ -3,8 +3,8 @@
 
 :root {
   /* One size sets the rest. Stacked, a number can take most of the width, and
-     the three still fit the height of a squarer screen. */
-  --number: clamp(40px, min(18vw, 14vh), 240px);
+     the four still fit the height of a squarer screen. */
+  --number: clamp(40px, min(18vw, 12vh), 240px);
   --dim: #8e8e93; /* 6.4:1 on black */
   color-scheme: dark;
 }
@@ -85,6 +85,8 @@ dl > div {
    (WCAG 1.4.4). The numbers are sized to fill the screen, so zoom barely
    changes them. */
 dt {
+  /* One line, before its number comes too. */
+  min-height: 1lh;
   color: var(--dim);
   font-size: max(1.15rem, calc(var(--number) * 0.12));
   letter-spacing: 0.02em;
@@ -92,6 +94,8 @@ dt {
 
 dd {
   margin: 0;
+  /* One line, before its number comes too. */
+  min-height: 1em;
   font-size: var(--number);
   font-weight: 300;
   line-height: 1;
@@ -100,12 +104,12 @@ dd {
   white-space: nowrap;
 }
 
-/* Side by side on a wide screen, each centred in its own third, so a number
-   that grows doesn't move the others. Three long numbers wrap rather than
-   scroll. */
+/* Two by two on a wide screen, each centred in its own quarter, so a number
+   that grows doesn't move the others: two fit a row, three don't. A number too
+   long for its half wraps to a row of its own rather than scroll. */
 @media (orientation: landscape) {
   :root {
-    --number: clamp(40px, min(8vw, 30vh), 240px);
+    --number: clamp(40px, min(8vw, 24vh), 240px);
   }
 
   dl {
@@ -115,7 +119,7 @@ dd {
   }
 
   dl > div {
-    flex: 1;
+    flex: 1 1 40%;
   }
 }
 

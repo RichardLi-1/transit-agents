@@ -1,4 +1,4 @@
-import { signIn, signOut, type Session } from "../session.ts";
+import { isGuest, signIn, signOut, type Session } from "../session.ts";
 
 export function Account({ session }: { session: Session | null }) {
   if (!session) return null;
@@ -7,7 +7,8 @@ export function Account({ session }: { session: Session | null }) {
   if (signedIn) {
     return (
       <div class="account">
-        {me && <p class="tag">{me.name}</p>}
+        {/* Someone signed in who isn't a planner is named by their sandbox's id, which means nothing to them. */}
+        {me && !isGuest(me) && <p class="tag">{me.name}</p>}
         <button type="button" onClick={() => void signOut()}>
           Sign out
         </button>

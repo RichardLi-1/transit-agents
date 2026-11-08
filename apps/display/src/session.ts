@@ -3,13 +3,13 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Auth0Client } from "@auth0/auth0-spa-js";
 import type { Me, Role, ServiceConfig, SignIn } from "@transit-agents/contracts";
-import { api, forgetTokens, hasToken, setPersonalToken } from "./api.ts";
+import { api, forgetTokens, hasOwnToken, hasToken, mintGuest, setPersonalToken } from "./api.ts";
 
 export type Session = {
   config: ServiceConfig | null;
   // Who the service takes the display for, when it says.
   me: Me | null;
-  // Holds no token, so the display acts as whoever a request without one does.
+  // Not signed in, and holds no token of its own: none, or only a guest pass.
   anonymous: boolean;
   signedIn: boolean;
   // The display may read: the service took its token, or lets anyone read.
@@ -17,12 +17,15 @@ export type Session = {
 };
 
 // What the service lets the display's role do, so the display offers nothing else:
-// adding context, posting to a study's chat, and asking for engagement media.
+// adding context, posting to a study's chat, asking for engagement media, and
+// deciding. A guest does all but add context and decide, in their own sandbox.
 const ADDS: Role[] = ["integration", "agent", "planner"];
-const POSTS: Role[] = ["agent", "planner"];
+const POSTS: Role[] = ["agent", "planner", "guest"];
+export const isGuest = (me: Me | null) => me?.role === "guest";
 export const canAdd = (me: Me | null) => Boolean(me && ADDS.includes(me.role));
 export const canPost = (me: Me | null) => Boolean(me && POSTS.includes(me.role));
-export const canCreate = (me: Me | null) => me?.role === "planner";
+export const canCreate = (me: Me | null) => me?.role === "planner" || isGuest(me);
+export const canDecide = (me: Me | null) => me?.role === "planner";
 
 type AppState = { hash?: string };
 
@@ -99,9 +102,11 @@ const read = async (response: Response | undefined) => (response?.ok ? ((await r
 
 // Asks how people sign in and who the display is at the same time, and lets reads
 // start as soon as they can: once the service takes the display's token, or, with
-// none, once it says anyone may read. Each answer is published as it lands.
+// none, once it says anyone may read. Where the service gives out guest passes, a
+// visitor gets one first, so everything they read and write is their own. Each
+// answer is published as it lands.
 export async function followSession(publish: (session: Session) => void) {
-  let session: Session = { config: null, me: null, anonymous: !hasToken(), signedIn: auth0 !== undefined, reads: false };
+  let session: Session = { config: null, me: null, anonymous: !hasOwnToken(), signedIn: auth0 !== undefined, reads: false };
   const update = (change: Partial<Session>) => publish((session = { ...session, ...change }));
   const config = loadConfig();
   if (hasToken()) {
@@ -116,8 +121,15 @@ export async function followSession(publish: (session: Session) => void) {
   const value = await config;
   // In token mode the service answers nobody without a token, so don't ask.
   if (value?.auth === "token") return update({ config: value });
+  // Minted once: a pass the service then refuses is dropped, not replaced.
+  if (value?.guests) await mintGuest();
   update({ config: value, reads: true });
-  update({ me: await read(await whoAmI()) });
+  const response = await whoAmI();
+  if (response?.status === 401 && hasToken()) {
+    forgetTokens();
+    return update({ me: await read(await whoAmI()) });
+  }
+  update({ me: await read(response) });
 }
 
 export function useSession(): Session | null {

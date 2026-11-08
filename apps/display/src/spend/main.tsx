@@ -1,9 +1,10 @@
 // The spend screen, for a display of its own: what the agents have spent, as
-// three numbers on black. It loads nothing of the map or the main display.
+// four numbers on black. It loads nothing of the map or the main display.
+import type { UsageEstimate } from "@transit-agents/contracts";
 import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { isTestBuild } from "../host.ts";
-import { calls, dollars, tokens, unitFor } from "./format.ts";
+import { aboutEstimate, calls, co2e, dollars, energy, tokens, unitFor } from "./format.ts";
 import { spentUsd } from "../money.ts";
 import { useUsage } from "./usage.ts";
 import "./spend.css";
@@ -11,9 +12,11 @@ import "./spend.css";
 const COUNT_MS = 600;
 const IDLE_MS = 3000;
 const TEST_BUILD = isTestBuild(location.hostname);
+const ABOUT_ENERGY = "about-energy";
 
 function Spend() {
   const usage = useUsage();
+  const estimate = usage?.estimate ?? null;
   useWallDisplay();
   return (
     <main>
@@ -24,19 +27,43 @@ function Spend() {
         <Figure unit="US dollars spent" value={spentUsd(usage)} format={dollars} />
         <Figure unit="tokens" one="token" value={usage ? usage.inputTokens + usage.outputTokens : null} format={tokens} />
         <Figure unit="model calls" one="model call" value={usage ? usage.calls : null} format={calls} />
+        <Energy estimate={estimate} loaded={usage !== null} />
       </dl>
+      {/* Read with the energy figure, not on its own. */}
+      {estimate && (
+        <p id={ABOUT_ENERGY} hidden>
+          {aboutEstimate(estimate.basis)}
+        </p>
+      )}
     </main>
   );
 }
 
 // A screen reader reads the unit, then the number. Changes aren't announced:
-// they can come every second while agents work.
+// they can come every second while agents work. Until the first number comes,
+// its lines are held empty: a placeholder would move as the number, or its unit
+// ("1 model call"), took its place.
 function Figure({ unit, one = unit, value, format }: { unit: string; one?: string; value: number | null; format: (value: number) => string }) {
   const shown = useCountUp(value);
   return (
     <div>
-      <dt>{unitFor(shown, one, unit)}</dt>
-      <dd>{shown === null ? "—" : format(shown)}</dd>
+      <dt>{shown === null ? null : unitFor(shown, one, unit)}</dt>
+      <dd>{shown === null ? null : format(shown)}</dd>
+    </div>
+  );
+}
+
+// The energy the model calls used, with their CO₂e in the unit line: both at
+// least, since each call counts as a median prompt. Its lines are held empty
+// until the first numbers come, as the others are. A service too old to
+// estimate them shows a dash.
+function Energy({ estimate, loaded }: { estimate: UsageEstimate | null; loaded: boolean }) {
+  const wh = useCountUp(estimate ? estimate.energyWh : null);
+  const grams = useCountUp(estimate ? estimate.co2eGrams : null);
+  return (
+    <div>
+      <dt>{loaded && <>energy, at least{grams !== null && ` · ${co2e(grams)}`}</>}</dt>
+      <dd aria-describedby={estimate ? ABOUT_ENERGY : undefined}>{!loaded ? null : wh === null ? "—" : energy(wh)}</dd>
     </div>
   );
 }

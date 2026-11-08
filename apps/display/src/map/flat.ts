@@ -1,11 +1,16 @@
 // A flat map for when WebGL is missing or lost. No tilt or fog: just the network,
 // the study line and its vehicles, so the display is never blank.
-import type { NetworkData, Point } from "./engine.ts";
+import { FIELD_OF_VIEW, type Camera, type NetworkData, type Point } from "./engine.ts";
 
 // How the flat map frames the ground: the point on the ground at the middle of the
-// clear part of the canvas, where that middle is, and CSS pixels per metre. Sizes
-// and places on screen are in CSS pixels.
-export type FlatView = { centre: Point; middle: Point; scale: number; width: number; height: number };
+// clear part of the canvas, where that middle is, CSS pixels per metre, and which
+// way is up, as a compass bearing in radians. Sizes and places on screen are in
+// CSS pixels.
+export type FlatView = { centre: Point; middle: Point; scale: number; bearing?: number; width: number; height: number };
+
+// Pixels per metre at the centre: what a camera looking straight down from this
+// distance would see there.
+export const flatScale = (distance: number, height: number) => height / (2 * distance * Math.tan(FIELD_OF_VIEW / 2));
 
 export class FlatMap {
   private readonly canvas: HTMLCanvasElement;
@@ -16,6 +21,8 @@ export class FlatMap {
   private vehicles: ArrayLike<number> = [];
   private failing = false;
   private reported = "";
+  // Where the user has moved the map. Until then it frames the study.
+  private camera: Camera | null = null;
 
   constructor(canvas: HTMLCanvasElement, onView: (view: FlatView) => void = () => {}) {
     this.canvas = canvas;
@@ -43,6 +50,12 @@ export class FlatMap {
     this.draw();
   }
 
+  // Null frames the study again. There is no tilt.
+  setCamera(camera: Camera | null) {
+    this.camera = camera && { ...camera };
+    this.draw();
+  }
+
   draw() {
     const context = this.canvas.getContext("2d");
     const data = this.network;
@@ -65,15 +78,26 @@ export class FlatMap {
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
     const middle: Point = [(width - right) / 2, top + (height - top) / 2];
-    const toScreen = (x: number, y: number): Point => [middle[0] + (x - cx) * scale, middle[1] - (y - cy) * scale];
+    const { camera } = this;
+    const centre: Point = camera ? [camera.x, camera.y] : [cx, cy];
+    const zoom = camera ? flatScale(camera.distance, height) : scale;
+    const bearing = camera?.bearing ?? 0;
+    const cos = Math.cos(bearing);
+    const sin = Math.sin(bearing);
+    const toScreen = (x: number, y: number): Point => {
+      const dx = x - centre[0];
+      const dy = y - centre[1];
+      return [middle[0] + (dx * cos - dy * sin) * zoom, middle[1] - (dx * sin + dy * cos) * zoom];
+    };
     const view: FlatView = {
-      centre: [cx, cy],
+      centre,
       middle: [middle[0] / ratio, middle[1] / ratio],
-      scale: scale / ratio,
+      scale: zoom / ratio,
+      bearing,
       width: width / ratio,
       height: height / ratio,
     };
-    const key = `${cx} ${cy} ${view.middle} ${view.scale} ${view.width} ${view.height}`;
+    const key = `${centre} ${view.middle} ${view.scale} ${bearing} ${view.width} ${view.height}`;
     if (key !== this.reported && width && height) {
       this.reported = key;
       this.onView(view);

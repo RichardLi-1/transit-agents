@@ -1,0 +1,314 @@
+// The screen for computer_use.py: one page in Chrome for Testing, driven by Playwright.
+//
+//   node agents/computer_use_browser.mjs '{"page": "apps/legacy-mock/index.html"}'
+//
+// It reads one JSON command a line on stdin and answers each with one JSON line on
+// stdout, starting with {"ready": true, "screen": {...}} once the page is up.
+// Coordinates are CSS pixels on the screen the model sees.
+//
+// The page is served at http://legacy-app.test/ from its file, and nothing else
+// loads: every request to another origin is refused, a new window is closed, and
+// the page is put back if it's ever left. Options: page, width, height (1920x1080),
+// headed, pace (move and type at a speed people can follow), record (an .mp4 path,
+// written with ffmpeg) and captions (a strip under the screen, kept out of the
+// screenshots). CHROME_PATH picks the browser; otherwise it's Playwright's Chrome
+// for Testing, or the newest one in Playwright's cache.
+
+import { spawn } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { createInterface } from "node:readline";
+import { chromium } from "playwright-core";
+
+const ORIGIN = "http://legacy-app.test";
+const HOME = `${ORIGIN}/`;
+const FPS = 25;
+const CAPTION_HEIGHT = 72;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const options = JSON.parse(process.argv[2] ?? "{}");
+const width = options.width ?? 1920;
+const height = options.height ?? 1080;
+const pace = Boolean(options.pace);
+const reserved = options.record && options.captions ? CAPTION_HEIGHT : 0;
+const screen = { width, height: height - reserved };
+const html = readFileSync(options.page, "utf8");
+
+function out(message) {
+  process.stdout.write(`${JSON.stringify(message)}\n`);
+}
+
+function chromePath() {
+  if (process.env.CHROME_PATH) return process.env.CHROME_PATH;
+  const own = chromium.executablePath();
+  if (existsSync(own)) return own;
+  const cache =
+    process.env.PLAYWRIGHT_BROWSERS_PATH ||
+    (process.platform === "darwin"
+      ? join(homedir(), "Library", "Caches", "ms-playwright")
+      : process.platform === "win32"
+        ? join(process.env.LOCALAPPDATA ?? homedir(), "ms-playwright")
+        : join(homedir(), ".cache", "ms-playwright"));
+  const builds = existsSync(cache)
+    ? readdirSync(cache)
+        .filter((name) => /^chromium-\d+$/.test(name))
+        .sort((a, b) => Number(b.slice(9)) - Number(a.slice(9)))
+    : [];
+  const app = "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
+  const inside = [`chrome-mac-arm64/${app}`, `chrome-mac-x64/${app}`, "chrome-linux64/chrome", "chrome-win64/chrome.exe"];
+  for (const build of builds) {
+    for (const path of inside) if (existsSync(join(cache, build, path))) return join(cache, build, path);
+  }
+  throw new Error("No Chrome for Testing found. Set CHROME_PATH, or run npx playwright-core install chromium.");
+}
+
+// The pointer, drawn on the page: a recording shows no real one. It never takes a
+// click, and the captions sit below the part of the screen the model sees.
+function decorate({ reserved, x, y }) {
+  const draw = () => {
+    if (document.getElementById("computer-use-layer")) return;
+    if (reserved) document.documentElement.style.setProperty("--reserved-bottom", `${reserved}px`);
+    const host = document.createElement("div");
+    host.id = "computer-use-layer";
+    host.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483647";
+    const root = host.attachShadow({ mode: "closed" });
+    root.innerHTML = `<style>
+      .pointer { position: fixed; left: 0; top: 0; width: 26px; height: 26px; will-change: transform; filter: drop-shadow(1px 2px 1px rgb(0 0 0 / 0.35)); }
+      .ring { position: fixed; left: 0; top: 0; width: 44px; height: 44px; margin: -22px 0 0 -22px; border: 3px solid #1a73e8; border-radius: 50%; opacity: 0; }
+      .ring.on { animation: ring 0.45s ease-out; }
+      @keyframes ring { from { transform: var(--at) scale(0.3); opacity: 0.9; } to { transform: var(--at) scale(1.2); opacity: 0; } }
+      .strip { position: fixed; left: 0; right: 0; bottom: 0; height: ${reserved}px; display: ${reserved ? "flex" : "none"}; align-items: center; gap: 28px;
+        padding: 0 32px; background: #101317; color: #f4f6f8; font: 22px/1.25 system-ui, -apple-system, "Segoe UI", sans-serif; }
+      .who { font-weight: 600; white-space: nowrap; }
+      .text { flex: 1; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+      .meta { color: #b6bdc6; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    </style>
+    <div class="strip"><span class="who"></span><span class="text"></span><span class="meta"></span></div>
+    <div class="ring"></div>
+    <svg class="pointer" viewBox="0 0 26 26" aria-hidden="true"><path d="M3 2 L3 21 L8.2 16.4 L11.6 24 L15 22.5 L11.7 15 L18.6 15 Z" fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+    document.documentElement.append(host);
+    const pointer = root.querySelector(".pointer");
+    const ring = root.querySelector(".ring");
+    const place = (px, py) => (pointer.style.transform = `translate(${px}px, ${py}px)`);
+    place(x, y);
+    addEventListener("mousemove", (event) => place(event.clientX, event.clientY), true);
+    addEventListener(
+      "mousedown",
+      (event) => {
+        ring.style.setProperty("--at", `translate(${event.clientX}px, ${event.clientY}px)`);
+        ring.classList.remove("on");
+        void ring.offsetWidth;
+        ring.classList.add("on");
+      },
+      true,
+    );
+    window.__computerUseCaption = ({ who = "", text = "", meta = "" }) => {
+      root.querySelector(".who").textContent = who;
+      root.querySelector(".text").textContent = text;
+      root.querySelector(".meta").textContent = meta;
+    };
+  };
+  if (document.documentElement) draw();
+  addEventListener("DOMContentLoaded", draw);
+}
+
+async function startRecording(page, path) {
+  const ffmpeg = spawn(
+    process.env.FFMPEG || "ffmpeg",
+    ["-loglevel", "error", "-y", "-f", "image2pipe", "-c:v", "mjpeg", "-framerate", String(FPS), "-i", "-",
+      "-vf", "scale=out_range=tv,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+      "-movflags", "+faststart", path],
+    { stdio: ["pipe", "ignore", "inherit"] },
+  );
+  if (ffmpeg.pid === undefined) throw new Error("Recording needs ffmpeg on the PATH, or FFMPEG set to it.");
+  const exited = new Promise((resolve, reject) => {
+    ffmpeg.on("error", reject);
+    ffmpeg.on("close", resolve);
+  });
+  exited.catch(() => {});
+  ffmpeg.stdin.on("error", () => {});
+  let latest = null;
+  let written = 0;
+  const started = Date.now();
+  // A screenshot for the model sends a frame of just its part of the screen: that one is skipped.
+  const onFrame = ({ data, viewportWidth, viewportHeight }) => {
+    if (viewportWidth === width && viewportHeight === height) latest = data;
+  };
+  await page.screencast.start({ size: { width, height }, quality: 92, onFrame });
+  // Frames come only when the page changes, so the last one is repeated to keep time.
+  const tick = () => {
+    if (!latest) return;
+    const due = Math.floor(((Date.now() - started) * FPS) / 1000);
+    for (; written < due; written++) ffmpeg.stdin.write(latest);
+  };
+  const timer = setInterval(tick, 1000 / FPS);
+  return async () => {
+    tick();
+    clearInterval(timer);
+    await page.screencast.stop().catch(() => {});
+    ffmpeg.stdin.end();
+    const code = await exited;
+    if (code !== 0) throw new Error(`ffmpeg couldn't write ${path} (exit ${code})`);
+    return path;
+  };
+}
+
+const browser = await chromium.launch({ executablePath: chromePath(), headless: !options.headed });
+const context = await browser.newContext({
+  viewport: { width, height },
+  deviceScaleFactor: 1,
+  acceptDownloads: false,
+  serviceWorkers: "block",
+});
+const blocked = [];
+await context.route("**/*", (route) => {
+  const url = route.request().url();
+  if (url === HOME) return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: html });
+  if (url.startsWith(`${ORIGIN}/`)) return route.fulfill({ status: 404, body: "" });
+  blocked.push(url);
+  return route.abort("blockedbyclient");
+});
+let pointer = { x: Math.round(width / 2), y: Math.round(screen.height / 2) };
+await context.addInitScript(decorate, { reserved, ...pointer });
+const page = await context.newPage();
+context.on("page", (other) => other !== page && other.close().catch(() => {}));
+page.on("dialog", (dialog) => dialog.dismiss().catch(() => {}));
+let left = 0;
+let restoring = Promise.resolve();
+page.on("framenavigated", (frame) => {
+  if (frame !== page.mainFrame() || frame.url() === HOME) return;
+  left += 1;
+  restoring = page.goto(HOME).then(
+    () => {},
+    () => {},
+  );
+});
+await page.goto(HOME);
+const stopRecording = options.record ? await startRecording(page, options.record) : null;
+
+async function moveTo(x, y) {
+  if (pace) {
+    // Eased, so a recording shows where the pointer goes.
+    const steps = Math.max(10, Math.min(36, Math.round(Math.hypot(x - pointer.x, y - pointer.y) / 30)));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const eased = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+      await page.mouse.move(pointer.x + (x - pointer.x) * eased, pointer.y + (y - pointer.y) * eased);
+      await sleep(16);
+    }
+  } else {
+    await page.mouse.move(x, y);
+  }
+  pointer = { x, y };
+}
+
+const commands = {
+  async screenshot() {
+    await sleep(pace ? 700 : 150); // let the app finish what the action started
+    await restoring;
+    const png = await page.screenshot({ clip: { x: 0, y: 0, ...screen }, type: "png" });
+    return { png: png.toString("base64"), url: page.url() };
+  },
+  async click({ x, y, button = "left", count = 1 }) {
+    await moveTo(x, y);
+    await page.mouse.click(x, y, { button, clickCount: count, delay: pace ? 60 : 0 });
+  },
+  async move({ x, y }) {
+    await moveTo(x, y);
+  },
+  async down({ x, y, button = "left" }) {
+    if (x !== undefined) await moveTo(x, y);
+    await page.mouse.down({ button });
+  },
+  async up({ x, y, button = "left" }) {
+    if (x !== undefined) await moveTo(x, y);
+    await page.mouse.up({ button });
+  },
+  async drag({ x1, y1, x2, y2 }) {
+    await moveTo(x1, y1);
+    await page.mouse.down();
+    await page.mouse.move(x2, y2, { steps: 20 });
+    pointer = { x: x2, y: y2 };
+    await page.mouse.up();
+  },
+  async scroll({ x, y, dx = 0, dy = 0 }) {
+    await moveTo(x, y);
+    await page.mouse.wheel(dx, dy);
+  },
+  async type({ text, enter = false, clear = false }) {
+    const editing = await page.evaluate(() => {
+      const field = document.activeElement;
+      return Boolean(field && (field.isContentEditable || /^(INPUT|TEXTAREA)$/.test(field.tagName)));
+    });
+    if (clear && editing) {
+      await page.keyboard.press("ControlOrMeta+A");
+      await page.keyboard.press("Backspace");
+    }
+    await page.keyboard.type(text, { delay: pace ? 90 : 0 });
+    if (enter) await page.keyboard.press("Enter");
+  },
+  async press({ keys }) {
+    await page.keyboard.press(keys, { delay: pace ? 60 : 0 });
+  },
+  async keydown({ key }) {
+    await page.keyboard.down(key);
+  },
+  async keyup({ key }) {
+    await page.keyboard.up(key);
+  },
+  async wait({ seconds = 1 }) {
+    await sleep(seconds * 1000);
+  },
+  async caption(caption) {
+    await page.evaluate((shown) => window.__computerUseCaption?.(shown), caption);
+  },
+  // For the harness and tests, never the model: what the app saved, and what was refused.
+  async state() {
+    await restoring;
+    await page.waitForFunction(() => !window.tripScheduler?.busy?.(), null, { timeout: 5000 }).catch(() => {});
+    const app = await page.evaluate(() =>
+      window.tripScheduler ? { changes: window.tripScheduler.changes(), unsaved: window.tripScheduler.unsaved() } : {},
+    );
+    return { url: page.url(), blocked, left, ...app };
+  },
+  async box({ selector }) {
+    return { box: await page.locator(selector).first().boundingBox() };
+  },
+};
+
+let closed = false;
+async function close() {
+  if (closed) return null;
+  closed = true;
+  let video = null;
+  try {
+    if (stopRecording) video = await stopRecording();
+  } finally {
+    await browser.close().catch(() => {});
+  }
+  return video;
+}
+
+out({ ready: true, url: HOME, screen });
+try {
+  for await (const line of createInterface({ input: process.stdin })) {
+    if (!line.trim()) continue;
+    const { id, do: action, ...args } = JSON.parse(line);
+    try {
+      if (action === "close") {
+        out({ id, ok: true, video: await close() });
+        break;
+      }
+      if (!Object.hasOwn(commands, action)) throw new Error(`No command ${action}`);
+      out({ id, ok: true, ...(await commands[action](args)) });
+    } catch (error) {
+      out({ id, ok: false, error: String(error?.message ?? error).split("\n")[0] });
+    }
+  }
+} finally {
+  // Also when the agent goes away without saying close: the recording is kept.
+  await close().catch((error) => console.error(String(error?.message ?? error)));
+  await new Promise((resolve) => process.stdout.write("", resolve));
+  process.exit(0);
+}

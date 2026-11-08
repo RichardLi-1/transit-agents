@@ -1,7 +1,8 @@
 // Plays a scripted run of each study through the public API, with an agent's
 // token: a demo that needs no model. The log records the actor as agent:replay,
 // and the display marks its work as a replay. The Gemini agents in agents/ do the
-// real work. It reports no tokens or cost, because it spends none.
+// real work. It reports no tokens or cost, because it spends none. The Ontario
+// Line's run answers a planner's question, asked with the planner's token.
 // Its consultation findings are proposals: a planner rates them in decide.ts.
 // Its engagement needs are proposals too: nothing is made until a planner asks.
 import { ApiClient } from "./api.ts";

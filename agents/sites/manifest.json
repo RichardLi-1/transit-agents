@@ -1,0 +1,83 @@
+{
+  "about": "Openly licensed photos of the Ontario Line corridor that the media agent passes to the image model for a site's terrain, roads and existing buildings. Only CC0 and CC BY: never share-alike. Each is a Wikimedia Commons file at most 1280 px wide. Points are approximate: where the photo looks, not where it was taken. Subjects are the renders a photo can ground: one from the air grounds only a render seen from the air. Credits are in CREDITS.md.",
+  "photos": [
+    {
+      "file": "don-valley-bridge.jpg",
+      "title": "Don Valley bridge on August 20 2026",
+      "shows": "the wooded slopes of the Don Valley where the new bridge crosses the Don River and the Don Valley Parkway, with its first tall concrete piers and high-rise towers beyond",
+      "lon": -79.352,
+      "lat": 43.699,
+      "subjects": ["guideway"],
+      "author": "Throwaway618420",
+      "licence": "CC0 1.0",
+      "licenceUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "source": "https://commons.wikimedia.org/wiki/File:Don_Valley_bridge_on_August_20_2026.jpg",
+      "credit": "Don Valley bridge on August 20 2026, by Throwaway618420, CC0 1.0, via Wikimedia Commons"
+    },
+    {
+      "file": "thorncliffe-park-aerial.jpg",
+      "title": "Thorncliffe Park in 2023",
+      "shows": "Thorncliffe Park from the air: slab apartment towers, low industrial buildings and the wooded Don Valley at its edge",
+      "lon": -79.344,
+      "lat": 43.705,
+      "subjects": ["guideway"],
+      "author": "Canmenwalker",
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://commons.wikimedia.org/wiki/File:Thorncliffe_Park_in_2023.jpg",
+      "credit": "Thorncliffe Park in 2023, by Canmenwalker, CC BY 4.0, via Wikimedia Commons"
+    },
+    {
+      "file": "flemingdon-park-aerial.jpg",
+      "title": "Flemingdon Park 2023",
+      "shows": "Flemingdon Park from above the Don Valley: a wooded ravine in front and apartment towers beyond",
+      "lon": -79.3345,
+      "lat": 43.7165,
+      "subjects": ["guideway"],
+      "author": "Canmenwalker",
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://commons.wikimedia.org/wiki/File:Flemingdon_Park_2023.jpg",
+      "credit": "Flemingdon Park 2023, by Canmenwalker, CC BY 4.0, via Wikimedia Commons"
+    },
+    {
+      "file": "don-mills-eglinton-aerial.jpg",
+      "title": "Don Mills Road at Eglinton Ave East 2023",
+      "shows": "Don Mills Road at Eglinton Avenue from the air: a wide arterial crossing, cleared development sites and low offices",
+      "lon": -79.3395,
+      "lat": 43.7245,
+      "subjects": ["guideway"],
+      "author": "Canmenwalker",
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://commons.wikimedia.org/wiki/File:Don_Mills_Road_at_Eglinton_Ave_East_2023.jpg",
+      "credit": "Don Mills Road at Eglinton Ave East 2023, by Canmenwalker, CC BY 4.0, via Wikimedia Commons"
+    },
+    {
+      "file": "shops-at-don-mills.jpg",
+      "title": "Shops at Don Mills (37496329896)",
+      "shows": "the Shops at Don Mills by Don Mills Road and Lawrence Avenue East: a paved street of low brick and glass shops with trees and lamp posts",
+      "lon": -79.345278,
+      "lat": 43.734444,
+      "subjects": ["station-entrance", "street"],
+      "author": "Jeff Hitchcock from Seattle, WA, USA",
+      "licence": "CC BY 2.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/2.0/",
+      "source": "https://commons.wikimedia.org/wiki/File:Shops_at_Don_Mills_(37496329896).jpg",
+      "credit": "Shops at Don Mills, by Jeff Hitchcock from Seattle, WA, USA, CC BY 2.0, via Wikimedia Commons, cropped"
+    },
+    {
+      "file": "fairview-mall-aerial.jpg",
+      "title": "CF Fairview Mall Aerial view 2023",
+      "shows": "Fairview Mall and Don Mills Road near Sheppard Avenue East from the air: a large mall, its parking, apartment towers and the road curving past",
+      "lon": -79.3445,
+      "lat": 43.7775,
+      "subjects": ["guideway"],
+      "author": "Canmenwalker",
+      "licence": "CC BY 4.0",
+      "licenceUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://commons.wikimedia.org/wiki/File:CF_Fairview_Mall_Aerial_view_2023.jpg",
+      "credit": "CF Fairview Mall Aerial view 2023, by Canmenwalker, CC BY 4.0, via Wikimedia Commons"
+    }
+  ]
+}

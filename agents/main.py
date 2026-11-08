@@ -1,6 +1,6 @@
 """The lead agent on Gemini, working through the Transit Agents service's tools over MCP.
 
-    python agents/main.py [listen]                          answer each message a planner sends from the display's chat
+    python agents/main.py [listen]                          answer each message a planner or a visitor sends from the display's chat
     python agents/main.py run "task" --study ID [--title T]  run one task on a study, opening it if it's new
     python agents/main.py eval [args]                        run the eval set, with agents/evals.py
 
@@ -9,8 +9,9 @@ TRANSIT_TOKEN_AGENT (or DATA_DIR, the demo's data folder, for the demo's token),
 LEAD_MODEL, SPECIALIST_MODEL, MAX_MODEL_CALLS (for each agent), MAX_RUN_CALLS and
 MAX_RUN_USD (for a run: the lead and its specialists; default 60 calls and US$2),
 MAX_DAILY_USD, MAX_RUNS_PER_HOUR and MAX_RUN_MINUTES (while it listens; default US$10
-a UTC day, 20 runs an hour and 10 minutes a run), SPECIALIST_CONCURRENCY and
-MODEL_PRICES (see agents/prices.py).
+a UTC day, 20 runs an hour and 10 minutes a run), SPECIALIST_CONCURRENCY, RUNS_AT_ONCE
+(visitors' runs the listener answers at once), GUEST_RUN_CALLS (MAX_RUN_CALLS for a
+visitor's run) and MODEL_PRICES (see agents/prices.py).
 """
 
 import argparse
@@ -28,8 +29,12 @@ from google.genai.client import AsyncClient
 from mcp import ClientSession, MCPError
 
 from core import (
+    AUDIENCE,
+    BUDGET_SPENT,
+    EVERYONE,
     ModelError,
     SetupError,
+    SpendCapReached,
     ToolError,
     call,
     clip,
@@ -48,9 +53,9 @@ from lead import run_lead
 POLL_SECONDS = 3
 PAGE = 200  # log entries read at a time
 
-# The chat a run is given with a planner's message, so a follow-up makes sense: the
-# study's last few messages, each shortened. A listener that starts reads this far
-# back in the log for them.
+# The chat a run is given with a message, so a follow-up makes sense: the study's
+# last few messages, as whoever asks sees the chat, each shortened. A listener that
+# starts reads this far back in the log for them.
 HISTORY = 8
 HISTORY_CHARS = 1000
 BACKLOG = 1000
@@ -75,34 +80,49 @@ BUSY = "The agent has answered as many messages as it may this hour. Try again l
 HOUR = 3600
 
 
+# Who wrote a chat message, by the start of its actor, and how its history names them.
+WRITERS = {"planner:": "planner", "guest:": "visitor"}
+NAMES = {"planner": "Planner", "visitor": "Visitor", "agent": "Agent"}
+
+
 def chat_message(entry: dict[str, Any]) -> tuple[str, str] | None:
-    """Who wrote a chat message in a study, "planner" or "agent", and its text, or None for any other log entry."""
+    """Who wrote a chat message in a study, "planner", "visitor" or "agent", and its text,
+    or None for any other log entry."""
     data = entry.get("data") or {}
     if entry.get("type") != "activity" or data.get("kind") != "message" or not entry.get("studyId"):
         return None
-    who = "planner" if str(entry.get("actor", "")).startswith("planner:") else "agent"
+    actor = str(entry.get("actor", ""))
+    who = next((writer for start, writer in WRITERS.items() if actor.startswith(start)), "agent")
     return who, str(data.get("text", ""))
 
 
-def with_history(question: str, earlier: Sequence[tuple[str, str]]) -> list[str]:
-    """A run's task: the study's earlier chat, marked as such, then the planner's question."""
-    asked = f"A planner asks: {question}"
+def with_history(question: str, earlier: Sequence[tuple[str, str]], asker: str = "planner") -> list[str]:
+    """A run's task: the study's earlier chat, marked as such, then the question, a
+    planner's or a visitor's."""
+    line = f"A {asker} asks: {question}"
     if not earlier:
-        return [asked]
-    lines = "\n".join(f"{'Planner' if who == 'planner' else 'Agent'}: {clip(text, HISTORY_CHARS)}" for who, text in earlier)
-    return [f"Earlier in this study's chat, oldest first, for context:\n<chat>\n{lines}\n</chat>", asked]
+        return [line]
+    lines = "\n".join(f"{NAMES.get(who, 'Agent')}: {clip(text, HISTORY_CHARS)}" for who, text in earlier)
+    return [f"Earlier in this study's chat, oldest first, for context:\n<chat>\n{lines}\n</chat>", line]
 
 
-def planner_message(entry: dict[str, Any]) -> str | None:
-    """The text of a planner's chat message in a study, or None for any other log entry."""
+def asked(entry: dict[str, Any]) -> tuple[str, str | None] | None:
+    """A chat message to answer, as (text, audience), or None for any other log entry.
+
+    A planner's message is in the shared record, so its audience is None. A visitor's
+    is in their own sandbox: its audience comes from the entry, never from the actor.
+    """
     data = entry.get("data") or {}
-    is_planner_message = (
-        entry.get("type") == "activity"
-        and data.get("kind") == "message"
-        and str(entry.get("actor", "")).startswith("planner:")
-        and entry.get("studyId")
-    )
-    return data.get("text") if is_planner_message else None
+    if entry.get("type") != "activity" or data.get("kind") != "message" or not entry.get("studyId"):
+        return None
+    text, actor, audience = data.get("text"), str(entry.get("actor", "")), entry.get("audience")
+    if not isinstance(text, str):
+        return None
+    if actor.startswith("planner:") and not audience:
+        return text, None
+    if actor.startswith("guest:") and isinstance(audience, str) and AUDIENCE.match(audience):
+        return text, audience
+    return None
 
 
 async def check_citations(session: ClientSession, study: str, text: str, read: set[tuple[str, int]]) -> str:
@@ -135,22 +155,21 @@ async def answer(
     study: str,
     task: str | Sequence[str],
     *,
-    posted: set[int] | None = None,
     seconds: float | None = None,
+    max_run_calls: int | None = None,
 ) -> str:
     """Run the lead on a task, in the study's chat: the run shows, then its answer, with
     any citation it couldn't check marked.
 
     A failure is posted in the chat too, in plain words, then raised with its detail
-    for the terminal, and so is a stop. A run still going after `seconds`, if given, is
-    stopped, and the chat says so. The log position of each message it posts goes in
-    `posted`, if given.
+    for the terminal, and so is a stop. When visitors' budget runs out part-way, the
+    chat gets the service's words for it, as they are. A run still going after
+    `seconds`, if given, is stopped, and the chat says so. `max_run_calls` limits the
+    run's model calls (default MAX_RUN_CALLS).
     """
 
     async def say(text: str) -> None:
-        seq = await report(session, study, "message", text=clip(text, 4000))
-        if posted is not None and seq is not None:
-            posted.add(seq)
+        await report(session, study, "message", text=clip(text, 4000))
 
     await report(session, study, "run.started")
     try:
@@ -159,13 +178,16 @@ async def answer(
             reading = pages_read.set(read)
             try:
                 async with asyncio.timeout(seconds):
-                    text = (await run_lead(session, client, study, task)).strip() or NO_ANSWER
+                    text = (await run_lead(session, client, study, task, max_run_calls=max_run_calls)).strip() or NO_ANSWER
             finally:
                 pages_read.reset(reading)
             text = await check_citations(session, study, text, read)
         except TimeoutError:
             minutes = round(seconds / MINUTE) if seconds else 0
             await say(f"That took more than {minutes} {'minute' if minutes == 1 else 'minutes'}, so the agent stopped. Try again, or ask something narrower.")
+            raise
+        except SpendCapReached as error:
+            await say(str(error))
             raise
         except Exception as error:
             await say(f"That failed. {for_planners(error)}")
@@ -182,23 +204,47 @@ async def answer(
 
 
 class Listener:
-    """Answers each message a planner sends, from log position `after` (default: the
-    log's head when it starts). It never answers a message it posted itself.
+    """Answers each message a planner or a visitor sends, from log position `after`
+    (default: the log's head when it starts).
 
-    Each run gets the study's last few chat messages with the question, so a follow-up
-    makes sense. It keeps its place in the log, and the chat, so it can carry on in a
-    new session.
+    It reads the log in a session that acts for everyone ("*"), which can't write, and
+    answers each message in a session of its own: a visitor's acts for that visitor,
+    so the run reads and writes only in their sandbox. RUNS_AT_ONCE visitors' runs go
+    at once, and a planner's never waits for them. Each person's messages are answered
+    in order, planners' as one person's, and messages one person sent in a study while
+    they waited get one answer, to the last of them, with the others in its history.
+    Only the service's own agents may act for everyone, and their messages are an
+    agent's, so it never answers its own replies.
+
+    Each run gets the study's last few chat messages before the question, as the person
+    asking sees the chat, so a follow-up makes sense. It keeps its place in the log,
+    and the chat, so it can carry on in a new session.
     """
 
-    def __init__(self, client: AsyncClient, *, after: int | None = None, poll_seconds: float = POLL_SECONDS):
+    def __init__(
+        self,
+        client: AsyncClient,
+        *,
+        url: str | None = None,
+        token: str | None = None,
+        after: int | None = None,
+        poll_seconds: float = POLL_SECONDS,
+    ):
         self.client = client
+        self.url = url
+        self.token = token
         self.after = after
         self.poll_seconds = poll_seconds
-        self.posted: set[int] = set()
-        self.chats: dict[str, deque[tuple[str, str]]] = {}
+        # Chat messages by study and audience, None for the shared record: (seq, who, text),
+        # with room for the question and what came in after it.
+        self.chats: dict[tuple[str, str | None], deque[tuple[int, str, str]]] = {}
         self.read_back = False
+        self.latest: dict[tuple[str, str | None], int] = {}  # each person's last message in each study
         self.started: deque[float] = deque()  # when each run started, for MAX_RUNS_PER_HOUR
-        self.told: set[str] = set()  # studies told a limit stops their runs, until a run starts
+        self.told: set[tuple[str, str | None]] = set()  # told a limit stops their runs, until a run starts
+        self.runs: set[asyncio.Task] = set()
+        self._slots: asyncio.Semaphore | None = None
+        self._turns: dict[str | None, tuple[asyncio.Lock, int]] = {}
 
     def _held_back(self) -> str | None:
         """Why a run mustn't start now, past MAX_DAILY_USD or MAX_RUNS_PER_HOUR, or None."""
@@ -211,9 +257,16 @@ class Listener:
         return BUSY if len(self.started) >= settings.max_runs_per_hour else None
 
     def _hear(self, entry: dict[str, Any]) -> None:
-        """Keep a chat message for its study's history."""
+        """Keep a chat message for its study's history, in the sandbox it was written in."""
         if (message := chat_message(entry)) is not None:
-            self.chats.setdefault(entry["studyId"], deque(maxlen=HISTORY)).append(message)
+            key = (entry["studyId"], entry.get("audience"))
+            self.chats.setdefault(key, deque(maxlen=2 * HISTORY)).append((entry["seq"], *message))
+
+    def _history(self, study: str, audience: str | None, seq: int) -> list[tuple[str, str]]:
+        """The study's chat before a message, as whoever sent it sees it: the shared
+        record's, and their own sandbox's."""
+        seen = [*self.chats.get((study, None), ()), *(self.chats.get((study, audience), ()) if audience else ())]
+        return [(who, text) for at, who, text in sorted(seen) if at < seq][-HISTORY:]
 
     async def _read_back(self, session: ClientSession, head: int) -> None:
         """Keep the chat messages from before it started, up to BACKLOG entries back."""
@@ -228,7 +281,8 @@ class Listener:
             after = entries[-1]["seq"]
 
     async def run(self, session: ClientSession) -> None:
-        """Listen in this session until stopped, or until the service can't be reached."""
+        """Listen in this session until stopped, or until the service can't be reached.
+        The session acts for everyone, to read every visitor's messages."""
         head = (await call(session, "get_log_head"))["seq"]
         if self.after is None or head < self.after:  # a new log starts again from 0
             self.after = head
@@ -237,53 +291,117 @@ class Listener:
             self.read_back = True
         while True:
             entries = await call(session, "read_log", {"after": self.after, "limit": PAGE})
-            # One run a study at a time: messages that came in while it was busy get one
-            # answer, to the last of them, with the others in its history.
-            last = {
-                entry["studyId"]: entry["seq"]
-                for entry in entries
-                if entry["seq"] not in self.posted and planner_message(entry) is not None
-            }
             for entry in entries:
                 self.after = entry["seq"]
-                if self.after in self.posted:
-                    self.posted.discard(self.after)
-                    self._hear(entry)
-                    continue
-                if (question := planner_message(entry)) is None:
-                    self._hear(entry)
-                    continue
-                study = entry["studyId"]
-                task = with_history(question, list(self.chats.get(study, ())))
                 self._hear(entry)
-                if last[study] != entry["seq"]:
+                if (question := asked(entry)) is None:
                     continue
-                if (reason := self._held_back()) is not None:
-                    print(f"{study}: {question}\n  Not answered: {reason}", flush=True)
-                    if study not in self.told:
-                        self.told.add(study)
-                        if (seq := await report(session, study, "message", text=reason)) is not None:
-                            self.posted.add(seq)
-                    continue
-                self.started.append(time.monotonic())
-                self.told.discard(study)
-                print(f"{study}: {question}", flush=True)
-                try:
-                    seconds = config().max_run_minutes * MINUTE
-                    text = await answer(session, self.client, study, task, posted=self.posted, seconds=seconds)
-                except Exception as error:  # it's in the chat; keep listening
-                    print(f"  That failed: {error}", file=sys.stderr, flush=True)
-                else:
-                    print(f"  {clip(text, 300)}", flush=True)
+                text, audience = question
+                study = entry["studyId"]
+                self.latest[(study, audience)] = entry["seq"]
+                task = asyncio.create_task(self.reply(study, entry["seq"], text, audience))
+                self.runs.add(task)
+                task.add_done_callback(self.runs.discard)
             if len(entries) < PAGE:
                 await asyncio.sleep(self.poll_seconds)
 
+    async def reply(self, study: str, seq: int, text: str, audience: str | None) -> None:
+        """Answer one message, after that person's earlier ones, once a run may start. One
+        they sent in the study meanwhile is answered instead, with this one in its history."""
+        who = audience[:8] if audience else "planner"
+        key = (study, audience)
+        try:
+            async with self._turn(audience):
+                if self.latest.get(key) != seq:
+                    return
+                async with self._slot(audience):
+                    # A planner's words are in the shared record; a visitor's never go in the log here.
+                    print(f"{study}, {who}" + ("" if audience else f": {text}"), flush=True)
+                    async with open_session(self.url, self.token, on_behalf_of=audience) as session:
+                        said = await self._answer(session, study, seq, text, audience)
+        except Exception as error:  # it's in the chat; keep listening
+            print(f"  {study}, {who}: that failed: {error}", file=sys.stderr, flush=True)
+        else:
+            print(f"  {clip(said, 300)}" if not audience else f"  {study}, {who}: {said}", flush=True)
+        finally:
+            if self.latest.get(key) == seq:
+                del self.latest[key]
+
+    async def _answer(self, session: ClientSession, study: str, seq: int, text: str, audience: str | None) -> str:
+        """The lead's answer, for a planner; for a visitor, only how it went: their words
+        stay out of the terminal. Past the listener's limits, the person is told once."""
+        if audience:
+            budget = await call(session, "get_budget")
+            if isinstance(budget, dict) and budget.get("capped") and budget.get("leftUsd", 0) <= 0:
+                await report(session, study, "message", text=BUDGET_SPENT)
+                return "budget spent"
+        if (reason := self._held_back()) is not None:
+            if (study, audience) not in self.told:
+                self.told.add((study, audience))
+                await report(session, study, "message", text=reason)
+            return f"Not answered: {reason}"
+        self.started.append(time.monotonic())
+        self.told.discard((study, audience))
+        task = with_history(text, self._history(study, audience, seq), "visitor" if audience else "planner")
+        seconds = config().max_run_minutes * MINUTE
+        if not audience:
+            return await answer(session, self.client, study, task, seconds=seconds)
+        try:
+            await answer(session, self.client, study, task, seconds=seconds, max_run_calls=config().guest_run_calls)
+        except SpendCapReached:
+            return "budget spent part-way"  # it's in their chat
+        return "answered"
+
+    def _slot(self, audience: str | None) -> contextlib.AbstractAsyncContextManager:
+        """A visitor's run takes one of RUNS_AT_ONCE slots. A planner's needs none: planners'
+        runs go one at a time already, in their own turn, and never wait for visitors'."""
+        if audience is None:
+            return contextlib.nullcontext()
+        if self._slots is None:
+            self._slots = asyncio.Semaphore(config().runs_at_once)
+        return self._slots
+
+    @contextlib.asynccontextmanager
+    async def _turn(self, audience: str | None):
+        """One person's turn: their messages are answered one at a time, in order.
+        Planners share one turn."""
+        lock, waiting = self._turns.get(audience) or (asyncio.Lock(), 0)
+        self._turns[audience] = (lock, waiting + 1)
+        try:
+            async with lock:
+                yield
+        finally:
+            lock, waiting = self._turns[audience]
+            if waiting > 1:
+                self._turns[audience] = (lock, waiting - 1)
+            else:
+                del self._turns[audience]
+
+    async def stop(self) -> None:
+        """Stop every run, so each says it stopped before answering, and wait for them."""
+        runs = list(self.runs)
+        for task in runs:
+            task.cancel()
+        await asyncio.gather(*runs, return_exceptions=True)
+
 
 async def listen(
-    session: ClientSession, client: AsyncClient, *, after: int | None = None, poll_seconds: float = POLL_SECONDS
+    session: ClientSession,
+    client: AsyncClient,
+    *,
+    url: str | None = None,
+    token: str | None = None,
+    after: int | None = None,
+    poll_seconds: float = POLL_SECONDS,
 ) -> None:
-    """Answer each message a planner sends, from log position `after` (default: now), until stopped."""
-    await Listener(client, after=after, poll_seconds=poll_seconds).run(session)
+    """Answer each message a planner or a visitor sends, from log position `after`
+    (default: now), until stopped. `session` acts for everyone; each run opens its own
+    at `url` with `token`."""
+    listener = Listener(client, url=url, token=token, after=after, poll_seconds=poll_seconds)
+    try:
+        await listener.run(session)
+    finally:
+        await listener.stop()
 
 
 async def keep_listening(
@@ -299,27 +417,30 @@ async def keep_listening(
     then connect again, waiting longer each time up to `most_seconds`, and carry on
     where it left off. It must connect the first time."""
     url = (url or config().service_url).rstrip("/")
-    listener = Listener(client, poll_seconds=poll_seconds)
+    listener = Listener(client, url=url, token=token, poll_seconds=poll_seconds)
     connected = lost = False
     wait = retry_seconds
-    while True:
-        try:
-            async with open_session(url, token) as session:
-                if lost:
-                    print(f"Back on {url}. Listening again.", flush=True)
-                elif not connected:
-                    print(f"Listening for planners' messages on {url}. Stop with Ctrl+C.", flush=True)
-                connected, lost, wait = True, False, retry_seconds
-                await listener.run(session)
-        except Exception as error:
-            if not connected or not outage(error):
-                raise
-            if not lost:
-                said = plainly(error, url) or str(error)
-                print(f"{said} Trying again until it's back.", file=sys.stderr, flush=True)
-                lost = True
-            await asyncio.sleep(wait)
-            wait = min(wait * 2, most_seconds)
+    try:
+        while True:
+            try:
+                async with open_session(url, token, on_behalf_of=EVERYONE) as session:
+                    if lost:
+                        print(f"Back on {url}. Listening again.", flush=True)
+                    elif not connected:
+                        print(f"Listening for messages on {url}. Stop with Ctrl+C.", flush=True)
+                    connected, lost, wait = True, False, retry_seconds
+                    await listener.run(session)
+            except Exception as error:
+                if not connected or not outage(error):
+                    raise
+                if not lost:
+                    said = plainly(error, url) or str(error)
+                    print(f"{said} Trying again until it's back.", file=sys.stderr, flush=True)
+                    lost = True
+                await asyncio.sleep(wait)
+                wait = min(wait * 2, most_seconds)
+    finally:
+        await listener.stop()
 
 
 async def run_task(session: ClientSession, client: AsyncClient, task: str, study: str, title: str | None = None) -> str:
@@ -385,7 +506,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(prog="python agents/main.py", description="Run the lead agent.")
     commands = parser.add_subparsers(dest="command")
-    commands.add_parser("listen", help="answer planners' chat messages until stopped (the default)")
+    commands.add_parser("listen", help="answer planners' and visitors' chat messages until stopped (the default)")
     one = commands.add_parser("run", help="run one task on a study")
     one.add_argument("task", help="what to do, in plain words")
     one.add_argument("--study", required=True, help="the study's id; it's opened if it's new")

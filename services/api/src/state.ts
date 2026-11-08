@@ -56,8 +56,9 @@ export type State = {
   skills: Map<string, Set<string>>;
   usage: Usage;
   usageByStudy: Map<string, Usage>;
-  // Every file a log entry names, by its sha256. Only these are served.
-  media: Map<string, { type: MediaType; size: number }>;
+  // Every file a log entry names, by its sha256, and a need that names it. Only these
+  // are served.
+  media: Map<string, { type: MediaType; size: number; need: string }>;
 };
 
 const noUsage = (): Usage => ({ inputTokens: 0, outputTokens: 0, costUsd: 0, computeSeconds: 0, calls: 0, unpricedCalls: 0 });
@@ -99,6 +100,7 @@ export function viewNeed(need: Need): NeedView {
     kinds: need.kinds,
     reason: need.reason,
     citations: need.citations,
+    ...(need.subject ? { subject: need.subject } : {}),
     status: statusOf(need),
     addedBy: need.addedBy,
     addedAt: need.addedAt,
@@ -109,10 +111,16 @@ export function viewNeed(need: Need): NeedView {
   };
 }
 
-// Stops serving a file once no need names it.
+// Stops serving a file once no need names it. While another need does, it's served
+// under that need's name.
 function unname(state: State, sha256: string) {
   for (const study of state.studies.values()) {
-    for (const need of study.needs.values()) if (need.media.some((media) => media.id === sha256)) return;
+    for (const need of study.needs.values()) {
+      if (!need.media.some((media) => media.id === sha256)) continue;
+      const known = state.media.get(sha256);
+      if (known) known.need = need.id;
+      return;
+    }
   }
   state.media.delete(sha256);
 }
@@ -286,6 +294,48 @@ function addUsage(total: Usage, data: { inputTokens: number; outputTokens: numbe
   if (data.costUsd === undefined) total.unpricedCalls = (total.unpricedCalls ?? 0) + 1;
 }
 
+// What model calls cost, in all and by study.
+export type Spend = Pick<State, "usage" | "usageByStudy">;
+
+export const noSpend = (): Spend => ({ usage: noUsage(), usageByStudy: new Map() });
+
+// Adds a model call an agent reported. Any other entry, or one whose content was
+// removed, adds nothing.
+export function countUsage(spend: Spend, entry: Pick<Entry, "type" | "studyId" | "data">) {
+  const data = entry.data as { kind?: string; redacted?: true };
+  if (entry.type !== "activity" || data.kind !== "usage" || data.redacted) return;
+  const usage = data as unknown as Parameters<typeof addUsage>[1];
+  addUsage(spend.usage, usage);
+  if (entry.studyId) {
+    const byStudy = spend.usageByStudy.get(entry.studyId) ?? noUsage();
+    addUsage(byStudy, usage);
+    spend.usageByStudy.set(entry.studyId, byStudy);
+  }
+}
+
+// Two totals added together, as a third.
+export function addSpend(a: Spend, b: Spend): Spend {
+  const sum = noSpend();
+  for (const spend of [a, b]) {
+    mergeUsage(sum.usage, spend.usage);
+    for (const [id, usage] of spend.usageByStudy) {
+      const byStudy = sum.usageByStudy.get(id) ?? noUsage();
+      mergeUsage(byStudy, usage);
+      sum.usageByStudy.set(id, byStudy);
+    }
+  }
+  return sum;
+}
+
+function mergeUsage(total: Usage, more: Usage) {
+  total.inputTokens += more.inputTokens;
+  total.outputTokens += more.outputTokens;
+  total.costUsd += more.costUsd;
+  total.computeSeconds += more.computeSeconds;
+  total.calls += more.calls;
+  total.unpricedCalls = (total.unpricedCalls ?? 0) + (more.unpricedCalls ?? 0);
+}
+
 const get = <T>(map: Map<string, T>, key: string | null): T => {
   const value = map.get(key as string);
   if (value === undefined) throw new Error(`Log refers to unknown id "${key}"`);
@@ -421,6 +471,7 @@ export function apply(state: State, entry: Entry): void {
         kinds: need.kinds,
         reason: need.reason,
         citations: need.citations ?? [],
+        ...(need.subject ? { subject: need.subject } : {}),
         addedBy: entry.actor,
         addedAt: entry.at,
         media: [],
@@ -493,21 +544,13 @@ export function apply(state: State, entry: Entry): void {
         addedBy: entry.actor,
         addedAt: entry.at,
       });
-      state.media.set(media.sha256, { type: media.type, size: media.size });
+      state.media.set(media.sha256, { type: media.type, size: media.size, need: media.need });
       return;
     }
 
-    case "activity": {
-      if (data.kind !== "usage") return;
-      const usage = data as unknown as Parameters<typeof addUsage>[1];
-      addUsage(state.usage, usage);
-      if (entry.studyId) {
-        const byStudy = state.usageByStudy.get(entry.studyId) ?? noUsage();
-        addUsage(byStudy, usage);
-        state.usageByStudy.set(entry.studyId, byStudy);
-      }
+    case "activity":
+      countUsage(state, entry);
       return;
-    }
 
     default:
       // Unknown entry types are history, not errors: older servers ignore newer events.

@@ -1,8 +1,8 @@
 // Agents connect over MCP at /v1/mcp: Streamable HTTP, stateless. Each tool is one
 // route in app.ts, and each call goes back through the app as an ordinary request
-// with the caller's token. So roles, validation, citation checks, idempotency and
-// the log treat a tool call exactly like the same REST call, and none of that is
-// repeated here.
+// with the caller's token, and the visitor it acts for. So roles, validation,
+// citation checks, idempotency, visitors' sandboxes and the log treat a tool call
+// exactly like the same REST call, and none of that is repeated here.
 //
 // This uses the SDK's low-level Server, not McpServer. A tool's input is JSON
 // Schema made from the route's own zod schema, as /openapi.json is, and the route
@@ -21,7 +21,7 @@ import {
   type CallToolResult,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { Role } from "@transit-agents/contracts";
+import { ON_BEHALF_OF, type Role } from "@transit-agents/contracts";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { Actor } from "./app.ts";
@@ -113,7 +113,7 @@ export const TOOLS: Record<string, Spec> = {
   "POST /v1/studies/:id/needs/:need/create": {
     name: "request_engagement_media",
     description:
-      "Ask for an engagement need's image or video to be made. Asking again changes nothing while a request is open. After a failure, it asks again. Planners only.",
+      "Ask for an engagement need's image or video to be made. Asking again changes nothing while a request is open. After a failure, it asks again. Planners, or a visitor in their own sandbox.",
   },
   "POST /v1/studies/:id/needs/:need/dismiss": {
     name: "dismiss_engagement_need",
@@ -154,7 +154,8 @@ export const TOOLS: Record<string, Spec> = {
   },
   "GET /v1/usage": {
     name: "get_usage",
-    description: "Tokens and cost, in total and by study.",
+    description:
+      "Everything agents have spent: tokens and cost, in total, with visitors' sandboxes added in, and by study, for the shared record. Each comes with an estimate of the energy, CO2e and water its model calls used: a floor, counting each call as a median Gemini prompt, with the source.",
   },
   "GET /v1/log": {
     name: "read_log",
@@ -166,24 +167,28 @@ export const TOOLS: Record<string, Spec> = {
   },
   "GET /v1/log/verify": {
     name: "verify_log",
-    description: "Check the log's hash chain.",
+    description: "Check the log's hash chain, and get the hash of the latest entry you can read.",
   },
   "GET /v1/log/head": {
     name: "get_log_head",
-    description: "Read the latest log position and hash, to keep as a witness.",
+    description: "Read the latest log position and hash you can read, to keep as a witness.",
   },
   "GET /v1/live/vehicles": {
     name: "live_vehicles",
     description: "Latest live vehicle positions for the given routes.",
     query: { routes: { type: "string", description: "Route numbers, comma-separated, such as 52,11" } },
   },
+  "GET /v1/budget": {
+    name: "get_budget",
+    description: "What is left of today's visitor budget for the visitor this session acts for.",
+  },
   "PUT /v1/studies/:id/findings/:finding/tone": {
     name: "rate_finding",
-    description: "Rate how a finding reads. Planners only.",
+    description: "Rate how a finding reads. Planners, or a visitor in their own sandbox.",
   },
   "POST /v1/studies/:id/figures/:figure/accept": {
     name: "accept_figure",
-    description: "Accept a skill's result so it can pass or fail a check. Planners only.",
+    description: "Accept a skill's result so it can pass or fail a check. Planners, or a visitor in their own sandbox.",
   },
   "POST /v1/studies/:id/decisions": {
     name: "record_decision",
@@ -191,7 +196,7 @@ export const TOOLS: Record<string, Spec> = {
   },
   "PUT /v1/assumptions/:key": {
     name: "set_rule",
-    description: "Set or change a rule or assumption, with a reason. Planners only.",
+    description: "Set or change a rule or assumption, with a reason. Planners, or a visitor in their own sandbox.",
   },
   "PUT /v1/skills/:name": {
     name: "approve_skill",
@@ -199,7 +204,7 @@ export const TOOLS: Record<string, Spec> = {
   },
   "POST /v1/log/:seq/remove-content": {
     name: "remove_content",
-    description: "Remove a log entry's content for retention or privacy. The entry and the hash chain stay. Planners only.",
+    description: "Remove a log entry's content for retention or privacy. The entry and the hash chain stay. For a visitor's entry, give their audience. Planners only.",
   },
 };
 
@@ -215,6 +220,7 @@ export const NOT_TOOLS: Record<string, string> = {
   "POST /v1/studies/:id/needs/:need/failed": "Only the agent holding the request's claim says it failed, from its own code",
   "POST /v1/studies/:id/needs/:need/media": "A video is larger than an MCP message may be (4 MiB), so an agent posts the file here with its token",
   "GET /v1/media/:id": "Image and video bytes, for people to see. Each study's needs list their media",
+  "POST /v1/guests": "Guest passes are for the display",
 };
 
 // Path parameters become arguments. ":id" is named for what it identifies; the
@@ -315,7 +321,8 @@ function buildTools(routes: readonly ApiRoute[]): McpTool[] {
 }
 
 type Requester = { request(input: URL, init: RequestInit): Response | Promise<Response> };
-type Caller = { origin: string; authorization: string | undefined };
+// onBehalfOf is the visitor the session acts for, which each tool call carries on.
+type Caller = { origin: string; authorization: string | undefined; onBehalfOf: string | undefined };
 
 const failure = (text: string): CallToolResult => ({ content: [{ type: "text", text }], isError: true });
 
@@ -345,7 +352,11 @@ async function call(app: Requester, tool: McpTool, args: Record<string, unknown>
   }
   const response = await app.request(url, {
     method: tool.route.method.toUpperCase(),
-    headers: { "content-type": "application/json", ...(caller.authorization ? { authorization: caller.authorization } : {}) },
+    headers: {
+      "content-type": "application/json",
+      ...(caller.authorization ? { authorization: caller.authorization } : {}),
+      ...(caller.onBehalfOf !== undefined ? { [ON_BEHALF_OF]: caller.onBehalfOf } : {}),
+    },
     ...(tool.route.body ? { body: JSON.stringify(rest) } : {}),
   });
   const text = await response.text();
@@ -399,7 +410,7 @@ export function mcp(app: Requester, routes: readonly ApiRoute[], { publicUrl }: 
     }
 
     const { role } = c.get("actor");
-    const caller = { origin: own.origin, authorization: c.req.header("authorization") };
+    const caller = { origin: own.origin, authorization: c.req.header("authorization"), onBehalfOf: c.req.header(ON_BEHALF_OF) };
     const server = new Server({ name: "transit-agents", version: "0.1.0" }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
     server.setRequestHandler(ListToolsRequestSchema, () => ({
       tools: tools.filter((tool) => tool.route.roles.includes(role)).map((tool) => tool.definition),

@@ -17,8 +17,14 @@ export const toPoint = (lat: number, lon: number): Point => [
 // gives null for a point behind the camera.
 export function projector(view: View): (point: Point) => Point | null {
   if (view.kind === "flat") {
-    const { centre, middle, scale } = view;
-    return ([x, y]) => [middle[0] + (x - centre[0]) * scale, middle[1] - (y - centre[1]) * scale];
+    const { centre, middle, scale, bearing = 0 } = view;
+    const cos = Math.cos(bearing);
+    const sin = Math.sin(bearing);
+    return ([x, y]) => {
+      const dx = x - centre[0];
+      const dy = y - centre[1];
+      return [middle[0] + (dx * cos - dy * sin) * scale, middle[1] - (dx * sin + dy * cos) * scale];
+    };
   }
   const { width, height } = view;
   const m = cameraView(view.camera, width / height).viewProjection;

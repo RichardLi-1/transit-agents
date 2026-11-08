@@ -26,12 +26,13 @@ const nextFrame: (callback: (time: number) => void) => number =
   typeof requestAnimationFrame === "function"
     ? (callback) => requestAnimationFrame(callback)
     : (callback) => setTimeout(() => callback(performance.now()), 16) as unknown as number;
+const cancelFrame: (id: number) => void = typeof cancelAnimationFrame === "function" ? (id) => cancelAnimationFrame(id) : (id) => clearTimeout(id);
 
 const MAGENTA: Vec3 = [176 / 255, 52 / 255, 136 / 255];
 const SLATE: Vec3 = [0.42, 0.45, 0.5];
 const GREY: Vec3 = [0.58, 0.6, 0.63];
 const FAILING: Vec3 = [0.3, 0.32, 0.36];
-const FIELD_OF_VIEW = (32 * Math.PI) / 180;
+export const FIELD_OF_VIEW = (32 * Math.PI) / 180;
 
 // While a study is shown, the other rail lines fade this far toward grey, so none
 // reads as part of it. A line whose colour is near the study's magenta, such as
@@ -287,8 +288,9 @@ export class MapEngine {
 
   // Told when the camera moves or the canvas resizes, so the page can keep things
   // pinned to the map. It is told a frame before the draw, about the time a message
-  // from the worker takes to reach the page. Never while the camera holds still.
-  onView: ((view: TiltedView) => void) | null = null;
+  // from the worker takes to reach the page, or, with `drawn`, as the map is drawn
+  // at once. Never while the camera holds still.
+  onView: ((view: TiltedView, drawn: boolean) => void) | null = null;
   private reported = "";
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
@@ -444,10 +446,17 @@ export class MapEngine {
     });
   }
 
+  // Counts flights, so one ends when another starts or the camera is set, as
+  // when the user takes the map.
+  private flight = 0;
+
   flyTo(target: Camera, duration: number) {
+    const flight = ++this.flight;
     const from = { ...this.camera };
-    const delta = ((target.bearing - from.bearing + Math.PI) % (2 * Math.PI)) - Math.PI;
+    // The short way round.
+    const delta = Math.atan2(Math.sin(target.bearing - from.bearing), Math.cos(target.bearing - from.bearing));
     this.animate(duration, (t) => {
+      if (flight !== this.flight) return false;
       const e = t * t * (3 - 2 * t);
       this.camera = {
         x: from.x + (target.x - from.x) * e,
@@ -459,7 +468,8 @@ export class MapEngine {
     });
   }
 
-  private animate(duration: number, step: (t: number) => void) {
+  // A step that returns false ends the animation.
+  private animate(duration: number, step: (t: number) => boolean | void) {
     if (duration <= 0) {
       step(1);
       this.requestDraw();
@@ -468,7 +478,7 @@ export class MapEngine {
     const start = performance.now();
     const tick = (now: number) => {
       const t = Math.min((now - start) / duration, 1);
-      step(t);
+      if (step(t) === false) return;
       this.requestDraw();
       if (t < 1) nextFrame(tick);
     };
@@ -485,9 +495,16 @@ export class MapEngine {
     this.requestDraw();
   }
 
-  setCamera(camera: Partial<Camera>) {
+  // `now` draws at once, for a caller already in a frame, as the hand's controls
+  // are, so the map shows the move in this frame rather than the next.
+  setCamera(camera: Partial<Camera>, now = false) {
+    this.flight++;
     Object.assign(this.camera, camera);
-    this.requestDraw();
+    if (!now) return this.requestDraw();
+    cancelFrame(this.frame);
+    this.frame = 0;
+    this.report(true);
+    this.draw();
   }
 
   // Sizes come from the page, because a canvas in a worker can't measure itself.
@@ -564,11 +581,11 @@ export class MapEngine {
     gl.bindVertexArray(null);
   }
 
-  private report() {
+  private report(drawn = false) {
     const { camera, size, onView } = this;
     const key = `${camera.x} ${camera.y} ${camera.distance} ${camera.pitch} ${camera.bearing} ${size[0]} ${size[1]}`;
     if (!onView || !this.networkVao || key === this.reported || !size[0] || !size[1]) return;
     this.reported = key;
-    onView({ camera: { ...camera }, width: size[0], height: size[1] });
+    onView({ camera: { ...camera }, width: size[0], height: size[1] }, drawn);
   }
 }

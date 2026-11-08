@@ -112,7 +112,64 @@ QUOTES = [
         "in cases where only certain metrics pass, or in other exceptional circumstances, "
         "discretionary recommendations may be made that transcend the metrics above",
     ),
+    # engagement-needs
+    ("ttc-standards-2024", 31, "All major service changes and plans require public consultation"),
+    ("ontario-line-ibc-2019", 82, "will also require further public and stakeholder engagement"),
+    (
+        "ttc-standards-2024",
+        24,
+        "disproportionally impacted equity-seeking groups, including, but not limited to, "
+        "people with low income, women and shift workers",
+    ),
+    ("ttc-standards-2024", 24, "multiple channels to engage all customers"),
+    ("ttc-anp-2026", 96, "subway platform video screens"),
+    # gtfs-analyst. Its script's Table 3 periods are checked in test_gtfs_analyst.
+    ("ttc-standards-2024", 14, "10:00 am - 1:00 am"),
+    ("ttc-standards-2024", 14, "Minimum Service Levels (minutes)"),
+    (
+        "ttc-standards-2024",
+        13,
+        "every ten minutes or better from approximately 6:00 am to 1:30 am from Monday to Saturday "
+        "and from approximately 8:00 am to 1:30 am on Sundays",
+    ),
+    # transit-cost-benchmark. test_transit_cost_benchmark checks the service takes its recording quotes.
+    ("ontario-line-ibc-2019", 77, "Length (km) 7.5 15.5"),
+    ("ontario-line-ibc-2019", 77, "Cost per km $832 M to $999 M $613 M to $735 M"),
+    ("ontario-line-ibc-2019", 76, "estimated in 2019$"),
+    ("ontario-line-ibc-2019", 77, "Capital cost estimates were all developed by Turner & Townsend"),
+    (
+        "ontario-line-ibc-2019",
+        77,
+        "Relief Line South costs were based on 15% designs provided by the TTC while Ontario Line costs "
+        "were developed based on conceptual alignments",
+    ),
+    ("ontario-line-pdbc-2020", 16, "7.5 km of underground rapid transit"),
+    ("ontario-line-pdbc-2020", 16, "underground segments, shared rail corridors, and elevated structures"),
+    (
+        "ontario-line-pdbc-2020",
+        16,
+        "allows for a larger build out of rapid transit for lower cost per km with quicker construction "
+        "timelines compared to a fully underground alignment",
+    ),
+    ("ontario-line-ibc-2019", 77, "Relief Line South costs are approximately 35% higher than Ontario Line costs on a per-kilometre basis"),
+    ("ontario-line-pdbc-2020", 62, "25 to 30% lower than a fully tunnelled Relief Line South"),
+    ("ontario-line-ibc-2019", 76, "should be considered Class 5 estimates"),
+    ("ontario-line-ibc-2019", 76, "All cost estimates reflect 30% contingency to cover unknown risk events"),
+    (
+        "ontario-line-ibc-2019",
+        76,
+        "The high end of the cost estimates also include an average of 20% uplift to individual cost items "
+        "in order to balance optimism bias",
+    ),
+    ("metrolinx-bcm-vol2", 102, "costs only, and the economic case only"),
+    ("metrolinx-bcm-vol2", 103, "given a contingency uplift is applied on capital costs"),
+    ("metrolinx-bcm-vol2", 179, "Dollar Value Real, year of evaluation"),
+    ("metrolinx-bcm-vol2", 105, "used for illustrative purposes only"),
 ]
+
+
+# A quote and the page it is on, as the glossary gives them: "words" (source-id p. N).
+QUOTED = re.compile(r'"([^"]+)" \(([a-z0-9-]+) p\. (\d+)\)')
 
 
 def normalize(text: str) -> str:
@@ -160,7 +217,11 @@ class TheSkillsTest(unittest.TestCase):
 
     def test_the_lead_can_pick_each_one(self):
         listed = {skill["name"]: skill["description"] for skill in skills.list_skills()}
-        self.assertLessEqual({"ttc-standards", "consultation", "trial-monitor", "handover", "metrolinx-business-case"}, listed.keys())
+        expected = {
+            *("ttc-standards", "consultation", "trial-monitor", "handover", "metrolinx-business-case"),
+            *("engagement-needs", "gtfs-analyst", "transit-cost-benchmark", "planning-glossary"),
+        }
+        self.assertLessEqual(expected, listed.keys())
         self.assertEqual(listed, {skill.name: skill.description for skill in self.skills})
 
     def test_every_page_a_skill_cites_exists(self):
@@ -192,6 +253,12 @@ class TheSkillsTest(unittest.TestCase):
             "stop-003": r"Another project's ratio isn't this one's",
             "draft-002": r"Strategic, Financial, Economic, Deliverability/Operations",
             "find-012": r"it is 64% \(metrolinx-bcm-vol2 p\. 103",
+            "calc-007": r"Ontario Line, 15\.5 km: \$613 M to \$735 M per km",
+            "define-001": r"All cost estimates reflect 30% contingency to cover unknown risk events\" \(ontario-line-ibc-2019 p\. 76",
+            "define-002": r"should be considered Class 5 estimates\" \(ontario-line-ibc-2019 p\. 76",
+            "define-003": r"\"Ontario Regulation 231/08\" \(metrolinx-bcm-vol2 p\. 204",
+            "define-004": r"These major changes require TTC Board approval\" \(ttc-anp-2026 p\. 113",
+            "define-005": r"never OMSF, so OMSF has no expansion",
         }
         text = "\n".join(skill.body for skill in self.skills)
         cases = {case["id"]: case for case in map(json.loads, (ROOT / "evals" / "cases.jsonl").read_text().splitlines())}
@@ -200,12 +267,41 @@ class TheSkillsTest(unittest.TestCase):
                 self.assertRegex(text, words)
                 self.assertEqual(cases[case]["split"], "dev")
 
+    def test_the_handover_skill_asks_for_each_gap_its_next_step_and_who_to_contact(self):
+        # A first pass mustn't read as complete. It ends with what isn't known yet: each
+        # gap, then the next step, then who to contact, then the page that shows it.
+        lines = skills.load_skill("handover").body.splitlines()
+        self.assertIn("Not known yet:", lines)
+        gap = lines[lines.index("Not known yet:") + 1]
+        self.assertRegex(gap, r"^- <what's missing>\. Next: <[^>]+>\. Contact: <[^>]+> \(<source-id> p\. <N>\)\.$")
+        for step in ("a re-survey", "an engineering estimate", "a model run", "a data request"):
+            self.assertIn(step, gap)
+        rules = "\n".join(lines)
+        self.assertIn("Name an organisation or team, never a person.", rules)
+        self.assertIn("Where no page shows it, ask it as a question for the planner, and claim nothing.", rules)
+
     def test_every_quote_is_on_its_page(self):
         text = normalize("\n".join(skill.body for skill in self.skills))
         for source, page, quote in QUOTES:
             with self.subTest(quote=quote, page=page):
                 self.assertIn(normalize(quote), text, "a skill quotes it")
                 self.assertIn(normalize(quote), normalize(SOURCES[source][page]))
+
+    def test_the_glossary_defines_each_term_in_words_on_the_page_it_cites(self):
+        # No term from memory: each one quotes a source, and every quote is followed by
+        # the page it is on.
+        body = skills.load_skill("planning-glossary").body
+        terms = [line for line in body[body.index("\n## ") :].splitlines() if line.startswith("- ")]
+        self.assertTrue(terms, "list the terms as - lines under headings")
+        for term in terms:
+            with self.subTest(term=term.partition(":")[0]):
+                quoted = QUOTED.findall(term)
+                self.assertTrue(quoted, "define it in a source's words")
+                self.assertEqual(term.count('"'), 2 * len(quoted), "give the page after every quote")
+        for words, source, page in QUOTED.findall(body):
+            with self.subTest(quote=words[:60], source=source, page=page):
+                self.assertIn(source, SOURCES)
+                self.assertIn(normalize(words), normalize(SOURCES[source].get(int(page), "")))
 
 
 if __name__ == "__main__":

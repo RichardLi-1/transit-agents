@@ -41,9 +41,9 @@ citations. [score.ts](../evals/score.ts) compares it with the case.
 
 ## The current set
 
-48 cases: 45 from the 2026 plan, and 3 on the Ontario Line study's sources:
+53 cases: 46 from the 2026 plan, and 7 on the Ontario Line study's sources:
 
-- Scored by script: Find 13; Check 12, including trial reviews and changed numbers; Calculate 7; Stop and hand over 7; Reconcile, consultation and trace 5.
+- Scored by script: Find 13; Check 12, including trial reviews and changed numbers; Calculate 7; Stop and hand over 7; Define 5, on jargon; Reconcile, consultation and trace 5.
 - Scored by script and rubric: Monitor 2.
 - Scored by rubric: Draft 2.
 
@@ -87,7 +87,7 @@ money, so the limit stays at 3 unless you raise it. Run the same cases again wit
 
 The current set can show that the system works and the method is sound, but not
 yet agent quality. Eight decisions is too few: five perfect answers still give a
-95% lower bound of 48%. A planner wrote none of the cases, and 17 of the 48 reuse
+95% lower bound of 48%. A planner wrote none of the cases, and 17 of the 53 reuse
 the Lawrence proposal.
 
 The claim gets stronger in this order ([order of work](benchmark.md#order-of-work)):

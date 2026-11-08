@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api.ts";
 import { spentUsd } from "../money.ts";
 import { withCites } from "../cites.ts";
+import { refusal, setNotice, unsaid, useNotice } from "../notice.ts";
 import { plain } from "../plain.ts";
 import { EMPTY_USAGE, type Store } from "../store.ts";
 import { CheckIcon, SendIcon, StaleIcon } from "./icons.tsx";
@@ -47,22 +48,30 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
   // The open study's spend, not every study's.
   const usage = (studyId && store.usage[studyId]) || EMPTY_USAGE;
   const spent = spentUsd(usage);
+  const notice = useNotice();
 
+  // The notice takes room from the foot of the log, so the last message is kept in view.
   useEffect(() => {
     const element = log.current;
     if (element) element.scrollTop = element.scrollHeight;
-  }, [messages.length, subagents]);
+  }, [messages.length, subagents, notice]);
 
   const send = async (event: Event) => {
     event.preventDefault();
-    const trimmed = text.trim();
+    const typed = text;
+    const trimmed = typed.trim();
     if (!trimmed || !studyId) return;
     setText("");
-    await api(`/v1/studies/${studyId}/activity`, {
+    const response = await api(`/v1/studies/${studyId}/activity`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ kind: "message", text: trimmed }),
-    });
+    }).catch(() => undefined);
+    if (response?.ok) return setNotice(null);
+    // Not sent: the words come back, unless more has been typed since, and the service says
+    // why, unless the chat has just said it.
+    setText((now) => now || typed);
+    setNotice(unsaid(await refusal(response), messages.at(-1)?.text));
   };
 
   return (
@@ -71,7 +80,7 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
       <div class="log" ref={log} role="log" aria-live="polite" tabIndex={0} aria-label="Agent activity">
         {items.map((item) =>
           "text" in item ? (
-            <p key={`m${item.seq}`} class={`bubble ${item.from}`}>
+            <p key={`m${item.seq}`} class={`bubble ${item.from}`} data-seq={item.seq}>
               {item.replay && <span class="sr-only">Replay: </span>}
               <Text text={item.text} ids={ids} onPage={onPage} />
             </p>
@@ -92,9 +101,14 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
           ),
         )}
       </div>
+      {/* Between the log and the form, so its arrival moves nothing but the log's foot. */}
+      <p class="refusal" role="status">
+        {notice}
+      </p>
       {usage.calls > 0 && (
         <p class="usage">
-          {number.format(usage.inputTokens + usage.outputTokens)} tokens{spent !== null && ` · ${money.format(spent)}`}
+          {/* One text node: as the count grows, nothing after it moves. */}
+          {`${number.format(usage.inputTokens + usage.outputTokens)} tokens${spent !== null ? ` · ${money.format(spent)}` : ""}`}
         </p>
       )}
       {canPost && (

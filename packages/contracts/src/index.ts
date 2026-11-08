@@ -6,7 +6,9 @@ export { evaluate, FormulaError, variables } from "./formula.ts";
 
 const slug = z.string().regex(/^[a-z0-9][a-z0-9.-]{0,62}$/, "Use lowercase letters, numbers, dots and dashes");
 
-export const Role = z.enum(["viewer", "integration", "agent", "planner"]);
+// A guest is a visitor with a guest pass, or someone signed in who isn't a planner.
+// It can do what a planner does, in its own sandbox, except decide.
+export const Role = z.enum(["viewer", "integration", "agent", "planner", "guest"]);
 export type Role = z.infer<typeof Role>;
 
 // What a request without a token may do. "token" refuses it. "demo", for a public
@@ -18,10 +20,33 @@ export type AccessMode = z.infer<typeof AccessMode>;
 export type SignIn = { provider: "auth0"; domain: string; clientId: string; audience: string };
 
 // GET /v1/config, which needs no token. signIn is null when people can't sign in.
-export type ServiceConfig = { auth: AccessMode; signIn: SignIn | null };
+// guests is true when the service gives out guest passes.
+export type ServiceConfig = { auth: AccessMode; signIn: SignIn | null; guests: boolean };
 
 // GET /v1/me: who the caller is.
 export type Me = { role: Role; name: string };
+
+// --- Visitors --------------------------------------------------------------
+
+// A visitor's audience, which tags the log entries only that visitor sees: guest:<id>
+// for a guest pass, user:<id> for someone signed in who isn't a planner.
+export const AUDIENCE = /^(guest|user):[A-Za-z0-9_-]{22}$/;
+
+// The header the service's own agents send to act for one visitor (an audience),
+// or, only to read the log, for everyone ("*").
+export const ON_BEHALF_OF = "x-on-behalf-of";
+
+// POST /v1/guests, which needs no token.
+export type GuestPass = { token: string; expiresAt: string };
+
+// GET /v1/budget: what is left of today's Gemini budget for visitors.
+export type VisitorBudget = { capped: false } | { capped: true; capUsd: number; leftUsd: number };
+
+// The service's words for 403 sign_in_required on a decision, 429 budget_spent and
+// 429 rate_limited. agents/core.py keeps a copy of BUDGET_SPENT.
+export const SIGN_IN_TO_DECIDE = "Only planners decide. Sign in to decide.";
+export const BUDGET_SPENT = "Visitors have used today's agent budget. Sign in, or come back tomorrow.";
+export const RATE_LIMITED = "Too many changes at once. Try again in a minute.";
 
 // --- Context ---------------------------------------------------------------
 
@@ -196,6 +221,13 @@ export const MEDIA_MAX_BYTES: Record<MediaKind, number> = { image: 10 * 1024 * 1
 // always carries this label.
 export const MEDIA_LABEL = "Illustrative";
 
+// What a need's render shows: transit infrastructure, never a street of people
+// walking. A station entrance building, the elevated guideway with a train on it,
+// a platform or concourse, the line seen from its street, or, for a bus route, the
+// stop, bay or terminal with its bus.
+export const NeedSubject = z.enum(["station-entrance", "guideway", "platform", "street", "bus-stop"]);
+export type NeedSubject = z.infer<typeof NeedSubject>;
+
 export const NewNeed = z.object({
   id: slug,
   title: z.string().min(1).max(60),
@@ -209,11 +241,24 @@ export const NewNeed = z.object({
     .refine((kinds) => new Set(kinds).size === kinds.length, "List each kind once"),
   reason: z.string().min(3).max(300),
   citations: z.array(Citation).max(5).default([]),
+  // Needs from before subjects have none, and the media agent picks one by the study.
+  subject: NeedSubject.optional(),
 });
 export type NewNeed = z.input<typeof NewNeed>;
 
-// What a file drew on: a figure in the same study, or a cited page.
-export const MediaInput = z.union([z.object({ figure: slug }), z.object({ citation: Citation })]);
+// An openly licensed photo of a render's site, which the image model was given for its
+// terrain, roads and buildings, with the credit its licence asks for and its page.
+export const SitePhoto = z.object({
+  file: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,99}$/, "A file name: lowercase letters, numbers, dots, dashes and underscores"),
+  credit: z.string().min(3).max(300),
+  licence: z.string().min(1).max(40),
+  source: z.url({ protocol: /^https$/, hostname: z.regexes.domain }).max(500),
+});
+export type SitePhoto = z.infer<typeof SitePhoto>;
+
+// What a file drew on: a figure in the same study, a cited page, or a photo of its
+// site, credited wherever the file is shown.
+export const MediaInput = z.union([z.object({ figure: slug }), z.object({ citation: Citation }), z.object({ photo: SitePhoto })]);
 export type MediaInput = z.infer<typeof MediaInput>;
 
 // The fields that come with a file to POST /v1/studies/{id}/needs/{need}/media,
@@ -279,6 +324,7 @@ export type NeedView = {
   kinds: MediaKind[];
   reason: string;
   citations: Citation[];
+  subject?: NeedSubject;
   status: NeedStatus;
   addedBy: string;
   addedAt: string;
@@ -417,6 +463,30 @@ export type Usage = {
   // Calls reported without a cost, which costUsd leaves out. The service counts
   // them; a display that adds up usage from the log itself may not.
   unpricedCalls?: number;
+  // GET /v1/usage adds it. Older services send none.
+  estimate?: UsageEstimate;
+};
+
+// The energy, emissions and water behind the model calls: each call times a
+// published figure for one median prompt. Our calls are often much longer than
+// a median prompt, so it is a floor, never an exact figure.
+export type UsageEstimate = {
+  atLeast: true;
+  energyWh: number;
+  co2eGrams: number;
+  waterMl: number;
+  basis: EstimateBasis;
+};
+
+export type EstimateBasis = {
+  perCallWh: number;
+  perCallCo2eGrams: number;
+  perCallWaterMl: number;
+  // Market-based emissions count the clean energy the operator buys, so they
+  // are lower than the local grid's.
+  co2e: "market-based";
+  // date is the day it was published.
+  source: { title: string; url: string; date: string; quote: string };
 };
 
 // --- Log and subscriptions -------------------------------------------------
@@ -430,6 +500,8 @@ export type LogEntry = {
   data: unknown;
   prevHash: string;
   hash: string;
+  // null for the shared record. Otherwise the one visitor who may see it.
+  audience: string | null;
 };
 
 // A skill version a planner has approved. Computed figures must name one.
@@ -439,7 +511,8 @@ export const NewSkill = z.object({
 });
 export type NewSkill = z.input<typeof NewSkill>;
 
-export const ContentRemoval = z.object({ reason: z.string().min(3).max(400) });
+// With an audience, the entry is in that visitor's sandbox.
+export const ContentRemoval = z.object({ reason: z.string().min(3).max(400), audience: z.string().regex(AUDIENCE).optional() });
 
 export const NewSubscription = z.object({
   url: z.url(),

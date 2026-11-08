@@ -55,7 +55,8 @@ export function format(entry: Entry, service: Service, kind: Format, link?: stri
       ],
     };
   }
-  return { entry, head: service.log.head() };
+  // The shared record's head: everyone's would move as visitors work.
+  return { entry, head: service.log.headFor(null) };
 }
 
 export const sign = (secret: string, body: string) => `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;

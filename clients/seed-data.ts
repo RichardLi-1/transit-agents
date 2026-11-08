@@ -175,12 +175,13 @@ export const LAWRENCE: StudySeed = {
   needs: [
     {
       id: "sunnybrook-poster",
-      title: "Engagement poster",
+      title: "Bus stop render",
       place: "Sunnybrook Hospital",
       // The loop at the hospital, where the 52F and 11B now stop.
       lon: -79.375262,
       lat: 43.722663,
       kinds: ["image"],
+      subject: "bus-stop",
       reason: "Riders who had to change to the 124 can now ride the 52F or 11B straight to the hospital.",
       citations: [
         cite(116, "service on the 52F Lawrence West (Lawrence Station-Royal York) would be extended to Sunnybrook Hospital"),
@@ -239,6 +240,7 @@ export const ROSEDALE: StudySeed = {
       lon: -79.376758,
       lat: 43.672114,
       kinds: ["image", "video"],
+      subject: "bus-stop",
       reason: "Feedback at the events was largely negative but the survey was more positive, so residents need a clear picture of what would change.",
       citations: [
         cite(126, "service on the 75 Sherbourne would be removed from the Rosedale neighbourhood north of Bloor St East"),
@@ -264,6 +266,7 @@ export const ROSEDALE: StudySeed = {
         lon: -79.376758,
         lat: 43.672114,
         kinds: ["image", "video"],
+        subject: "bus-stop",
         reason: "The change won't go ahead, so residents who gave feedback need to hear how it ended.",
         citations: [cite(128, "public engagement results has led to the conclusion that this service change should not move forward")],
       },

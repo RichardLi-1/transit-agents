@@ -3,6 +3,7 @@ import type { CheckView, FindingView, StudyView, Timeline } from "@transit-agent
 import { Account } from "./components/Account.tsx";
 import { Chat } from "./components/Chat.tsx";
 import { MapView, type Credit } from "./components/MapView.tsx";
+import { Notices } from "./components/Notices.tsx";
 import { QuickLook, type Opened } from "./components/QuickLook.tsx";
 import { Shelf } from "./components/Shelf.tsx";
 import { StudyCard } from "./components/StudyCard.tsx";
@@ -10,7 +11,9 @@ import { Thread } from "./components/Thread.tsx";
 import { TimeBar } from "./components/TimeBar.tsx";
 import { api } from "./api.ts";
 import { isTestBuild } from "./host.ts";
+import type { Notice } from "./notify.ts";
 import { shownStudy } from "./preview.ts";
+import { reveal } from "./reveal.ts";
 import { canAdd, canCreate, canPost, useSession } from "./session.ts";
 import { Simulator } from "./simulator.ts";
 import { useStore } from "./store.ts";
@@ -65,6 +68,8 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(() => location.hash.slice(1) || null);
   const [preview, setPreview] = useState<StudyView | null>(null);
   const [opened, setOpened] = useState<Opened | null>(null);
+  // The engagement viewer is open, which hides the rest of the page as a source page does.
+  const [viewing, setViewing] = useState(false);
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [from, setFrom] = useState<Element | null>(null);
   const [credit, setCredit] = useState<Credit | null>(null);
@@ -161,6 +166,15 @@ export function App() {
     setOpened(need);
   }, []);
 
+  // Review: the notice's study, then what it's about.
+  const review = useCallback(
+    (notice: Notice) => {
+      select(notice.studyId);
+      void reveal(notice.target, notice.studyId);
+    },
+    [select],
+  );
+
   const closeQuickLook = useCallback(() => {
     setOpened(null);
     setFrom(null);
@@ -181,14 +195,16 @@ export function App() {
           canAdd={canAdd(session?.me ?? null)}
         />
         <Account session={session} />
+        <Notices notices={store.heard.notices} studies={store.studies} covered={opened !== null || viewing} onReview={review} />
       </header>
       <section aria-label="Map">
-        <MapView study={shown} simulator={simulator} canCreate={canCreate(session?.me ?? null)} onCredit={setCredit} onNeed={openNeed} />
+        <MapView study={shown} simulator={simulator} canCreate={canCreate(session?.me ?? null)} picked={selected} onCredit={setCredit} onNeed={openNeed} onViewer={setViewing} />
       </section>
       <main class="stage">
         {shown && (
           <StudyCard
             study={shown}
+            session={session}
             studies={store.studies}
             assumptions={store.assumptions}
             since={store.since}

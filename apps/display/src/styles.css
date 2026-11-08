@@ -10,6 +10,17 @@
   --bubble: #ececf0;
   --radius: 14px;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(0, 0, 0, 0.08);
+  /* The floating panels, the folders, card, time bar and chat, are liquid glass:
+     translucent, the map showing through blurred and brighter, under a light rim
+     and a soft shadow. Over the darkest map line, at full width, their muted
+     text still passes AA. Opaque where transparency is unwanted or unsupported. */
+  --panel: rgba(255, 255, 255, 0.72);
+  --panel-solid: #fbfbfd;
+  --panel-rim: rgba(255, 255, 255, 0.75);
+  --panel-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  --panel-lift: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 2px 6px rgba(0, 0, 0, 0.04), 0 16px 40px rgba(0, 0, 0, 0.1);
+  --panel-frost: blur(24px) saturate(180%);
+  --panel-radius: 22px;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --serif: "New York", "Iowan Old Style", Georgia, "Times New Roman", serif;
   --chat: 340px;
@@ -19,7 +30,14 @@
      a study inside them, and cards on the map stay inside them. */
   --map-top: 150px;
   --map-right: 360px;
+  /* Where the map's buttons stand: at the foot of the map, or above the time bar,
+     which a laptop's screen makes as wide as the map. */
+  --map-foot: 24px;
   color-scheme: light;
+}
+
+:root:has(.stage > .time) {
+  --map-foot: 127px;
 }
 
 * {
@@ -74,10 +92,98 @@ button {
   width: 100%;
   height: 100%;
   display: block;
+  /* The map takes the gestures made on it, and only those: everywhere else the
+     page scrolls and zooms as before. */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: grab;
+}
+
+.map:active {
+  cursor: grabbing;
+}
+
+/* The map fills the screen, so its focus ring goes just inside the edge. */
+.map:focus-visible {
+  outline-offset: -3px;
+  border-radius: 0;
 }
 
 .map.hidden {
   visibility: hidden;
+}
+
+/* Once the map has been moved, above the map's buttons. Over the cards on the
+   map, unless one has focus. */
+.reset {
+  position: fixed;
+  z-index: 1;
+  bottom: calc(var(--map-foot) + 144px);
+  right: calc(var(--map-right) + 16px);
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.reset:hover {
+  color: var(--accent-ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .reset {
+    animation: appear 0.2s ease-out;
+  }
+}
+
+/* Zoom, pan, turn and tilt a step at a time, under Reset view, at the foot of the
+   map's clear part: clear of the notices, which come down its top corner. */
+.map-buttons {
+  position: fixed;
+  z-index: 1;
+  bottom: var(--map-foot);
+  right: calc(var(--map-right) + 16px);
+  display: grid;
+  grid-template-columns: repeat(6, 15px);
+  grid-template-rows: repeat(4, 30px);
+  grid-template-areas:
+    "in in in out out out"
+    "turn-left turn-left up up turn-right turn-right"
+    "left left . . right right"
+    "tilt-up tilt-up down down tilt-down tilt-down";
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: var(--shadow);
+}
+
+.map-buttons button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+}
+
+.map-buttons button:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--accent-ink);
+}
+
+.map-buttons button:active {
+  background: rgba(0, 0, 0, 0.1);
 }
 
 .fade {
@@ -323,20 +429,26 @@ button {
 /* Context folders ------------------------------------------------------- */
 
 /* Comes before the map in the page, so Tab reaches the folders before the account
-   controls beside them, and is lifted above the map. */
+   controls beside them, and is lifted above the map. As wide as its folders, up
+   to the notifications bell left of the chat. */
 .shelf {
   position: fixed;
   top: 18px;
   left: 24px;
-  right: calc(var(--chat) + 40px);
+  /* Clear of the notifications bell. */
+  max-width: calc(100% - var(--chat) - 108px);
   z-index: 1;
-  border-radius: 18px;
   transition: background 0.2s, box-shadow 0.2s;
 }
 
+/* Nothing to hold yet: no empty panel. */
+.shelf:not(:has(li)) {
+  display: none;
+}
+
 .shelf.dragging {
-  background: rgba(176, 52, 136, 0.06);
-  box-shadow: inset 0 0 0 2px rgba(176, 52, 136, 0.35);
+  background-image: linear-gradient(rgba(176, 52, 136, 0.06), rgba(176, 52, 136, 0.06));
+  box-shadow: inset 0 0 0 2px rgba(176, 52, 136, 0.35), var(--panel-lift);
 }
 
 .shelf ul {
@@ -401,6 +513,15 @@ button {
   color: var(--accent);
 }
 
+/* Narrower folders on a laptop, so seven folders and Add context fit in the row
+   from 1280px wide, rather than Add context scrolling out of sight. */
+@media (min-width: 861px) and (max-width: 1400px) {
+  .shelf .item > a,
+  .shelf .item > .file {
+    width: 94px;
+  }
+}
+
 /* Study card ------------------------------------------------------------ */
 
 /* Reaches up to just below the folders. A card taller than that scrolls. The
@@ -421,26 +542,67 @@ button {
   pointer-events: auto;
 }
 
+/* The panels' palette: muted text a shade darker than elsewhere, for the map
+   behind the glass. The account controls float over the chat, so share it. */
+.shelf,
+.account,
 .card,
 .time,
-.chat,
-.quicklook .sheet {
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+.chat {
+  --muted: #56565c;
 }
 
+.shelf,
+.card,
+.time,
+.chat {
+  background: var(--panel-solid);
+  border: 1px solid var(--panel-rim);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--panel-sheen), var(--panel-lift);
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .shelf,
+  .card,
+  .time,
+  .chat {
+    background: var(--panel);
+    -webkit-backdrop-filter: var(--panel-frost);
+    backdrop-filter: var(--panel-frost);
+  }
+}
+
+/* Opaque for anyone who asks for less transparency. */
+@media (prefers-reduced-transparency: reduce) {
+  .shelf,
+  .card,
+  .time,
+  .chat {
+    background: var(--panel-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* One type scale: the title, the figures, and one size for every caption, note
+   and label, which weight and colour set apart, with a smaller one only for what
+   comes next on a gap. One gap between parts. */
 .card {
+  --type-title: 600 22px/1.2 var(--serif);
+  --type-figure: 600 20px/1.2 var(--font);
+  --type-text: 14px;
+  --type-small: 12px;
+  --part-gap: 14px;
   width: min(360px, 100%);
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 18px;
+  padding: 18px;
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: var(--part-gap);
+  font-size: var(--type-text);
+  line-height: 1.4;
 }
 
 /* More below than shows: the bottom edge fades, a sign the card scrolls. */
@@ -451,7 +613,7 @@ button {
 
 .card .title {
   margin: 0;
-  font: 600 22px/1.2 var(--serif);
+  font: var(--type-title);
   letter-spacing: -0.01em;
   border: 0;
   background: transparent;
@@ -497,14 +659,26 @@ button {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 6px;
+}
+
+/* The tests share columns, so their figures and labels line up. */
+.checks {
+  grid-template-columns: 20px auto 1fr auto;
+  gap: 4px 8px;
 }
 
 .checks li {
   display: grid;
-  grid-template-columns: 20px auto 1fr auto;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: 8px;
+}
+
+@supports not (grid-template-columns: subgrid) {
+  .checks li {
+    grid-template-columns: 20px auto 1fr auto;
+    gap: 8px;
+  }
 }
 
 .status {
@@ -528,6 +702,11 @@ button {
   background: var(--muted);
 }
 
+/* Awaiting a planner: a hollow ring, as on a note awaiting one. */
+.status.unverified {
+  border: 2px solid var(--muted);
+}
+
 .figure {
   min-width: 44px;
   min-height: 32px;
@@ -535,7 +714,7 @@ button {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  font: 600 20px/1 var(--font);
+  font: var(--type-figure);
   font-variant-numeric: tabular-nums;
   text-align: left;
   color: var(--accent-ink);
@@ -553,6 +732,7 @@ button {
 }
 
 .checks .rule {
+  justify-self: end;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -561,23 +741,26 @@ button {
   display: none;
 }
 
-/* What the solid and dashed parts of the study's line stand for. */
+/* What the solid and dashed parts of the study's line stand for, close under
+   the title. */
 .key {
-  margin: -4px 0 0;
+  margin: calc(6px - var(--part-gap)) 0 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
+  row-gap: 4px;
   color: var(--muted);
-  font-size: 12px;
 }
 
+/* Spaced by margins, as the decision line is. */
 .key > span {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  margin-right: 16px;
 }
 
 .key .swatch {
+  flex: none;
+  margin-right: 6px;
   width: 20px;
   height: 4px;
   border-radius: 2px;
@@ -596,32 +779,37 @@ button {
   padding: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px 14px;
+  gap: var(--part-gap) 16px;
 }
 
 .headlines li {
   display: grid;
   align-content: start;
   justify-items: start;
-  gap: 2px;
 }
 
 .headlines .figure {
   margin-left: -6px;
 }
 
+/* Two short lines, rather than one long and one word. */
 .headlines .label {
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.3;
+  text-wrap: balance;
 }
 
-/* Every other figure in the study, a click away. */
-.more summary {
-  padding: 5px 0;
+/* Every other figure in the study, and every note past the first few, a click
+   away. */
+.more summary,
+.notes summary {
+  padding: 4px 0;
   color: var(--muted);
-  font-size: 13px;
   cursor: pointer;
+}
+
+/* Under the notes, as far from the last as each note is from the next. */
+.notes {
+  margin-top: calc(0px - var(--part-gap));
 }
 
 .more .fresh {
@@ -629,31 +817,40 @@ button {
   font-weight: 600;
 }
 
+/* The figures share a column, as the tests' do, so their labels line up. */
 .more ul {
   list-style: none;
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   padding: 0;
   display: grid;
-  gap: 4px;
+  grid-template-columns: auto 1fr;
+  gap: 4px 8px;
 }
 
 .more li {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: baseline;
-  gap: 2px 8px;
 }
 
+@supports not (grid-template-columns: subgrid) {
+  .more li {
+    grid-template-columns: auto 1fr;
+    gap: 0 8px;
+  }
+}
+
+/* The study's other figures: in the text size, as a list of them reads. */
 .more .figure {
   margin-left: -6px;
-  font-size: 16px;
+  font-size: var(--type-text);
+  line-height: 1.4;
 }
 
 .more .label,
 .more .by {
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.3;
 }
 
 .more .by {
@@ -665,17 +862,18 @@ button {
   background: rgba(176, 52, 136, 0.08);
 }
 
+/* Text starts after a gutter that holds the note's marker. */
 .finding {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
+  position: relative;
+  display: block;
   width: 100%;
   min-height: 28px;
-  padding: 4px 6px;
+  padding: 4px 6px 4px 24px;
   border: 0;
   border-radius: 8px;
   background: transparent;
   text-align: left;
+  text-wrap: pretty;
   color: var(--muted);
 }
 
@@ -683,13 +881,37 @@ button {
   background: rgba(0, 0, 0, 0.04);
 }
 
-.finding .dot {
-  flex: none;
+/* A gap: what's missing is the note, and the next step and who to contact sit
+   under it, smaller, in the same column. */
+.finding .gap,
+.finding .next {
+  display: block;
+}
+
+.finding .next {
+  margin-top: 1px;
+  font-size: var(--type-small);
+  line-height: 1.35;
+}
+
+/* A marker sits in its gutter, centred under the tests' marks and on the first
+   line of its text, so wrapped text never runs into it. Placed, not spaced by a
+   flex gap, which some browsers lack. */
+.finding .dot,
+.awaiting .dot {
+  position: absolute;
+  left: 6px;
+  /* Half the 1.4 line, less half the marker. */
+  top: calc(0.7em - 4px);
   width: 8px;
   height: 8px;
   border-radius: 50%;
+}
+
+/* Below the button's 4px padding. */
+.finding .dot {
+  top: 0.7em;
   background: var(--muted);
-  transform: translateY(-1px);
 }
 
 .finding.positive .dot {
@@ -704,25 +926,102 @@ button {
   background: #b25e09;
 }
 
+/* A label, set apart from the notes by weight, close above them: as far from
+   the first as each note is from the next. */
+.awaiting {
+  position: relative;
+  margin: 0 0 calc(4px - var(--part-gap));
+  padding-left: 24px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* A ring drawn by its border, which forced colours keep. */
+.awaiting .dot,
+.finding.unrated .dot {
+  background: transparent;
+  border: 2px solid var(--muted);
+}
+
+/* As tall as the form it takes the place of. */
 .decision {
   margin: 0;
+  min-height: 32px;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  row-gap: 4px;
   align-items: center;
   color: var(--muted);
+}
+
+/* Spaced by margins, not a flex gap, so the words never touch the arrow. */
+.decision > * {
+  margin-right: 8px;
 }
 
 .decision strong {
   color: var(--ink);
 }
 
+.card .sign-in {
+  justify-self: start;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: #fff;
+  font-weight: 600;
+}
+
+.card .sign-in:hover {
+  background: #f5f5f7;
+}
+
+.decide {
+  display: flex;
+  gap: 6px;
+}
+
+/* In the card's one text size, as every label in it is. */
+.decide select,
+.decide input,
+.decide button {
+  height: 32px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: #fff;
+}
+
+.decide select {
+  padding: 0 10px;
+}
+
+/* Takes the room left over, and never widens the card. */
+.decide input {
+  flex: 1;
+  width: 0;
+  padding: 0 12px;
+}
+
+.decide button {
+  padding: 0 14px;
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.decide button[aria-disabled="true"] {
+  background: #e5e5ea;
+  color: var(--muted);
+  cursor: default;
+}
+
 .override {
-  padding: 2px 8px;
+  padding: 0 8px;
   border-radius: 999px;
   background: var(--accent);
   color: #fff;
-  font-size: 12px;
   font-weight: 600;
 }
 
@@ -730,7 +1029,12 @@ button {
   margin: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 18px;
+  row-gap: 8px;
+}
+
+/* Spaced by margins, as the decision line is. */
+.results > div {
+  margin-right: 18px;
 }
 
 .results:empty {
@@ -738,20 +1042,17 @@ button {
 }
 
 .results dt {
-  font-size: 12px;
   color: var(--muted);
 }
 
 .results dd {
   margin: 0;
-  font-weight: 600;
-  font-size: 18px;
+  font: var(--type-figure);
   font-variant-numeric: tabular-nums;
 }
 
 .results .note {
-  font-weight: 400;
-  font-size: 12px;
+  font: 400 var(--type-text) / 1.4 var(--font);
   color: var(--muted);
 }
 
@@ -785,7 +1086,6 @@ button {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 13px;
 }
 
 .sliders output {
@@ -883,8 +1183,11 @@ input[type="range"] {
   display: grid;
   /* The first row is held for the badges that float over it, so the log scrolls
      below them and they never cover a message. */
-  grid-template-rows: 40px 1fr auto auto;
+  grid-template-rows: 40px 1fr auto auto auto;
+  /* Clipped rather than hidden, so not even code can scroll the panel: Review
+     on a message moves only the log. */
   overflow: hidden;
+  overflow: clip;
 }
 
 .tag {
@@ -905,7 +1208,10 @@ input[type="range"] {
   z-index: 1;
 }
 
+/* Positioned, so the hidden "Replay:" labels scroll with their messages instead
+   of making the panel taller than it is. */
 .chat .log {
+  position: relative;
   overflow-y: auto;
   padding: 4px 14px 14px;
   display: flex;
@@ -1005,17 +1311,30 @@ input[type="range"] {
   }
 }
 
+/* The service's words under the chat when it turns something down. */
+.refusal {
+  margin: 0;
+  padding: 0 14px;
+  font-size: 13px;
+  line-height: 1.35;
+  grid-row: 3;
+}
+
+.refusal:not(:empty) {
+  padding-bottom: 8px;
+}
+
 .usage {
   margin: 0;
   padding: 0 14px 6px;
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  grid-row: 3;
+  grid-row: 4;
 }
 
 .chat form {
-  grid-row: 4;
+  grid-row: 5;
   display: flex;
   gap: 8px;
   padding: 10px;
@@ -1140,6 +1459,11 @@ input[type="range"] {
 
 .quicklook .sheet {
   background: rgba(255, 255, 255, 0.92);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
   display: grid;
   gap: 10px;
   padding: 14px;
@@ -1282,21 +1606,51 @@ input[type="range"] {
   height: auto;
 }
 
-.quicklook .page.text {
-  max-height: 70vh;
-  overflow: auto;
-  padding: 16px;
+/* A page with no image, set as a page: its text on a sheet of paper the shape of a
+   letter page, as the sources are, that grows if the text runs longer. Its number
+   is at the foot, and the quote is marked as with a highlighter. */
+.quicklook .paper {
+  display: flex;
+  flex-direction: column;
+  aspect-ratio: 612 / 792;
+  padding: 9% 10% 4%;
+  border-radius: 3px;
   background: #fff;
   color: var(--ink);
-  font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
-  white-space: pre-wrap;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.08), 0 10px 28px rgba(0, 0, 0, 0.12);
+  font: 14px/1.55 var(--serif);
 }
 
-.quicklook .page.text mark {
-  border-radius: 3px;
-  background: rgba(176, 52, 136, 0.22);
-  box-shadow: 0 0 0 2px rgba(176, 52, 136, 0.6);
+.quicklook .paper p {
+  margin: 0 0 0.85em;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.quicklook .paper .none {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.quicklook .paper footer {
+  margin-top: auto;
+  padding-top: 1.5em;
+  color: var(--muted);
+  font: 12px/1 var(--font);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* A highlighter's stroke on each line: uneven ends, and a flat colour, so its
+   contrast can be checked. */
+.quicklook .paper mark {
+  margin: 0 -0.15em;
+  padding: 0.05em 0.15em;
+  border-radius: 0.7em 0.25em 0.6em 0.3em;
+  background: rgba(176, 52, 136, 0.24);
   color: inherit;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 .quicklook .mark {
@@ -1417,6 +1771,11 @@ input[type="range"] {
     overflow: auto;
   }
 
+  /* The body is what scrolls, so the map and its needs scroll with the rest. */
+  body {
+    position: relative;
+  }
+
   .map {
     position: absolute;
     height: 62vh;
@@ -1427,12 +1786,14 @@ input[type="range"] {
     height: 22vh;
   }
 
-  /* Just above the study card, which comes up over the foot of the map. */
+  /* Just above the study card, which comes up over the foot of the map, and on
+     the left, clear of the map's buttons. */
   .credit {
     position: absolute;
     top: calc(62vh + var(--shelf) - 168px);
-    right: 8px;
+    right: auto;
     bottom: auto;
+    left: 8px;
   }
 
   .needs {
@@ -1440,11 +1801,28 @@ input[type="range"] {
     height: 62vh;
   }
 
+  .reset,
+  .map-buttons {
+    position: absolute;
+  }
+
+  /* At the foot of the map, clear of the cards listed at its top. */
+  .reset {
+    top: calc(62vh - 196px);
+    bottom: auto;
+  }
+
+  .map-buttons {
+    top: calc(62vh - 152px);
+    bottom: auto;
+  }
+
   .shelf {
     position: relative;
     top: 0;
     left: 0;
     right: 0;
+    max-width: none;
     margin: 12px 8px 0;
   }
 
@@ -1527,6 +1905,43 @@ input[type="range"] {
     border-right-color: transparent;
   }
 
+  /* The panels are opaque, as forced colours keep a translucent background
+     translucent. */
+  .shelf,
+  .card,
+  .time,
+  .chat {
+    background: Canvas;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* Markers keep their shapes, and a rated note's dot its colour, as the tests'
+     marks do: filled once a planner rates a note, a ring while it, or a test,
+     awaits one. */
+  .finding .dot {
+    forced-color-adjust: none;
+  }
+
+  .finding.neutral .dot {
+    background: ButtonText;
+  }
+
+  .finding.unrated .dot {
+    border-color: ButtonText;
+  }
+
+  .status.unverified {
+    border-color: CanvasText;
+  }
+
+  /* The quote on a page set as text is marked as the system marks text. */
+  .quicklook .paper mark {
+    forced-color-adjust: none;
+    background: Mark;
+    color: MarkText;
+  }
+
   /* Said outright, so contrast checkers, which read the colour each rule sets,
      read the forced colours too. */
   html,
@@ -1586,25 +2001,449 @@ input[type="range"] {
   margin-left: 8px;
 }
 
-.awaiting {
-  margin: 0 0 -6px;
-  display: flex;
+/* Notices --------------------------------------------------------------- */
+
+/* Left of the chat, level with the account row. The list opens below it, and
+   the toasts below the folders, over the map's top corner, so they never cover
+   the chat or a folder. */
+.bell {
+  position: fixed;
+  top: 21px;
+  right: calc(var(--chat) + 32px);
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: var(--shadow);
+}
+
+.bell:hover,
+.bell[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.bell > span:first-child {
+  display: grid;
+  transform-origin: 50% 3px;
+}
+
+.bell .badge {
+  position: absolute;
+  top: -5px;
+  right: -7px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+/* Liquid glass: a bright, translucent pane with a soft rim and a lit top edge.
+   Opaque enough that text keeps its contrast over any part of the map. */
+.toast,
+.notice-list {
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 18px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.74));
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  backdrop-filter: blur(28px) saturate(190%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 0 0 0.5px rgba(0, 0, 0, 0.12),
+    0 2px 6px rgba(0, 0, 0, 0.05),
+    0 16px 44px rgba(0, 0, 0, 0.14);
+}
+
+.toasts {
+  position: fixed;
+  top: calc(30px + var(--shelf));
+  right: calc(var(--chat) + 32px);
+  z-index: 3;
+  width: 368px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  padding: 0 6px;
+  gap: 12px;
+  padding: 12px;
+  pointer-events: auto;
+}
+
+.toast.leaving {
+  pointer-events: none;
+}
+
+.toast .words,
+.notice .words {
+  margin: 0;
+  display: grid;
+  min-width: 0;
+}
+
+.toast .line,
+.notice .line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.toast .study,
+.notice .study {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line .count {
+  display: inline-block;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  vertical-align: 1px;
+}
+
+.glyph {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ink) linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0));
+  color: #fff;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+}
+
+/* By kind, not by class: the card and the map already style .finding and .need. */
+.glyph[data-kind="finding"],
+.glyph[data-kind="handover"] {
+  background-color: var(--accent);
+}
+
+.glyph[data-kind="need"],
+.glyph[data-kind="media"] {
+  background-color: #3f93dc;
+}
+
+.glyph[data-kind="answer"] {
+  background-color: var(--muted);
+}
+
+.toast .review {
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(176, 52, 136, 0.1);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.toast .review:hover {
+  background: rgba(176, 52, 136, 0.18);
+}
+
+.notice-list {
+  position: fixed;
+  top: 68px;
+  right: calc(var(--chat) + 32px);
+  z-index: 4;
+  width: 380px;
+  max-height: calc(100vh - 92px);
+  overflow-y: auto;
+  padding: 6px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.86));
+}
+
+.notice-list[hidden] {
+  display: none;
+}
+
+.notice-list ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+
+.notice {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+}
+
+.notice:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.notice .glyph {
+  width: 28px;
+  height: 28px;
+}
+
+.notice time {
+  align-self: start;
+  padding-top: 1px;
   color: var(--muted);
   font-size: 12px;
 }
 
-.awaiting .dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
+/* New since the list last opened. */
+.notice .dot {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
   border-radius: 50%;
+  background: var(--accent);
 }
 
-.awaiting .dot,
-.finding.unrated .dot {
-  background: transparent;
-  box-shadow: inset 0 0 0 2px var(--muted);
+.notice-list .none {
+  margin: 0;
+  padding: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-top: 4px;
+  padding: 8px 10px 4px;
+  border-top: 1px solid var(--hairline);
+}
+
+.switches button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+}
+
+.switches button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.switches .knob {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border-radius: 10px;
+  background: #8e8e93;
+  transition: background 0.2s;
+}
+
+.switches .knob::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s;
+}
+
+.switches [aria-checked="true"] .knob {
+  background: var(--accent);
+}
+
+.switches [aria-checked="true"] .knob::after {
+  transform: translateX(12px);
+}
+
+/* Where Review took the planner, lit for a moment, in the focus ring's colour. */
+.noticed {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 8px rgba(176, 52, 136, 0.16);
+}
+
+/* They slide in from the right. With reduced motion they simply appear. */
+@media (prefers-reduced-motion: no-preference) {
+  .toast {
+    animation: toast-in 0.45s cubic-bezier(0.2, 0.9, 0.25, 1.05) both;
+  }
+
+  .toast.leaving {
+    animation: toast-out 0.26s ease-in forwards;
+  }
+
+  .bell .swing {
+    animation: swing 0.8s ease-in-out;
+  }
+
+  .noticed {
+    animation: noticed 1s ease-out 2;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(56px) scale(0.97);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateX(40px) scale(0.97);
+  }
+}
+
+@keyframes swing {
+  15% {
+    rotate: 16deg;
+  }
+  35% {
+    rotate: -12deg;
+  }
+  55% {
+    rotate: 7deg;
+  }
+  75% {
+    rotate: -3deg;
+  }
+}
+
+@keyframes noticed {
+  50% {
+    box-shadow: 0 0 0 14px rgba(176, 52, 136, 0.04);
+  }
+}
+
+@media (max-width: 860px) {
+  /* Across from the account controls, under the folders. */
+  .bell {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 14px;
+  }
+
+  /* Under the bell, as the list is, so they scroll away with the folders and
+     never cover the card a planner is reading. One shows at a time. */
+  .toasts {
+    position: absolute;
+    top: calc(100% + 48px);
+    right: 8px;
+    left: 8px;
+    width: auto;
+  }
+
+  /* So a toast sliding in never widens the page. */
+  header {
+    overflow-x: clip;
+  }
+
+  .notice-list {
+    position: absolute;
+    top: calc(100% + 48px);
+    right: 8px;
+    left: 8px;
+    width: auto;
+    max-height: 70vh;
+  }
+}
+
+@media (forced-colors: active) {
+  .bell .badge,
+  .line .count,
+  .glyph,
+  .notice .dot,
+  .switches .knob {
+    forced-color-adjust: none;
+  }
+
+  /* The glass goes in forced colours, so they'd show the map through. */
+  .toast,
+  .notice-list {
+    border-color: CanvasText;
+    background: Canvas;
+  }
+
+  /* Without their tint, Review and the list's rows need an edge to read as buttons. */
+  .toast .review,
+  .notice {
+    border: 1px solid ButtonText;
+    color: ButtonText;
+  }
+
+  .switches .knob {
+    background: Canvas;
+    box-shadow: inset 0 0 0 1px CanvasText;
+  }
+
+  .switches .knob::after {
+    background: CanvasText;
+  }
+
+  .switches [aria-checked="true"] .knob {
+    background: Highlight;
+  }
+
+  .switches [aria-checked="true"] .knob::after {
+    background: HighlightText;
+  }
+
+  .toast .study,
+  .notice .study,
+  .notice time {
+    color: CanvasText;
+  }
 }

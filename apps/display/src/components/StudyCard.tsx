@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { Assumption, CheckView, FigureView, FindingView, StudyView, Timeline } from "@transit-agents/contracts";
+import type { Assumption, CheckView, FigureView, FindingView, Outcome, StudyView, Timeline } from "@transit-agents/contracts";
 import { api } from "../api.ts";
 import { recordedBy } from "../actors.ts";
 import { amount, citesAPage, otherFigures, trialDays, unitAfter } from "../figures.ts";
+import { gap } from "../gap.ts";
+import { refusal, setNotice } from "../notice.ts";
+import { canDecide, signIn, type Session } from "../session.ts";
 import { CheckIcon, CrossIcon, StaleIcon } from "./icons.tsx";
 
 const SYMBOL = { ">=": "≥", ">": ">", "<=": "≤", "<": "<" } as const;
 const STATUS_TEXT = { pass: "Passes", fail: "Fails", stale: "Out of date", unverified: "Awaiting a planner" } as const;
 const OUTCOME = { adopt: "Adopted", reject: "Not adopted", defer: "Deferred", amend: "Amended" } as const;
+const DECIDE: Record<Outcome, string> = { adopt: "Adopt", reject: "Reject", defer: "Defer", amend: "Amend" };
 const ANALYSIS = { pass: "Passes", fail: "Fails", mixed: "Needs judgement", incomplete: "Incomplete" } as const;
 
 const number = new Intl.NumberFormat("en-CA", { maximumFractionDigits: 1 });
@@ -17,9 +21,15 @@ const signed = (n: number) => (n < 0 ? `\u2212${number.format(-n)}` : number.for
 // The figures a study leads with, as MapView keeps each study's view. Each traces
 // to a source page. The Ontario extension's riders aren't among them: until a
 // model run there is no forecast, only a precedent, so the card leads with what
-// riders do today where the line would run.
-const HEADLINES: Record<string, string[]> = {
-  "ontario-line-don-mills": ["ext-capital-cost-ob", "ext-run-time", "line4-boardings", "don-mills-usage"],
+// riders do today where the line would run. Each has a caption in plain words:
+// its full label is in its source view, and in its button's name.
+const HEADLINES: Record<string, { figure: string; caption: string }[]> = {
+  "ontario-line-don-mills": [
+    { figure: "ext-capital-cost-ob", caption: "Cost to build (2019 dollars)" },
+    { figure: "ext-run-time", caption: "Ride time on the extension" },
+    { figure: "line4-boardings", caption: "Line 4 riders a weekday" },
+    { figure: "don-mills-usage", caption: "Don Mills Station riders a weekday" },
+  ],
 };
 // What the solid and dashed parts of a study's line stand for, where it has both.
 const KEYS: Record<string, [solid: string, dashed: string]> = {
@@ -28,14 +38,48 @@ const KEYS: Record<string, [solid: string, dashed: string]> = {
 
 // Below this many departures, a percentage says more about chance than service.
 const MIN_SAMPLE = 20;
+// How many notes show. The rest are a click away, as the study's other figures
+// are, so a study with many notes keeps a short card.
+const NOTES_SHOWN = 3;
 const whole = new Intl.NumberFormat("en-CA", { maximumFractionDigits: 0 });
 
+// A test awaiting a planner is a hollow ring, as a note awaiting one is.
 function Status({ status }: { status: CheckView["status"] }) {
   return (
     <span class={`status ${status}`}>
-      {status === "pass" ? <CheckIcon /> : status === "fail" ? <CrossIcon /> : <StaleIcon />}
+      {status === "pass" ? <CheckIcon /> : status === "fail" ? <CrossIcon /> : status === "stale" ? <StaleIcon /> : null}
       <span class="sr-only">{STATUS_TEXT[status]}</span>
     </span>
+  );
+}
+
+// No break between them: a label and its first word, or a word and the dot after it.
+const NBSP = "\u00a0";
+
+// A note, which opens its page. A gap shows what's missing, then the next step
+// and who to contact on a smaller line, which wraps at the dot between them. A
+// screen reader hears each as a sentence, without the dot.
+function Note({ finding, onCitation }: { finding: FindingView; onCitation: (item: FindingView, element: Element) => void }) {
+  const parts = gap(finding.text);
+  return (
+    <li>
+      <button type="button" class={`finding ${finding.tone}`} data-finding={finding.id} onClick={(event) => onCitation(finding, event.currentTarget)}>
+        <span class="dot" aria-hidden="true" />
+        <span class="sr-only">{finding.tone === "unrated" ? "Not yet rated by a planner" : finding.tone}, </span>
+        {parts ? (
+          <>
+            <span class="gap">{parts.missing}</span>{" "}
+            <span class="next">
+              {`Next:${NBSP}${parts.next}`}
+              <span class="sr-only">.</span>
+              <span aria-hidden="true">{`${NBSP}·`}</span> {`Contact:${NBSP}${parts.contact}`}
+            </span>
+          </>
+        ) : (
+          <span>{finding.text}</span>
+        )}
+      </button>
+    </li>
   );
 }
 
@@ -90,6 +134,65 @@ function Sliders({ study, onPreview }: { study: StudyView; onPreview: (view: Stu
         );
       })}
     </div>
+  );
+}
+
+// The decision shows once the log has it, in place of the form.
+function DecisionForm({ studyId, decidedBy }: { studyId: string; decidedBy: string }) {
+  const [outcome, setOutcome] = useState<Outcome>("adopt");
+  const [reason, setReason] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const record = async (event: Event) => {
+    event.preventDefault();
+    if (sending) return;
+    setSending(true);
+    const response = await api(`/v1/studies/${studyId}/decisions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ outcome, reason: reason.trim(), decidedBy }),
+    }).catch(() => undefined);
+    setSending(false);
+    setNotice(response?.ok ? null : await refusal(response));
+  };
+
+  return (
+    <form class="decide" onSubmit={record}>
+      <select aria-label="Decision" value={outcome} onChange={(event) => setOutcome(event.currentTarget.value as Outcome)}>
+        {Object.entries(DECIDE).map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <input
+        type="text"
+        aria-label="Reason"
+        placeholder="Reason"
+        autocomplete="off"
+        required
+        minLength={3}
+        maxLength={1000}
+        value={reason}
+        onInput={(event) => setReason(event.currentTarget.value)}
+      />
+      <button type="submit" aria-disabled={sending}>
+        Record
+      </button>
+    </form>
+  );
+}
+
+// Only a planner decides. Anyone else not signed in is offered the way to.
+function Decide({ studyId, session }: { studyId: string; session: Session | null }) {
+  const me = session?.me ?? null;
+  if (me && canDecide(me)) return <DecisionForm key={studyId} studyId={studyId} decidedBy={me.name} />;
+  const tenant = session?.anonymous ? session.config?.signIn : null;
+  if (!tenant) return null;
+  return (
+    <button type="button" class="sign-in" onClick={() => void signIn(tenant)}>
+      Sign in to decide
+    </button>
   );
 }
 
@@ -158,6 +261,7 @@ function useMoreBelow(ref: { current: HTMLElement | null }): boolean {
 
 type Props = {
   study: StudyView;
+  session: Session | null;
   studies: StudyView[];
   assumptions: Assumption[];
   // The log position the display opened at: figures recorded after it are new.
@@ -169,22 +273,27 @@ type Props = {
   onCitation: (item: CheckView | FindingView, element: Element) => void;
 };
 
-export function StudyCard({ study, studies, assumptions, since, timeline, onSelect, onPreview, onFigure, onCitation }: Props) {
+export function StudyCard({ study, session, studies, assumptions, since, timeline, onSelect, onPreview, onFigure, onCitation }: Props) {
   // What a figure's button opens: its pages, or, with none, how it's worked out.
   const opens = (id: string) => (citesAPage(id, study.figures, assumptions) ? ", show source" : ", show working");
   const { decision } = study;
   // Beside any tests, so a test an agent adds never takes the headlines away.
-  const headlines = (HEADLINES[study.id] ?? []).flatMap((id) => study.figures.find((f) => f.id === id) ?? []);
+  const headlines = (HEADLINES[study.id] ?? []).flatMap(({ figure: id, caption }) => {
+    const figure = study.figures.find((f) => f.id === id);
+    return figure ? [{ figure, caption }] : [];
+  });
   const key = KEYS[study.id];
   const card = useRef<HTMLElement>(null);
   const below = useMoreBelow(card);
   // Every other figure, so all an agent records can be opened here.
-  const others = otherFigures(study.figures, [...study.checks.map((check) => check.figure), ...headlines.map((figure) => figure.id)]);
+  const others = otherFigures(study.figures, [...study.checks.map((check) => check.figure), ...headlines.map(({ figure }) => figure.id)]);
+  const awaiting = study.findings.some((finding) => finding.tone === "unrated") || study.checks.some((check) => check.status === "unverified");
+  const folded = study.findings.slice(NOTES_SHOWN);
   const count = others.reduce((sum, group) => sum + group.figures.length, 0);
   const fresh = since === null ? 0 : others.reduce((sum, group) => sum + group.figures.filter((figure) => figure.seq > since).length, 0);
 
   return (
-    <section ref={card} class={below ? "card below" : "card"} aria-labelledby="study-heading">
+    <section ref={card} class={below ? "card below" : "card"} data-study={study.id} aria-labelledby="study-heading">
       <h2 id="study-heading" class="sr-only">
         Study
       </h2>
@@ -238,20 +347,23 @@ export function StudyCard({ study, studies, assumptions, since, timeline, onSele
 
       {headlines.length > 0 && (
         <ul class="headlines">
-          {headlines.map((figure) => (
+          {headlines.map(({ figure, caption }) => (
             <li key={figure.id}>
               <button type="button" class="figure" onClick={(event) => onFigure(figure.id, event.currentTarget)}>
                 {amount(figure)}
-                <span class="sr-only">{opens(figure.id)}</span>
+                <span class="sr-only">{`, ${figure.label}${opens(figure.id)}`}</span>
               </button>
-              <span class="label">{figure.label}</span>
+              {/* The button's name says the full label, so the caption isn't read twice. */}
+              <span class="label" aria-hidden="true">
+                {caption}
+              </span>
             </li>
           ))}
         </ul>
       )}
 
-      {/* The hollow rings' meaning, for sighted people. Each finding says it to a screen reader. */}
-      {study.findings.some((finding) => finding.tone === "unrated") && (
+      {/* The hollow rings' meaning, for sighted people. Each finding and test says it to a screen reader. */}
+      {awaiting && (
         <p class="awaiting" aria-hidden="true">
           <span class="dot" />
           Awaiting a planner
@@ -259,19 +371,25 @@ export function StudyCard({ study, studies, assumptions, since, timeline, onSele
       )}
       {study.findings.length > 0 && (
         <ul class="findings">
-          {study.findings.map((finding) => (
-            <li key={finding.id}>
-              <button type="button" class={`finding ${finding.tone}`} onClick={(event) => onCitation(finding, event.currentTarget)}>
-                <span class="dot" aria-hidden="true" />
-                <span class="sr-only">{finding.tone === "unrated" ? "Not yet rated by a planner" : finding.tone}, </span>
-                <span>{finding.text}</span>
-              </button>
-            </li>
+          {study.findings.slice(0, NOTES_SHOWN).map((finding) => (
+            <Note key={finding.id} finding={finding} onCitation={onCitation} />
           ))}
         </ul>
       )}
+      {folded.length > 0 && (
+        <details class="notes">
+          <summary>
+            {folded.length} more {folded.length === 1 ? "note" : "notes"}
+          </summary>
+          <ul class="findings">
+            {folded.map((finding) => (
+              <Note key={finding.id} finding={finding} onCitation={onCitation} />
+            ))}
+          </ul>
+        </details>
+      )}
 
-      {decision && (
+      {decision ? (
         <p class="decision">
           <span>{ANALYSIS[decision.analysis]}</span>
           <span aria-hidden="true">→</span>
@@ -279,6 +397,8 @@ export function StudyCard({ study, studies, assumptions, since, timeline, onSele
           <strong>{OUTCOME[decision.outcome]}</strong>
           {decision.override && <span class="override">Override</span>}
         </p>
+      ) : (
+        <Decide studyId={study.id} session={session} />
       )}
 
       <Results timeline={timeline} trialStart={study.trial?.startedOn} />

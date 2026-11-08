@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { StudyView } from "@transit-agents/contracts";
 import { api } from "../api.ts";
+import { MapButtons } from "../map/MapButtons.tsx";
+import { MapControls } from "../map/controls.ts";
 import type { NetworkData } from "../map/engine.ts";
 import { FlatMap } from "../map/flat.ts";
+import { boundsOf, frameOf } from "../map/gestures.ts";
 import { toPoint, ViewFeed } from "../map/projection.ts";
 import { createRenderer, type MapRenderer } from "../map/renderer.ts";
 import { ScheduledVehicles, type StudyLine } from "../map/vehicles.ts";
@@ -35,14 +38,18 @@ type Props = {
   study: StudyView | null;
   simulator: Simulator;
   canCreate: boolean;
+  // The study the planner chose, which brings the camera back to it.
+  picked?: string | null;
   onCredit: (credit: Credit | null) => void;
   onNeed: (need: Opened, from: Element) => void;
+  // Whether the engagement viewer is open, which hides the rest of the page.
+  onViewer: (open: boolean) => void;
 };
 
 // The map's credit for the shown study's line, if its data asks for one, goes to
 // onCredit: the page shows it after the card and chat, so it comes last when
 // tabbing, though it sits over the map.
-export function MapView({ study, simulator, canCreate, onCredit, onNeed }: Props) {
+export function MapView({ study, simulator, canCreate, picked = null, onCredit, onNeed, onViewer }: Props) {
   const glCanvas = useRef<HTMLCanvasElement>(null);
   const flatCanvas = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<Renderer | null>(null);
@@ -59,6 +66,29 @@ export function MapView({ study, simulator, canCreate, onCredit, onNeed }: Props
   const lineKey = study?.line ?? null;
   const failing = study?.checks.some((c) => c.status === "fail") ?? false;
 
+  // The hand moves the map. Once it has, only the hand, Reset view or a study the
+  // planner picks moves it, never agents' work.
+  const [moved, setMoved] = useState(false);
+  const home = useRef(() => {});
+  home.current = () => {
+    const map = renderer.current;
+    const line = lineKey ? lines.current[lineKey] : undefined;
+    if (isFlat(map)) map.setCamera(null);
+    else map?.flyTo(line ? (VIEWS[lineKey as string] ?? OVERVIEW) : OVERVIEW, reduced() ? 0 : CAMERA_MS);
+  };
+  const controls = useMemo(
+    () =>
+      new MapControls({
+        frame: () => (feed.view ? frameOf(feed.view) : null),
+        surface: () => (isFlat(renderer.current) ? flatCanvas.current : glCanvas.current),
+        move: (camera) => (isFlat(renderer.current) ? renderer.current.setCamera(camera) : renderer.current?.setCamera(camera, true)),
+        home: () => home.current(),
+        onMoved: setMoved,
+      }),
+    [feed],
+  );
+  useEffect(() => controls.attach(glCanvas.current?.parentElement as HTMLElement), [controls]);
+
   // Puts the current study on whichever renderer is active.
   const showStudy = (map: Renderer, animate: boolean) => {
     const line = lineKey ? lines.current[lineKey] : undefined;
@@ -66,7 +96,7 @@ export function MapView({ study, simulator, canCreate, onCredit, onNeed }: Props
     map.setStudyFailing(failing);
     scheduled.current = line ? new ScheduledVehicles(line) : null;
     if (!isFlat(map)) {
-      map.flyTo(line ? (VIEWS[lineKey as string] ?? OVERVIEW) : OVERVIEW, animate ? CAMERA_MS : 0);
+      if (!controls.moved) map.flyTo(line ? (VIEWS[lineKey as string] ?? OVERVIEW) : OVERVIEW, animate ? CAMERA_MS : 0);
       if (line) map.drawStudyLine(animate ? LINE_DRAW_MS : 0);
     }
   };
@@ -74,6 +104,7 @@ export function MapView({ study, simulator, canCreate, onCredit, onNeed }: Props
   const fallBack = () => {
     const canvas = flatCanvas.current;
     if (!canvas) return;
+    controls.settle();
     const map = new FlatMap(canvas, (view) => feed.set({ kind: "flat", ...view }));
     renderer.current = map;
     setFlat(true);
@@ -109,6 +140,7 @@ export function MapView({ study, simulator, canCreate, onCredit, onNeed }: Props
       network.current = { coordinates: new Int16Array(bin), polylines: meta.polylines, routes: meta.routes, unitMetres: meta.unitMetres };
       serviceUntil.current = dateToMs(meta.serviceUntil) + DAY_MS / 2;
       lines.current = studies as Record<string, StudyLine>;
+      controls.bounds = boundsOf(network.current);
       const map = renderer.current;
       map?.setNetwork(network.current);
       if (map && !isFlat(map)) map.setCamera(OVERVIEW);
@@ -118,6 +150,10 @@ export function MapView({ study, simulator, canCreate, onCredit, onNeed }: Props
     idle(() => void load());
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (controls.moved) controls.reset();
+  }, [picked]);
 
   useEffect(() => {
     if (ready && renderer.current) showStudy(renderer.current, !reduced());
@@ -183,12 +219,30 @@ export function MapView({ study, simulator, canCreate, onCredit, onNeed }: Props
   const label = describe(study, Boolean(shownLine?.proposed?.length));
   const credit = shownLine?.credit;
   useEffect(() => onCredit(credit ?? null), [credit?.text, credit?.url]);
+  // Back to the study, and focus to the map, as the button goes.
+  const resetView = (event: MouseEvent) => {
+    const focused = document.activeElement === event.currentTarget;
+    controls.reset();
+    if (focused) (flat ? flatCanvas : glCanvas).current?.focus();
+  };
   return (
     <>
-      <canvas ref={glCanvas} class={flat ? "map hidden" : "map"} role="img" aria-label={label} aria-hidden={flat} />
-      <canvas ref={flatCanvas} class={flat ? "map" : "map hidden"} role="img" aria-label={label} aria-hidden={!flat} />
+      {/* The map showing takes the keys and the gestures. */}
+      <canvas ref={glCanvas} class={flat ? "map hidden" : "map"} role="application" aria-roledescription="map" aria-label={label} aria-describedby="map-keys" aria-hidden={flat} tabIndex={flat ? undefined : 0} />
+      <canvas ref={flatCanvas} class={flat ? "map" : "map hidden"} role="application" aria-roledescription="map" aria-label={label} aria-describedby="map-keys" aria-hidden={!flat} tabIndex={flat ? 0 : undefined} />
+      {/* Read only as the map's description, so not twice. */}
+      <p id="map-keys" hidden>
+        {moved && "You have moved the map. Home or Reset view goes back. "}
+        Drag, scroll or use the arrow keys to move. Pinch, or plus and minus, to zoom. Shift with a drag or the arrow keys turns and tilts. Home goes back to the study.
+      </p>
+      {moved && (
+        <button type="button" class="reset" onClick={resetView}>
+          Reset view
+        </button>
+      )}
+      <MapButtons controls={controls} flat={flat} />
       <div class="fade" aria-hidden="true" />
-      <Needs study={study} feed={feed} canCreate={canCreate} onDetails={onNeed} />
+      <Needs study={study} feed={feed} canCreate={canCreate} onDetails={onNeed} onViewer={onViewer} />
     </>
   );
 }

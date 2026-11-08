@@ -12,11 +12,21 @@ async function upload(file: File) {
 
 const extension = (title: string) => /\.(\w{1,4})$/.exec(title)?.[1]?.toUpperCase() ?? "";
 
+// With no folders yet, how long to wait for them before showing the add button
+// on its own. Shown before they arrive, it would jump along the shelf as they do.
+const FOLDERS_WAIT_MS = 2000;
+
 type Props = { contexts: Context[]; reading: string | null; highlight: string | null; canAdd: boolean };
 
 export function Shelf({ contexts, reading, highlight, canAdd }: Props) {
   const [dragging, setDragging] = useState(false);
+  const [waited, setWaited] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setWaited(true), FOLDERS_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!canAdd) return;
@@ -80,7 +90,9 @@ export function Shelf({ contexts, reading, highlight, canAdd }: Props) {
             </span>
           </li>
         ))}
-        {canAdd && (
+        {/* With the folders, not ahead of them: they would push it along as they arrive.
+            A file can be dropped anywhere before then. */}
+        {canAdd && (contexts.length > 0 || waited) && (
           <li class="item">
             <button type="button" class="add" aria-label="Add context" onClick={() => input.current?.click()}>
               <PlusIcon />

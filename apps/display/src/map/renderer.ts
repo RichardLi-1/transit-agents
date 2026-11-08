@@ -9,7 +9,8 @@ export interface MapRenderer {
   setStudyFailing(failing: boolean): void;
   setVehicles(data: Float32Array): void;
   setClock(dayType: number | null, hour: number): void;
-  setCamera(camera: Partial<Camera>): void;
+  // `now`: the caller is in a frame, and the map may draw in it.
+  setCamera(camera: Partial<Camera>, now?: boolean): void;
   flyTo(camera: Camera, duration: number): void;
   drawStudyLine(duration: number): void;
   resize(width: number, height: number, ratio: number): void;
@@ -67,8 +68,14 @@ export function createRenderer(canvas: HTMLCanvasElement, onLost: () => void, on
     return new WorkerRenderer(canvas, onLost, onView);
   }
   const engine = new MapEngine(canvas);
-  // Here nothing carries the report across threads, so hold it for the draw.
-  engine.onView = (view) => requestAnimationFrame(() => onView(view));
+  // Here nothing carries the report across threads, so hold it for the draw,
+  // unless the map drew at once. A report held back never undoes a newer one.
+  let reports = 0;
+  engine.onView = (view, drawn) => {
+    const report = ++reports;
+    if (drawn) onView(view);
+    else requestAnimationFrame(() => report === reports && onView(view));
+  };
   canvas.addEventListener("webglcontextlost", (event) => {
     event.preventDefault();
     onLost();

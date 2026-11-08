@@ -11,6 +11,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { ErrorCode, McpError, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { NeedView, StudyView } from "@transit-agents/contracts";
 import { createApp, type Actor } from "./app.ts";
+import { issueGuest } from "./guests.ts";
 import { NOT_TOOLS, TOOLS } from "./mcp.ts";
 import { Service } from "./service.ts";
 import { Webhooks } from "./webhooks.ts";
@@ -37,11 +38,24 @@ const INITIALIZE = {
   params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "test", version: "1.0.0" } },
 };
 
+const GUEST_SECRET = "a-guest-secret-of-at-least-32-characters";
+// A visitor the lead agent acts for.
+const VISITOR = { "x-on-behalf-of": `guest:${"A".repeat(22)}` };
+
 // The app on an ephemeral port, seeded through the API the way app.test.ts does.
-async function start({ publicUrl, openAccess = false }: { publicUrl?: string; openAccess?: boolean } = {}) {
+// With guests, it is a public demo that gives out guest passes.
+async function start({ publicUrl, openAccess = false, guests = false }: { publicUrl?: string; openAccess?: boolean; guests?: boolean } = {}) {
   const service = new Service(":memory:");
   const webhooks = new Webhooks(service, "https://example.test", async () => new Response("ok"));
-  const app = createApp({ service, webhooks, tokens: TOKENS, access: openAccess ? "open" : "token", publicUrl });
+  const app = createApp({
+    service,
+    webhooks,
+    tokens: TOKENS,
+    access: openAccess ? "open" : guests ? "demo" : "token",
+    publicUrl,
+    visitorAgents: ["lead"],
+    ...(guests ? { guests: { secret: GUEST_SECRET } } : {}),
+  });
   const call = (method: string, path: string, token: string, body: unknown) =>
     app.request(path, {
       method,
@@ -55,9 +69,9 @@ async function start({ publicUrl, openAccess = false }: { publicUrl?: string; op
   await once(server, "listening");
   const url = new URL(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/mcp`);
   const clients: Client[] = [];
-  const connect = async (token?: string) => {
+  const connect = async (token?: string, extra: Record<string, string> = {}) => {
     const client = new Client({ name: "test", version: "1.0.0" });
-    const headers = token ? { authorization: `Bearer ${token}` } : undefined;
+    const headers = token ? { authorization: `Bearer ${token}`, ...extra } : undefined;
     await client.connect(new StreamableHTTPClientTransport(url, { requestInit: { headers } }));
     clients.push(client);
     return client;
@@ -122,14 +136,14 @@ describe("mcp", () => {
     const [planner, agent, integration, viewer] = await Promise.all(
       ["planner-token", "agent-token", "integration-token", "viewer-token"].map(names),
     );
-    assert.equal(planner?.length, 32);
-    assert.equal(agent?.length, 23);
+    assert.equal(planner?.length, 33);
+    assert.equal(agent?.length, 24);
     assert.ok(agent?.includes("whoami"));
     assert.deepEqual(agent?.filter((name) => PLANNER_ONLY.includes(name)), []);
     assert.ok(agent?.includes("record_figure") && agent.includes("report_activity"));
-    assert.equal(integration?.length, 17);
+    assert.equal(integration?.length, 18);
     assert.ok(integration?.includes("add_source") && !integration.includes("record_figure"));
-    assert.equal(viewer?.length, 16);
+    assert.equal(viewer?.length, 17);
     assert.ok(viewer?.includes("read_page") && !viewer.includes("add_source"));
     for (const names of [planner, agent, integration, viewer]) assert.ok(names?.includes("search_sources"));
   });
@@ -202,7 +216,7 @@ describe("mcp", () => {
     assert.equal(added.isError, undefined);
     assert.equal((added.structuredContent as NeedView).status, "needed");
     const refused = await callTool(agent, "request_engagement_media", { studyId: "lawrence", need: "poster" });
-    assert.equal(textOf(refused), "403 forbidden: This needs a planner token, not agent");
+    assert.equal(textOf(refused), "403 forbidden: This needs a planner or guest token, not agent");
     const planner = await env.connect("planner-token");
     const ask = () => callTool(planner, "request_engagement_media", { studyId: "lawrence", need: "poster" });
     const first = await ask();
@@ -326,6 +340,65 @@ describe("mcp", () => {
   });
 });
 
+describe("mcp for visitors", () => {
+  let env: Awaited<ReturnType<typeof start>>;
+  beforeEach(async () => {
+    env = await start({ guests: true });
+  });
+  afterEach(() => env.stop());
+
+  it("runs each tool call in the sandbox of the visitor the session acts for", async () => {
+    const forVisitor = await env.connect("agent-token", VISITOR);
+    const recorded = await callTool(forVisitor, "record_figure", { studyId: "lawrence", ...FIGURE });
+    assert.equal(recorded.isError, undefined);
+    assert.equal(env.service.log.head().seq, env.service.log.since(0, 1000, VISITOR["x-on-behalf-of"]).at(-1)?.seq);
+    const figures = async (client: Client) => ((await callTool(client, "get_study", { studyId: "lawrence" })).structuredContent as StudyView).figures;
+    assert.equal((await figures(forVisitor))[0]?.value, 1680);
+    assert.deepEqual(await figures(await env.connect("agent-token")), []);
+    assert.deepEqual(await figures(await env.connect("planner-token")), []);
+    // What is left of the budget, for the visitor it acts for.
+    assert.deepEqual((await callTool(forVisitor, "get_budget", {})).structuredContent, { capped: false });
+  });
+
+  it("reads every visitor's entries for everyone, and writes nothing", async () => {
+    await callTool(await env.connect("agent-token", VISITOR), "report_activity", { studyId: "lawrence", kind: "message", text: "For a visitor" });
+    const everyone = await env.connect("agent-token", { "x-on-behalf-of": "*" });
+    assert.match(textOf(await callTool(everyone, "read_log", { limit: 1000 })), /For a visitor/);
+    assert.doesNotMatch(textOf(await callTool(await env.connect("agent-token"), "read_log", { limit: 1000 })), /For a visitor/);
+    // Its head is the newest entry of all, for a listener to read on from. Anyone
+    // else's stays at the shared record's.
+    const head = env.service.log.head();
+    assert.notDeepEqual(env.service.log.headFor(null), head);
+    assert.deepEqual((await callTool(everyone, "get_log_head", {})).structuredContent, head);
+    assert.deepEqual((await callTool(await env.connect("agent-token"), "get_log_head", {})).structuredContent, env.service.log.headFor(null));
+    const refused = await callTool(everyone, "report_activity", { studyId: "lawrence", kind: "message", text: "For everyone" });
+    assert.equal(refused.isError, true);
+    assert.match(textOf(refused), /^400 read_only: /);
+    assert.deepEqual(env.service.log.head(), head);
+  });
+
+  it("refuses the header from anyone but the service's own agents", async () => {
+    const { token } = issueGuest(GUEST_SECRET, new Date());
+    for (const caller of [token, "planner-token"]) {
+      const { status, body } = await env.post({ authorization: `Bearer ${caller}`, ...VISITOR });
+      assert.equal(status, 403);
+      assert.match(JSON.parse(body).error.message, /^403 forbidden: /);
+    }
+  });
+
+  it("lets a visitor do what a planner does but decide, with a guest pass", async () => {
+    const { token } = issueGuest(GUEST_SECRET, new Date());
+    const guest = await env.connect(token);
+    const names = (await guest.listTools()).tools.map((t) => t.name);
+    assert.ok(["get_study", "report_activity", "rate_finding", "accept_figure", "set_rule", "request_engagement_media", "get_budget"].every((name) => names.includes(name)));
+    assert.deepEqual(names.filter((name) => ["record_decision", "record_figure", "add_source", "open_study", "approve_skill", "remove_content"].includes(name)), []);
+    const decided = await callTool(guest, "record_decision", { studyId: "lawrence", outcome: "adopt", reason: "Passes the tests", decidedBy: "A visitor" });
+    assert.equal(textOf(decided), "403 sign_in_required: Only planners decide. Sign in to decide.");
+    assert.equal((await callTool(guest, "report_activity", { studyId: "lawrence", kind: "message", text: "Hello" })).isError, undefined);
+    assert.equal(env.service.state.studies.get("lawrence")?.decisions.length, 0);
+  });
+});
+
 describe("mcp drift", () => {
   it("makes every /v1 route a tool, or says why it isn't one", () => {
     const service = new Service(":memory:");
@@ -343,6 +416,8 @@ describe("mcp drift", () => {
     );
     const names = Object.values(TOOLS).map((tool) => tool.name);
     assert.equal(new Set(names).size, names.length);
+    assert.equal(TOOLS["GET /v1/budget"]?.name, "get_budget");
+    assert.ok(NOT_TOOLS["POST /v1/guests"]);
   });
 });
 
@@ -352,7 +427,7 @@ describe("README's MCP section", () => {
   const python = readme.match(/```python\n([\s\S]*?)```/)?.[1] ?? "";
 
   it("says which routes aren't tools", () => {
-    assert.match(prose, /Every route except the event stream, webhook subscriptions, and file uploads and downloads is a tool/);
+    assert.match(prose, /Every route except the event stream, webhook subscriptions, guest passes, and file uploads and downloads is a tool/);
   });
 
   it("holds the Gemini client open while it runs", () => {

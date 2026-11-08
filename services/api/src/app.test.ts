@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { AccessMode, SignIn } from "@transit-agents/contracts";
+import { BUDGET_SPENT, RATE_LIMITED, SIGN_IN_TO_DECIDE, type AccessMode, type NeedView, type SignIn } from "@transit-agents/contracts";
 import { createApp, type Actor, type Verified } from "./app.ts";
+import { VisitorBudget } from "./budget.ts";
+import { issueGuest, userAudience } from "./guests.ts";
 import { watchInbox } from "./inbox.ts";
+import { VisitorLimits } from "./limits.ts";
 import { padded, SAMPLE } from "./sample-media.ts";
 import { Service } from "./service.ts";
 import { describe as describeEntry, format, sign, Webhooks } from "./webhooks.ts";
@@ -15,27 +19,44 @@ const TOKENS = new Map<string, Actor>([
   ["planner-token", { role: "planner", name: "ana" }],
   ["integration-token", { role: "integration", name: "hastus" }],
   ["viewer-token", { role: "viewer", name: "auditor" }],
+  ["replay-token", { role: "agent", name: "replay" }],
 ]);
+
+const GUEST_SECRET = "a-guest-secret-of-at-least-32-characters";
 
 type Setup = {
   access?: AccessMode;
   publicUrl?: string;
   signIn?: SignIn;
-  verifyToken?: (token: string) => Promise<Actor | undefined>;
+  verifyToken?: (token: string) => Promise<Verified | undefined>;
   post?: typeof fetch;
   webhookHosts?: string[];
   mediaDir?: string;
   staticDir?: string;
+  guests?: boolean;
+  budget?: VisitorBudget;
+  limits?: VisitorLimits;
 };
 
-function setup({ access = "token", signIn, verifyToken, post, webhookHosts = ["hook.test"], mediaDir, staticDir, publicUrl }: Setup = {}) {
-  const service = new Service(":memory:", { mediaDir });
+function setup({ access = "token", signIn, verifyToken, post, webhookHosts = ["hook.test"], mediaDir, staticDir, publicUrl, guests, budget, limits }: Setup = {}) {
+  const service = new Service(":memory:", { mediaDir, budget });
   const webhooks = new Webhooks(service, "https://example.test", post ?? (async () => new Response("ok")));
-  const app = createApp({ service, webhooks, tokens: TOKENS, verifyToken, access, signIn, webhookHosts, staticDir, publicUrl });
-  const call = (method: string, path: string, token?: string, body?: unknown) =>
+  const app = createApp({
+    service,
+    webhooks,
+    tokens: TOKENS,
+    verifyToken,
+    access,
+    signIn,
+    webhookHosts,
+    staticDir,
+    publicUrl,
+    ...(guests ? { guests: { secret: GUEST_SECRET }, budget, limits, visitorAgents: ["lead", "media"] } : {}),
+  });
+  const call = (method: string, path: string, token?: string, body?: unknown, headers: Record<string, string> = {}) =>
     app.request(path, {
       method,
-      headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json" },
+      headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", ...headers },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
   return { service, webhooks, app, call };
@@ -225,12 +246,13 @@ describe("config", () => {
     assert.deepEqual(await response.json(), {
       auth: "token",
       signIn: { provider: "auth0", domain: "tenant.auth0.test", clientId: "display-client", audience: "https://api.transit.test" },
+      guests: false,
     });
   });
 
   it("names the mode, and has no sign-in when Auth0 isn't set up", async () => {
     for (const access of ["token", "open", "demo"] as const) {
-      assert.deepEqual(await (await setup({ access }).call("GET", "/v1/config")).json(), { auth: access, signIn: null });
+      assert.deepEqual(await (await setup({ access }).call("GET", "/v1/config")).json(), { auth: access, signIn: null, guests: false });
     }
   });
 
@@ -266,7 +288,7 @@ describe("security headers", () => {
     const response = await setup().app.request("/health");
     assert.equal(
       response.headers.get("content-security-policy"),
-      "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'",
+      "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self' 'unsafe-inline'; manifest-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'",
     );
   });
 
@@ -479,14 +501,33 @@ describe("openapi", () => {
     assert.ok(spec.paths["/v1/events"]);
   });
 
-  it("lists config as needing no token, and me as open to any role", async () => {
+  it("lists config and guest passes as needing no token, and me as open to any role", async () => {
     const { app } = setup();
     const spec = await (await app.request("/openapi.json")).json();
     assert.deepEqual(spec.security, [{ token: [] }]);
     assert.deepEqual(spec.paths["/v1/config"].get.security, []);
-    assert.deepEqual(spec.paths["/v1/config"].get["x-roles"], ["viewer", "integration", "agent", "planner"]);
-    assert.deepEqual(spec.paths["/v1/me"].get["x-roles"], ["viewer", "integration", "agent", "planner"]);
+    assert.deepEqual(spec.paths["/v1/guests"].post.security, []);
+    assert.deepEqual(spec.paths["/v1/config"].get["x-roles"], ["viewer", "integration", "agent", "planner", "guest"]);
+    assert.deepEqual(spec.paths["/v1/me"].get["x-roles"], ["viewer", "integration", "agent", "planner", "guest"]);
     assert.equal(spec.paths["/v1/me"].get.security, undefined);
+  });
+});
+
+describe("usage", () => {
+  it("sends each total with an estimate that says it's a floor, and its source", async () => {
+    const { call } = setup();
+    await call("POST", "/v1/studies", "agent-token", STUDY);
+    const used = { kind: "usage", model: "gemini", inputTokens: 900, outputTokens: 100, costUsd: 0.001 };
+    for (let i = 0; i < 2; i++) assert.equal((await call("POST", "/v1/studies/lawrence/activity", "agent-token", used)).status, 201);
+    const { total, byStudy } = await (await call("GET", "/v1/usage", "viewer-token")).json();
+    // What older clients read is unchanged.
+    assert.equal(total.calls, 2);
+    assert.equal(total.inputTokens, 1800);
+    const { basis, ...amounts } = total.estimate;
+    assert.deepEqual(amounts, { atLeast: true, energyWh: 0.48, co2eGrams: 0.06, waterMl: 0.52 });
+    assert.deepEqual(Object.keys(basis.source), ["title", "url", "date", "quote"]);
+    assert.equal(basis.source.url, "https://arxiv.org/abs/2508.15734");
+    assert.deepEqual(byStudy.lawrence.estimate, total.estimate);
   });
 });
 
@@ -506,6 +547,23 @@ describe("events", () => {
     assert.doesNotMatch(text, /study\.opened/);
     await reader.cancel();
     controller.abort();
+  });
+
+  it("sends an entry written while it replays the log", async () => {
+    const { app, call, service } = setup();
+    for (let i = 0; i < 50; i += 1) service.log.append({ actor: "agent:lead", type: "note", data: { i } });
+    const controller = new AbortController();
+    const response = await app.request("/v1/events?access_token=viewer-token", { signal: controller.signal });
+    await call("POST", "/v1/studies", "agent-token", STUDY);
+    const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+    let text = "";
+    const deadline = Date.now() + 2000;
+    while (!text.includes("study.opened") && Date.now() < deadline) {
+      const chunk = await Promise.race([reader.read(), new Promise<undefined>((resolve) => setTimeout(resolve, 100))]);
+      if (chunk?.value) text += new TextDecoder().decode(chunk.value);
+    }
+    controller.abort();
+    assert.match(text, /event: study\.opened/);
   });
 });
 
@@ -539,6 +597,30 @@ describe("webhooks", () => {
     const payload = JSON.parse(delivery.body);
     assert.equal(payload.entry.type, "decision.recorded");
     assert.equal(payload.head.seq, payload.entry.seq);
+  });
+
+  it("gives the shared record's head as the witness, which visitors' work doesn't move", async () => {
+    let open = () => {};
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    const sent: string[] = [];
+    const post = (async (_url: string, init: RequestInit) => {
+      await gate;
+      sent.push(init.body as string);
+      return new Response("ok");
+    }) as unknown as typeof fetch;
+    const { call, service } = setup({ post });
+    await call("POST", "/v1/studies", "agent-token", STUDY);
+    await call("POST", "/v1/subscriptions", "integration-token", { url: "https://hook.test/x", types: ["*"] });
+    // While the receiver is slow, a planner writes twice, then a visitor works.
+    await call("PUT", "/v1/assumptions/growth", "planner-token", { value: 1, reason: "No growth" });
+    await call("PUT", "/v1/assumptions/growth", "planner-token", { value: 2, reason: "Some growth" });
+    const shared = service.log.head();
+    service.log.append({ actor: "guest:a", type: "activity", studyId: "lawrence", data: { kind: "message", text: "Hello" }, audience: `guest:${"a".repeat(22)}` });
+    open();
+    await settle();
+    const heads = sent.map((body) => (JSON.parse(body) as { head: { seq: number; hash: string } }).head);
+    assert.equal(heads.length, 3);
+    assert.deepEqual(heads.slice(1), [shared, shared]);
   });
 
   it("never writes the secret to the log", async () => {
@@ -665,6 +747,22 @@ describe("engagement", () => {
     assert.equal((await call("POST", ASK, "planner-token")).status, 202);
     assert.equal(service.log.head().seq, head);
     assert.equal((await call("POST", "/v1/studies/lawrence/needs/nope/create", "planner-token")).status, 404);
+  });
+
+  it("keeps what a need's render shows, and takes a need from before subjects", async () => {
+    const { call } = await engagement();
+    const viaduct = { ...NEED, id: "viaduct", subject: "guideway" };
+    assert.equal((await call("POST", "/v1/studies/lawrence/needs", "agent-token", viaduct)).status, 201);
+    const refused = await call("POST", "/v1/studies/lawrence/needs", "agent-token", { ...NEED, id: "street-scene", subject: "people-walking" });
+    assert.equal(refused.status, 400);
+    const { needs } = await (await call("GET", "/v1/studies/lawrence", "viewer-token")).json();
+    assert.deepEqual(
+      needs.map((need: { id: string; subject?: string }) => [need.id, need.subject]),
+      [
+        ["poster", undefined],
+        ["viaduct", "guideway"],
+      ],
+    );
   });
 
   it("lets an agent say why it made nothing, and a planner ask again", async () => {
@@ -802,6 +900,25 @@ describe("engagement", () => {
     assert.equal((await upload(SAMPLE.png)).status, 201);
   });
 
+  it("credits the site photos a file was made with, linking only to a page on the web", async () => {
+    const { call, upload, ask } = await engagement();
+    await ask();
+    const photo = {
+      file: "thorncliffe-park-aerial.jpg",
+      credit: "Thorncliffe Park in 2023, by Canmenwalker, CC BY 4.0, via Wikimedia Commons",
+      licence: "CC BY 4.0",
+      source: "https://commons.wikimedia.org/wiki/File:Thorncliffe_Park_in_2023.jpg",
+    };
+    for (const source of ["javascript:alert(1)", "http://commons.wikimedia.org/wiki/File:Thorncliffe_Park_in_2023.jpg", "https://localhost/photo.jpg"]) {
+      const refused = await upload(SAMPLE.png, { inputs: JSON.stringify([{ photo: { ...photo, source } }]) });
+      assert.equal((await refused.json()).error.code, "invalid_body", source);
+    }
+    const media = await (await upload(SAMPLE.png, { inputs: JSON.stringify([{ citation: CITATION }, { photo }]) })).json();
+    assert.deepEqual(media.inputs, [{ citation: CITATION }, { photo }]);
+    const study = await (await call("GET", "/v1/studies/lawrence", "viewer-token")).json();
+    assert.deepEqual(study.needs[0].media[0].inputs, [{ citation: CITATION }, { photo }]);
+  });
+
   it("says what's wrong with an upload it can't use", async () => {
     const { app, call, upload, ask } = await engagement();
     const code = async (response: Response | Promise<Response>) => (await (await response).json()).error.code;
@@ -889,7 +1006,7 @@ describe("engagement", () => {
     assert.equal((await upload(SAMPLE.png)).status, 201);
   });
 
-  it("refuses a file with anything after its end, and names a saved file by its hash", async () => {
+  it("refuses a file with anything after its end, and names a saved file for its need, as illustrative", async () => {
     const { app, upload, ask } = await engagement();
     await ask();
     const tail = (file: Uint8Array) => new Uint8Array([...file, ...Buffer.from("<html><script>alert(1)</script>")]);
@@ -900,7 +1017,7 @@ describe("engagement", () => {
     }
     const media = await (await upload(SAMPLE.jpeg)).json();
     const served = await app.request(media.url);
-    assert.equal(served.headers.get("content-disposition"), `inline; filename="${media.id}.jpg"`);
+    assert.equal(served.headers.get("content-disposition"), 'inline; filename="poster-illustrative.jpg"');
   });
 
   it("never serves a file the log doesn't name", async () => {
@@ -922,7 +1039,7 @@ describe("engagement", () => {
     assert.deepEqual(form.schema.required, ["claim", "kind", "model", "prompt", "file"]);
     assert.deepEqual(form.encoding, { inputs: { contentType: "application/json" } });
     assert.deepEqual(spec.paths["/v1/media/{id}"].get.security, []);
-    assert.deepEqual(spec.paths["/v1/studies/{id}/needs/{need}/create"].post["x-roles"], ["planner"]);
+    assert.deepEqual(spec.paths["/v1/studies/{id}/needs/{need}/create"].post["x-roles"], ["planner", "guest"]);
     assert.deepEqual(spec.paths["/v1/studies/{id}/needs/{need}/claim"].post["x-roles"], ["agent"]);
     assert.deepEqual(spec.paths["/v1/studies/{id}/needs/{need}/failed"].post["x-roles"], ["agent"]);
   });
@@ -993,6 +1110,19 @@ describe("static files", () => {
     assert.equal(await body("/..%2Fprivate"), "main page");
   });
 
+  it("serves the app's manifest, icons and page images as what they are", async () => {
+    mkdirSync(join(dir, "site/icons"));
+    mkdirSync(join(dir, "site/sources"));
+    writeFileSync(join(dir, "site/manifest.webmanifest"), "{}");
+    writeFileSync(join(dir, "site/icons/icon-192.png"), "png");
+    writeFileSync(join(dir, "site/sources/p1.webp"), "webp");
+    const { app } = setup({ staticDir: join(dir, "site") });
+    const type = async (path: string) => (await app.request(path)).headers.get("content-type");
+    assert.equal(await type("/manifest.webmanifest"), "application/manifest+json");
+    assert.equal(await type("/icons/icon-192.png"), "image/png");
+    assert.equal(await type("/sources/p1.webp"), "image/webp");
+  });
+
   it("serves the main page for an address it can't decode", async () => {
     const { app } = setup({ staticDir: join(dir, "site") });
     for (const path of ["/%zz", "/spend/%zz", "/%E0%A4%A"]) {
@@ -1000,5 +1130,429 @@ describe("static files", () => {
       assert.equal(response.status, 200, path);
       assert.equal(await response.text(), "main page");
     }
+  });
+});
+
+describe("visitors", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "transit-visitors-"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const PLAN = {
+    id: "plan",
+    title: "2026 Plan",
+    pages: [{ page: 1, text: "Service on the 52F Lawrence West would be extended to Sunnybrook Hospital, adding 1,680 weekly riders." }],
+  };
+  const CITATION = { contextId: "plan", page: 1, quote: "adding 1,680 weekly riders" };
+  const FIGURE = { id: "riders", label: "Weekly riders", value: 1680, basis: { kind: "cited", citation: CITATION } };
+  const NEED = {
+    id: "poster",
+    title: "Engagement poster",
+    place: "Sunnybrook Hospital",
+    lon: -79.375262,
+    lat: 43.722663,
+    kinds: ["image"],
+    reason: "Riders can now ride straight to the hospital.",
+    citations: [CITATION],
+  };
+  const FINDING = { id: "survey", label: "Survey", text: "Riders asked for it.", tone: "positive", citation: CITATION };
+  const MESSAGE = { kind: "message", text: "Will this help?" };
+
+  // A shared study with something of each kind, and two visitors' passes.
+  async function visitors(options: Setup = {}) {
+    const env = setup({ access: "demo", guests: true, mediaDir: join(dir, "media"), ...options });
+    const { call } = env;
+    const ok = async (response: Response | Promise<Response>) => assert.ok((await response).ok);
+    await ok(call("POST", "/v1/context", "integration-token", PLAN));
+    await ok(call("POST", "/v1/studies", "agent-token", STUDY));
+    await ok(call("PUT", "/v1/assumptions/min-riders", "planner-token", { value: 1000, reason: "The service standard" }));
+    await ok(call("POST", "/v1/studies/lawrence/figures", "agent-token", FIGURE));
+    await ok(call("POST", "/v1/studies/lawrence/checks", "agent-token", { id: "enough", label: "Enough riders", figure: "riders", op: ">=", threshold: { assumption: "min-riders" } }));
+    await ok(call("POST", "/v1/studies/lawrence/findings", "agent-token", FINDING));
+    await ok(call("POST", "/v1/studies/lawrence/needs", "agent-token", NEED));
+    const pass = async () => (await (await call("POST", "/v1/guests")).json()).token as string;
+    const a = await pass();
+    const b = await pass();
+    const audience = (token: string) => `guest:${token.split(".")[1]}`;
+    // The lead agent, acting for a visitor.
+    const forVisitor = (token: string) => ({ "x-on-behalf-of": audience(token) });
+    // The media agent, acting for whoever the headers name: it takes the request on, then
+    // sends the file with its claim and its length, as a client does.
+    const upload = async (headers: Record<string, string>) => {
+      const claim = "claim-of-the-agent-token";
+      assert.equal((await call("POST", "/v1/studies/lawrence/needs/poster/claim", "agent-token", { claim }, headers)).status, 200);
+      const form = new FormData();
+      const fields = { claim, kind: "image", model: "gemini-3.1-flash-image", prompt: "A poster", inputs: JSON.stringify([{ citation: CITATION }]) };
+      for (const [name, value] of Object.entries(fields)) form.set(name, value);
+      form.set("file", new Blob([SAMPLE.png.slice()], { type: "image/png" }), "poster.png");
+      const encoded = new Response(form);
+      const body = new Uint8Array(await encoded.arrayBuffer());
+      const sent = { "content-type": encoded.headers.get("content-type") as string, "content-length": String(body.length) };
+      return env.app.request("/v1/studies/lawrence/needs/poster/media", { method: "POST", headers: { authorization: "Bearer agent-token", ...sent, ...headers }, body });
+    };
+    return { ...env, a, b, audience, forVisitor, upload };
+  }
+
+  // A tool call over MCP, as JSON-RPC, with what came back.
+  const tool = async (env: { app: { request: (path: string, init: RequestInit) => Response | Promise<Response> } }, token: string, name: string, args: Record<string, unknown>, headers: Record<string, string> = {}) => {
+    const response = await env.app.request("/v1/mcp", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream", ...headers },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+    });
+    const { result } = (await response.json()) as { result: { content: { text: string }[]; isError?: boolean } };
+    return { text: result.content[0]?.text ?? "", isError: result.isError === true };
+  };
+
+  it("lets a visitor do what a planner does, but decide, in a sandbox nobody else sees", async () => {
+    const { call, service, a, b, audience } = await visitors();
+    const shared = structuredClone(service.state);
+    const writes = {
+      message: await call("POST", "/v1/studies/lawrence/activity", a, MESSAGE),
+      rating: await call("PUT", "/v1/studies/lawrence/findings/survey/tone", a, { tone: "negative" }),
+      accept: await call("POST", "/v1/studies/lawrence/figures/riders/accept", a),
+      assumption: await call("PUT", "/v1/assumptions/min-riders", a, { value: 2000, reason: "A visitor's stricter bar" }),
+      create: await call("POST", "/v1/studies/lawrence/needs/poster/create", a),
+      preview: await call("POST", "/v1/studies/lawrence/preview", a, { assumptions: { "min-riders": 3000 } }),
+    };
+    for (const [write, response] of Object.entries(writes)) assert.ok(response.ok, `${write}: ${response.status}`);
+    assert.deepEqual(service.state, shared);
+
+    const study = async (token?: string) => (await call("GET", "/v1/studies/lawrence", token)).json();
+    const mine = await study(a);
+    assert.equal(mine.findings[0].tone, "negative");
+    assert.equal(mine.checks[0].status, "fail");
+    assert.equal(mine.needs[0].status, "creating");
+    for (const other of [b, "planner-token", undefined]) {
+      const theirs = await study(other);
+      assert.equal(theirs.findings[0].tone, "unrated");
+      assert.equal(theirs.checks[0].status, "pass");
+      assert.equal(theirs.needs[0].status, "needed");
+    }
+    const log = async (token?: string) => (await call("GET", "/v1/log?limit=1000", token)).json() as Promise<{ audience?: string | null; actor: string }[]>;
+    // Accepting a figure already accepted writes nothing.
+    assert.equal((await log(a)).filter((entry) => entry.audience === audience(a)).length, 4);
+    for (const other of [b, "planner-token", "agent-token", undefined]) {
+      const entries = await log(other);
+      assert.equal(entries.filter((entry) => entry.audience).length, 0);
+      assert.ok(!entries.some((entry) => entry.actor === audience(a)));
+    }
+  });
+
+  it("refuses a visitor's decision, over REST and MCP, and writes nothing", async () => {
+    const env = await visitors();
+    const head = env.service.log.head();
+    const response = await env.call("POST", "/v1/studies/lawrence/decisions", env.a, DECISION);
+    assert.equal(response.status, 403);
+    assert.deepEqual((await response.json()).error, { code: "sign_in_required", message: SIGN_IN_TO_DECIDE });
+    const result = await tool(env, env.a, "record_decision", { studyId: "lawrence", ...DECISION });
+    assert.equal(result.isError, true);
+    assert.equal(result.text, `403 sign_in_required: ${SIGN_IN_TO_DECIDE}`);
+    assert.deepEqual(env.service.log.head(), head);
+    // Without a token, a decision still needs one.
+    assert.equal((await env.call("POST", "/v1/studies/lawrence/decisions", undefined, DECISION)).status, 401);
+  });
+
+  it("lets a visitor only chat, of the activity kinds, and not do an agent's or a planner's other work", async () => {
+    const { app, call, service, a } = await visitors({ limits: new VisitorLimits({ perMinute: 100 }) });
+    const head = service.log.head();
+    const refused = {
+      usage: await call("POST", "/v1/studies/lawrence/activity", a, { kind: "usage", model: "gemini", inputTokens: 1, outputTokens: 1, costUsd: 9 }),
+      reading: await call("POST", "/v1/studies/lawrence/activity", a, { kind: "reading", contextId: "plan" }),
+      "run.started": await call("POST", "/v1/studies/lawrence/activity", a, { kind: "run.started" }),
+      context: await call("POST", "/v1/context", a, { title: "Mine", text: "words" }),
+      study: await call("POST", "/v1/studies", a, { id: "mine", title: "Mine" }),
+      figure: await call("POST", "/v1/studies/lawrence/figures", a, { ...FIGURE, id: "mine" }),
+      check: await call("POST", "/v1/studies/lawrence/checks", a, { id: "mine", label: "Mine", figure: "riders", op: ">=", threshold: { assumption: "min-riders" } }),
+      finding: await call("POST", "/v1/studies/lawrence/findings", a, { ...FINDING, id: "mine" }),
+      need: await call("POST", "/v1/studies/lawrence/needs", a, { ...NEED, id: "mine" }),
+      claim: await call("POST", "/v1/studies/lawrence/needs/poster/claim", a, { claim: "claim-of-a-visitor-0001" }),
+      failed: await call("POST", "/v1/studies/lawrence/needs/poster/failed", a, { reason: "Nothing made", claim: "claim-of-a-visitor-0001" }),
+      upload: await app.request("/v1/studies/lawrence/needs/poster/media", { method: "POST", headers: { authorization: `Bearer ${a}` }, body: new FormData() }),
+      dismiss: await call("POST", "/v1/studies/lawrence/needs/poster/dismiss", a, { reason: "Not wanted" }),
+      withdraw: await call("POST", `/v1/studies/lawrence/needs/poster/media/${"0".repeat(64)}/withdraw`, a, { reason: "Not wanted" }),
+      skill: await call("PUT", "/v1/skills/r5", a, { version: "1" }),
+      subscription: await call("POST", "/v1/subscriptions", a, { url: "https://hook.test/x" }),
+      removal: await call("POST", `/v1/log/${head.seq}/remove-content`, a, { reason: "Privacy request" }),
+    };
+    for (const [write, response] of Object.entries(refused)) {
+      assert.equal(response.status, 403, write);
+      assert.deepEqual((await response.json()).error, { code: "sign_in_required", message: "Sign in as a planner to do this." }, write);
+    }
+    assert.deepEqual(service.log.head(), head);
+  });
+
+  it("lets only the service's own static agents act for a visitor", async () => {
+    const people: Record<string, Verified> = { "auth0-agent": { role: "agent", name: "bot", subject: "auth0|bot" } };
+    const { call, service, a, audience, forVisitor } = await visitors({ verifyToken: async (token) => people[token] });
+    assert.equal((await call("POST", "/v1/studies/lawrence/activity", "agent-token", { kind: "message", text: "For A" }, forVisitor(a))).status, 201);
+    const head = service.log.head();
+    for (const token of [a, "planner-token", "auth0-agent", "replay-token", "integration-token", "viewer-token", undefined]) {
+      for (const [method, path] of [["GET", "/v1/log"], ["GET", "/v1/studies/lawrence"], ["POST", "/v1/studies/lawrence/activity"]]) {
+        const response = await call(method as string, path as string, token, method === "POST" ? MESSAGE : undefined, forVisitor(a));
+        assert.equal(response.status, 403, `${token} ${method} ${path}`);
+        assert.equal((await response.json()).error.code, "forbidden");
+      }
+    }
+    for (const value of ["", "guest:short", `user:${"x".repeat(23)}`, `planner:${"x".repeat(22)}`, "guest:*", "*,guest:x"]) {
+      const response = await call("GET", "/v1/log", "agent-token", undefined, { "x-on-behalf-of": value });
+      assert.equal(response.status, 400, value);
+      assert.equal((await response.json()).error.code, "bad_audience", value);
+    }
+    // Everyone, only to read the log.
+    const everyone = { "x-on-behalf-of": "*" };
+    for (const [method, path, body] of [
+      ["POST", "/v1/studies/lawrence/activity", MESSAGE],
+      ["POST", "/v1/studies/lawrence/figures", { ...FIGURE, id: "all" }],
+      ["PUT", "/v1/assumptions/min-riders", { value: 1, reason: "For everyone" }],
+      ["POST", "/v1/studies/lawrence/preview", {}],
+    ] as const) {
+      const response = await call(method, path, "agent-token", body, everyone);
+      assert.equal(response.status, 400, path);
+      assert.equal((await response.json()).error.code, "read_only", path);
+    }
+    assert.deepEqual(service.log.head(), head);
+    const read = async (path: string, headers: Record<string, string> = {}) => (await call("GET", path, "agent-token", undefined, headers)).text();
+    assert.match(await read("/v1/log?limit=1000", everyone), /For A/);
+    assert.doesNotMatch(await read("/v1/log?limit=1000"), /For A/);
+    assert.match(await read("/v1/log?limit=1000", forVisitor(a)), /For A/);
+    assert.equal(JSON.parse(await read("/v1/log?limit=1000", everyone)).at(-1).audience, audience(a));
+    for (const path of ["/v1/studies", "/v1/studies/lawrence", "/v1/usage", "/v1/assumptions"]) {
+      assert.equal(await read(path, everyone), await read(path), path);
+    }
+  });
+
+  it("writes what an agent does for a visitor into that visitor's sandbox, and keeps sources and studies shared", async () => {
+    const { call, service, a, b, audience, forVisitor, upload } = await visitors();
+    assert.equal((await call("POST", "/v1/studies/lawrence/figures", "agent-token", { ...FIGURE, id: "theirs", label: "Their riders" }, forVisitor(a))).status, 201);
+    assert.equal((await call("POST", "/v1/studies/lawrence/needs/poster/create", a)).status, 202);
+    const made = await upload(forVisitor(a));
+    assert.equal(made.status, 201);
+    const media = await made.json();
+    const served = await call("GET", media.url);
+    assert.equal(served.status, 200);
+    assert.equal(served.headers.get("cache-control"), "private, no-cache");
+    // The claim and the file are A's: everyone else sees the need as nobody asked for it.
+    const poster = async (token: string) => ((await (await call("GET", "/v1/studies/lawrence", token)).json()).needs as NeedView[])[0];
+    const mine = await poster(a);
+    assert.deepEqual([mine?.status, mine?.claimedBy, mine?.media.map((m) => m.id)], ["ready", "agent:lead", [media.id]]);
+    for (const other of [b, "planner-token"]) {
+      const theirs = await poster(other);
+      assert.deepEqual([theirs?.status, theirs?.claimedBy, theirs?.media], ["needed", undefined, []], other);
+    }
+    // An agent acting for B can't take A's request on.
+    const taken = await call("POST", "/v1/studies/lawrence/needs/poster/claim", "agent-token", { claim: "claim-of-the-agent-for-b" }, forVisitor(b));
+    assert.equal((await taken.json()).error.code, "not_requested");
+    const figures = async (token: string) => ((await (await call("GET", "/v1/studies/lawrence", token)).json()).figures as { id: string }[]).map((f) => f.id);
+    assert.deepEqual(await figures(a), ["riders", "theirs"]);
+    assert.deepEqual(await figures(b), ["riders"]);
+    assert.deepEqual(await figures("planner-token"), ["riders"]);
+    assert.equal(service.log.since(0, 1000, audience(a)).at(-1)?.audience, audience(a));
+    for (const [method, path, body] of [
+      ["POST", "/v1/studies", { id: "theirs", title: "Theirs" }],
+      ["POST", "/v1/context", { title: "Theirs", text: "words" }],
+    ] as const) {
+      const response = await call(method, path, "agent-token", body, forVisitor(a));
+      assert.equal(response.status, 403, path);
+      assert.equal((await response.json()).error.code, "shared_only", path);
+    }
+  });
+
+  it("makes someone signed in who isn't a planner a visitor, with a sandbox of their own", async () => {
+    const people: Record<string, Verified> = {
+      kim: { role: "viewer", name: "kim", subject: "auth0|kim" },
+      ana: { role: "planner", name: "ana-ruiz", subject: "auth0|ana" },
+    };
+    const verifyToken = async (token: string) => people[token];
+    const { call, service } = await visitors({ verifyToken });
+    const audience = userAudience(GUEST_SECRET, "auth0|kim");
+    assert.deepEqual(await (await call("GET", "/v1/me", "kim")).json(), { role: "guest", name: audience.slice("user:".length) });
+    assert.deepEqual(await (await call("GET", "/v1/me", "ana")).json(), { role: "planner", name: "ana-ruiz" });
+    assert.equal((await call("POST", "/v1/studies/lawrence/activity", "kim", MESSAGE)).status, 201);
+    const entry = service.log.since(0, 1000, audience).at(-1);
+    assert.equal(entry?.audience, audience);
+    assert.equal(entry?.actor, `guest:${audience.slice("user:".length)}`);
+    assert.equal((await call("POST", "/v1/studies/lawrence/decisions", "kim", DECISION)).status, 403);
+    // With guests off, they stay a viewer.
+    const off = setup({ access: "demo", verifyToken });
+    assert.deepEqual(await (await off.call("GET", "/v1/me", "kim")).json(), { role: "viewer", name: "kim" });
+  });
+
+  it("keeps what someone signed in does in their sandbox from being guessed from the chain by someone who knows who they are", async () => {
+    const verifyToken = async (token: string): Promise<Verified | undefined> =>
+      token === "kim" ? { role: "viewer", name: "kim", subject: "auth0|kim" } : undefined;
+    const { call, b } = await visitors({ verifyToken });
+    type Shared = { seq: number; at: string; hash: string; prevHash: string };
+    await call("POST", "/v1/studies/lawrence/activity", "agent-token", { kind: "message", text: "Shared before" });
+    const previous = ((await (await call("GET", "/v1/log?limit=1000", b)).json()) as Shared[]).at(-1) as Shared;
+    assert.equal((await call("PUT", "/v1/studies/lawrence/findings/survey/tone", "kim", { tone: "negative" })).status, 200);
+    await call("POST", "/v1/studies/lawrence/activity", "agent-token", { kind: "message", text: "Shared after" });
+    const [next] = (await (await call("GET", `/v1/log?after=${previous.seq}`, b)).json()) as Shared[];
+    assert.equal(next?.seq, previous.seq + 2);
+    // Visitor B knows Kim's subject, and tries each tone at each millisecond between
+    // the shared entries on either side of Kim's rating.
+    const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+    const guess = (audience: string) => {
+      const seq = previous.seq + 1;
+      for (let at = Date.parse(previous.at); at <= Date.parse(next?.at ?? ""); at += 1) {
+        for (const tone of ["positive", "mixed", "negative", "neutral"]) {
+          const payloadHash = sha256(`${seq}:${JSON.stringify({ finding: "survey", tone })}`);
+          const fields = [seq, new Date(at).toISOString(), `guest:${audience.slice("user:".length)}`, "finding.rated", "lawrence", payloadHash, previous.hash, audience];
+          if (sha256(JSON.stringify(fields)) === next?.prevHash) return tone;
+        }
+      }
+      return undefined;
+    };
+    assert.equal(guess(`user:${createHash("sha256").update("auth0|kim").digest("base64url").slice(0, 22)}`), undefined);
+    // The same search finds it only with the secret.
+    assert.equal(guess(userAudience(GUEST_SECRET, "auth0|kim")), "negative");
+  });
+
+  it("lets a planner remove what a visitor wrote only given their audience, and answers otherwise as for a made-up position", async () => {
+    const { call, service, a, b, audience } = await visitors();
+    const { seq } = await (await call("POST", "/v1/studies/lawrence/activity", a, { kind: "message", text: "Call me on 416-555-0100" })).json();
+    const remove = (at: number, body: Record<string, unknown> = {}) =>
+      call("POST", `/v1/log/${at}/remove-content`, "planner-token", { reason: "Personal data", ...body });
+    const nobody = await remove(seq + 1000);
+    const asNobody = { status: nobody.status, body: (await nobody.text()).replaceAll(String(seq + 1000), String(seq)) };
+    assert.equal(asNobody.status, 404);
+    for (const body of [{}, { audience: audience(b) }]) {
+      const response = await remove(seq, body);
+      assert.deepEqual({ status: response.status, body: await response.text() }, asNobody);
+    }
+    assert.equal((await remove(seq, { audience: audience(a) })).status, 201);
+    const log = async (token: string) => JSON.stringify(await (await call("GET", "/v1/log?limit=1000", token)).json());
+    assert.equal((await log(a)).includes("416-555-0100"), false);
+    assert.ok((await log(a)).includes("content.removed"));
+    for (const token of [b, "planner-token"]) assert.equal((await log(token)).includes("content.removed"), false);
+    assert.equal(service.log.verify().ok, true);
+  });
+
+  it("keeps no idempotency record for a visitor, and an agent's apart for each visitor", async () => {
+    const { call, service, a, b, forVisitor } = await visitors();
+    const key = { "idempotency-key": "k1" };
+    for (let i = 0; i < 2; i += 1) {
+      const response = await call("POST", "/v1/studies/lawrence/activity", a, MESSAGE, key);
+      assert.equal(response.status, 201);
+      assert.equal(response.headers.get("idempotent-replay"), null);
+    }
+    assert.equal((service.log.db.prepare("SELECT count(*) AS n FROM idempotency").get() as { n: number }).n, 0);
+    const forA = await call("POST", "/v1/studies/lawrence/activity", "agent-token", { kind: "message", text: "For A" }, { ...key, ...forVisitor(a) });
+    const forB = await call("POST", "/v1/studies/lawrence/activity", "agent-token", { kind: "message", text: "For B" }, { ...key, ...forVisitor(b) });
+    assert.equal(forB.headers.get("idempotent-replay"), null);
+    assert.notDeepEqual(await forB.json(), await forA.json());
+    const again = await call("POST", "/v1/studies/lawrence/activity", "agent-token", { kind: "message", text: "For A" }, { ...key, ...forVisitor(a) });
+    assert.equal(again.headers.get("idempotent-replay"), "true");
+  });
+
+  it("returns at most 1000 log entries, whatever the limit asks", async () => {
+    const { call, service } = setup({ access: "demo" });
+    for (let i = 0; i < 1005; i += 1) service.log.append({ actor: "agent:lead", type: "note", data: { i } });
+    const count = async (query: string) => ((await (await call("GET", `/v1/log${query}`)).json()) as unknown[]).length;
+    assert.equal(await count("?limit=-1"), 1);
+    assert.equal(await count("?limit=5000"), 1000);
+    assert.equal(await count("?limit=0"), 1);
+    assert.equal(await count("?limit=abc"), 200);
+    assert.equal(await count(""), 200);
+    assert.equal(await count("?after=-5&limit=3"), 3);
+    assert.equal(await count("?after=1000&limit=1000"), 5);
+  });
+
+  it("limits how often a visitor writes, and not how often they read or preview", async () => {
+    const { call, service, a, b } = await visitors();
+    for (let i = 0; i < 10; i += 1) assert.equal((await call("POST", "/v1/studies/lawrence/activity", a, MESSAGE)).status, 201, String(i));
+    const head = service.log.head();
+    const eleventh = await call("POST", "/v1/studies/lawrence/activity", a, MESSAGE);
+    assert.equal(eleventh.status, 429);
+    assert.deepEqual((await eleventh.json()).error, { code: "rate_limited", message: RATE_LIMITED });
+    assert.equal((await call("PUT", "/v1/assumptions/min-riders", a, { value: 1, reason: "One more" })).status, 429);
+    assert.deepEqual(service.log.head(), head);
+    assert.equal((await call("GET", "/v1/studies/lawrence", a)).status, 200);
+    assert.equal((await call("POST", "/v1/studies/lawrence/preview", a, {})).status, 200);
+    assert.equal((await call("POST", "/v1/studies/lawrence/activity", b, MESSAGE)).status, 201);
+    assert.equal((await call("POST", "/v1/studies/lawrence/activity", "planner-token", MESSAGE)).status, 201);
+  });
+
+  it("holds visitors to the daily budget at the door, and never planners", async () => {
+    const budget = new VisitorBudget({ capUsd: 1, marginUsd: 0.2, shareUsd: 0.5 });
+    const { call, service, a, b, forVisitor } = await visitors({ budget });
+    const usage = (costUsd: number) => ({ kind: "usage", model: "gemini-3-flash", inputTokens: 100, outputTokens: 10, costUsd });
+    assert.deepEqual(await (await call("GET", "/v1/budget", a)).json(), { capped: true, capUsd: 1, leftUsd: 0.5 });
+    assert.deepEqual(await (await call("GET", "/v1/budget", "planner-token")).json(), { capped: false });
+    assert.deepEqual(await (await call("GET", "/v1/budget", "agent-token", undefined, forVisitor(b))).json(), { capped: true, capUsd: 1, leftUsd: 0.5 });
+
+    // A usage report made for a visitor says what is left; a planner's doesn't.
+    const reported = await call("POST", "/v1/studies/lawrence/activity", "agent-token", usage(0.45), forVisitor(a));
+    assert.equal(reported.status, 201);
+    const { budgetLeftUsd } = await reported.json();
+    assert.ok(Math.abs(budgetLeftUsd - 0.05) < 1e-9, String(budgetLeftUsd));
+    assert.deepEqual(Object.keys(await (await call("POST", "/v1/studies/lawrence/activity", "agent-token", usage(5))).json()), ["seq"]);
+    assert.deepEqual(Object.keys(await (await call("POST", "/v1/studies/lawrence/activity", "planner-token", usage(5))).json()), ["seq"]);
+
+    // A has too little left for a message or media. B, with the day's budget, has room.
+    const head = service.log.head();
+    for (const response of [
+      await call("POST", "/v1/studies/lawrence/activity", a, MESSAGE),
+      await call("POST", "/v1/studies/lawrence/needs/poster/create", a),
+    ]) {
+      assert.equal(response.status, 429);
+      assert.deepEqual((await response.json()).error, { code: "budget_spent", message: BUDGET_SPENT });
+    }
+    assert.deepEqual(service.log.head(), head);
+    assert.equal((await call("POST", "/v1/studies/lawrence/activity", b, MESSAGE)).status, 201);
+
+    // Once the day's budget is spent, no visitor has room, and planners still do.
+    await call("POST", "/v1/studies/lawrence/activity", "agent-token", usage(0.4), forVisitor(b));
+    const spent = service.log.head();
+    assert.equal((await call("POST", "/v1/studies/lawrence/activity", b, MESSAGE)).status, 429);
+    assert.equal((await call("POST", "/v1/studies/lawrence/needs/poster/create", b)).status, 429);
+    assert.deepEqual(await (await call("GET", "/v1/budget", b)).json(), { capped: true, capUsd: 1, leftUsd: 0 });
+    assert.deepEqual(service.log.head(), spent);
+    assert.equal((await call("POST", "/v1/studies/lawrence/activity", "planner-token", MESSAGE)).status, 201);
+    assert.equal((await call("POST", "/v1/studies/lawrence/needs/poster/create", "planner-token")).status, 202);
+    // An agent can still tell a visitor why it stopped.
+    assert.equal((await call("POST", "/v1/studies/lawrence/activity", "agent-token", { kind: "message", text: BUDGET_SPENT }, forVisitor(b))).status, 201);
+  });
+
+  it("streams a visitor's entries only to that visitor", async () => {
+    const { app, call, a, b } = await visitors();
+    const read = async (token: string) => {
+      const controller = new AbortController();
+      const response = await app.request(`/v1/events?types=activity&access_token=${encodeURIComponent(token)}`, { signal: controller.signal });
+      const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+      let text = "";
+      while (!text.includes("Shared after")) text += new TextDecoder().decode((await reader.read()).value);
+      controller.abort();
+      return text;
+    };
+    await call("POST", "/v1/studies/lawrence/activity", a, { kind: "message", text: "Replayed for A" });
+    const [mine, theirs] = [read(a), read(b)];
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await call("POST", "/v1/studies/lawrence/activity", a, { kind: "message", text: "Live for A" });
+    await call("POST", "/v1/studies/lawrence/activity", "agent-token", { kind: "message", text: "Shared after" });
+    const [forA, forB] = await Promise.all([mine, theirs]);
+    assert.match(forA, /Replayed for A[\s\S]*Live for A[\s\S]*Shared after/);
+    assert.doesNotMatch(forB, /for A/);
+  });
+
+  it("never delivers a visitor's entry to a webhook, and still delivers the shared entry after it", async () => {
+    const sent: string[] = [];
+    const post = (async (_url: string, init: RequestInit) => {
+      sent.push(init.body as string);
+      return new Response("ok");
+    }) as unknown as typeof fetch;
+    const { call, a, forVisitor } = await visitors({ post });
+    await call("POST", "/v1/subscriptions", "integration-token", { url: "https://hook.test/x", types: ["*"] });
+    await call("POST", "/v1/studies/lawrence/activity", a, { kind: "message", text: "Only for A" });
+    await call("POST", "/v1/studies/lawrence/activity", "agent-token", { kind: "message", text: "Also for A" }, forVisitor(a));
+    await call("POST", "/v1/studies/lawrence/decisions", "planner-token", DECISION);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(
+      sent.map((body) => JSON.parse(body).entry.type),
+      ["subscription.added", "decision.recorded"],
+    );
+    assert.doesNotMatch(sent.join("\n"), /for A|guest:/);
   });
 });

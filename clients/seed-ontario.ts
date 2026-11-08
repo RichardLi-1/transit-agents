@@ -3,13 +3,13 @@
 // from the Ontario Line's own business cases and TTC counts, or from formulas over
 // them and values a planner sets.
 import type { NewAssumption, NewFigure } from "@transit-agents/contracts";
+import { ONTARIO_NEEDS } from "./ontario-needs.ts";
 import type { Source, StudySeed } from "./seed-data.ts";
 
 const IBC = "ontario-line-ibc-2019";
 const PDBC = "ontario-line-pdbc-2020";
 const MANUAL = "metrolinx-bcm-vol2";
 const RIDERSHIP = "ttc-subway-ridership-2024-25";
-const PLAN = "ttc-anp-2026";
 
 export const ONTARIO_SOURCES: Source[] = [
   {
@@ -109,6 +109,10 @@ const derived = (id: string, label: string, unit: string, formula: string, input
   basis: { kind: "derived", formula, inputs },
 });
 
+// A gap as a finding's text: what's missing, then the next step, then who to
+// contact, as agents/skills/handover sets out.
+export const GAP = /^(.+?\.) Next: (.+?)\. Contact: (.+)\.$/;
+
 // A feasibility study, so it has no tests and no decision: it waits for planners.
 export const ONTARIO: StudySeed = {
   study: {
@@ -207,23 +211,56 @@ export const ONTARIO: StudySeed = {
     cited("ol-bcr", "Ontario Line benefit-cost ratio, expected", "ratio", 1.05, PDBC, 12, "expected BCR of 1.05"),
   ],
   checks: [],
-  // Five, so they fit the card. The deliverability summary in the chat also gives
-  // the Relief Line's northward planning (IBC p. 14) and deep stations' cost in
-  // riders (IBC p. 54).
+  // What a first pass can't know. Each gap says what's missing, then the next step,
+  // then who to contact, an organisation or team, and cites the page that shows it.
+  // The last two are for a planner to confirm. The deliverability summary in the
+  // chat also gives the Relief Line's northward planning (IBC p. 14) and deep
+  // stations' cost in riders (IBC p. 54).
   findings: [
-    {
-      id: "tail-track",
-      label: "Future extension",
-      text: "Tail track north of Science Centre may protect for a northward extension.",
-      tone: "positive",
-      citation: cite(PDBC, 60, "Tail track may be provided for reversing and storing trains north of Science Centre station, aligned to protect for a possible northward future extension"),
-    },
     {
       id: "cost-precedent",
       label: "Cost",
-      text: "Cost is a precedent: the Ontario Line's 2019 cost per km, a Class 5 estimate.",
+      text: "Cost is a precedent, not an estimate. Next: a survey and an engineering estimate. Contact: Metrolinx engineering.",
       tone: "neutral",
       citation: cite(IBC, 76, "Cost estimates were prepared on a top-down, factor-based parametric approach and should be considered Class 5 estimates"),
+    },
+    {
+      id: "riders-model",
+      label: "Riders",
+      text: "Riders are a precedent, not a forecast. Next: a regional model run. Contact: Metrolinx planning.",
+      tone: "neutral",
+      citation: cite(PDBC, 107, "The GGHMv4 considers changes in land use patterns and the transportation network to estimate peak ridership with a forecast horizon of 2041"),
+    },
+    // On OpenStreetMap, the route crosses the East Don north of York Mills Road. No
+    // source covers the extension, so the page is the Ontario Line's own crossing.
+    {
+      id: "east-don-crossing",
+      label: "East Don crossing",
+      text: "Crossing the East Don is unstudied. Next: a geotechnical investigation and a valley works permit. Contact: Toronto and Region Conservation Authority.",
+      tone: "neutral",
+      citation: cite(
+        IBC,
+        83,
+        "The northern crossing of the Don River at Overlea Boulevard requires substantial further work in order to ensure that a new structure minimizes impacts on the natural environment and fits into the neighbourhood character",
+      ),
+    },
+    {
+      id: "don-mills-road",
+      label: "Don Mills Road",
+      text: "What's under Don Mills Road is unsurveyed. Next: utility and road surveys. Contact: City of Toronto Engineering & Construction Services.",
+      tone: "neutral",
+      citation: cite(
+        PDBC,
+        134,
+        "third party utilities (for example: gas, hydro and telecommunications) and city infrastructure (for example: water, sanitary sewer and stormwater) may need to be relocated",
+      ),
+    },
+    {
+      id: "tail-track",
+      label: "Future extension",
+      text: "Tail track may protect for going north. Next: request its current design. Contact: Metrolinx engineering.",
+      tone: "positive",
+      citation: cite(PDBC, 60, "Tail track may be provided for reversing and storing trains north of Science Centre station, aligned to protect for a possible northward future extension"),
     },
     {
       id: "optimism-bias",
@@ -239,41 +276,8 @@ export const ONTARIO: StudySeed = {
       tone: "neutral",
       citation: cite(MANUAL, 179, "Dollar Value Real, year of evaluation"),
     },
-    {
-      id: "riders-model",
-      label: "Riders",
-      text: "Riders are a precedent, not a forecast, until a regional model run.",
-      tone: "neutral",
-      citation: cite(PDBC, 107, "The GGHMv4 considers changes in land use patterns and the transportation network to estimate peak ridership with a forecast horizon of 2041"),
-    },
   ],
-  // Riders the line is being built for, and where the extension would end. Each is
-  // pinned to a point on the line or the extension, as studies.json draws them.
-  needs: [
-    {
-      id: "thorncliffe-poster",
-      title: "Engagement poster",
-      place: "Thorncliffe Park",
-      // Where the line swings north, just east of Thorncliffe Park station.
-      lon: -79.349138,
-      lat: 43.706122,
-      kinds: ["image"],
-      reason: "The Ontario Line will give Thorncliffe Park new connections, and operators say the Flemingdon Park bus is still crowded here. Riders need to hear what going north would add.",
-      citations: [
-        cite(PDBC, 64, "the Ontario Line will provide new connections for communities within Thorncliffe Park and Flemingdon Park"),
-        cite(PLAN, 108, "Operators noted that overcrowding continues to be an around the Thorncliffe Park area"),
-      ],
-    },
-    {
-      id: "fairview-video",
-      title: "Explainer video",
-      place: "Fairview Mall",
-      // The end of the extension, at Line 4's Don Mills station.
-      lon: -79.347039,
-      lat: 43.775094,
-      kinds: ["video"],
-      reason: "The extension would end here, at Line 4's Don Mills station, where the TTC held a pop-up for its 2026 network plan. Riders need to see what a line down Don Mills Road would change.",
-      citations: [cite(PLAN, 96, "Five in-person pop-ups and bus ride-alongs"), cite(PLAN, 96, "Don Mills Station (August 19)")],
-    },
-  ],
+  // Renders of the line's viaduct over the Don Valley Parkway, and of a station
+  // entrance on the extension, each pinned to a point on the line.
+  needs: ONTARIO_NEEDS,
 };

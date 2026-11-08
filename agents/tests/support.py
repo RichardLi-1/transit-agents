@@ -1,4 +1,5 @@
-"""Test helpers: a throwaway service on port 4171 (or AGENT_TEST_PORT), its API, and a scripted fake Gemini."""
+"""Test helpers: a throwaway service on port 4171 (AGENT_TEST_PORT sets it), its API,
+guest passes, and a scripted fake Gemini."""
 
 import atexit
 import inspect
@@ -31,6 +32,12 @@ URL = f"http://127.0.0.1:{PORT}"
 INTEGRATION, AGENT, PLANNER = "S", "A", "P"
 TOKENS = f"integration:seed:{INTEGRATION},agent:lead:{AGENT},planner:demo:{PLANNER}"
 
+# For a service with guests on: demo mode and a secret long enough to sign passes.
+GUEST_SECRET = "a-test-secret-that-signs-guest-passes"
+# Each visitor may spend $1 a day, from $1,000 for all of them: one visitor's
+# spend never stops another's tests.
+GUESTS = {"AUTH": "demo", "GUEST_SECRET": GUEST_SECRET, "GUEST_DAILY_USD": "1000", "GUEST_MARGIN_USD": "0", "GUEST_SHARE_USD": "1"}
+
 # A small source, added as an agency system would, so its pages can be cited.
 SOURCE = "test-plan"
 PAGES = [
@@ -43,8 +50,10 @@ class Service:
     """A throwaway service on its own data, in a temporary folder. The one on PORT is
     started once for all the tests."""
 
-    def __init__(self, port: int | None = None):
+    def __init__(self, port: int | None = None, *, guests: bool = False, env: dict[str, str] | None = None):
         self.port = port  # PORT, if not given
+        # With guests, it runs in demo mode with a guest secret, so visitors get passes.
+        self.env = {**(GUESTS if guests else {}), **(env or {})}
         self.process: subprocess.Popen | None = None
         self.data: str | None = None
         self.registered = False
@@ -65,8 +74,9 @@ class Service:
         if fresh:
             self.data = tempfile.mkdtemp(prefix="agent-tests-")
         env = {**os.environ, "PORT": str(port), "HOST": "127.0.0.1", "DATA_DIR": self.data, "TRANSIT_TOKENS": TOKENS}
-        for name in ("AUTH", "PUBLIC_URL", "WEBHOOK_HOSTS"):
+        for name in ("AUTH", "PUBLIC_URL", "WEBHOOK_HOSTS", "VISITOR_AGENTS", *GUESTS):
             env.pop(name, None)
+        env.update(self.env)
         with open(Path(self.data, "service.log"), "a") as output:
             self.process = subprocess.Popen(
                 ["node", "--disable-warning=ExperimentalWarning", "services/api/src/main.ts"],
@@ -111,20 +121,40 @@ class Service:
 service = Service()
 
 
-def api(method: str, path: str, body: Any = None, *, token: str = PLANNER, url: str | None = None) -> Any:
-    """Call the service's HTTP API, as a planner unless another token is given, on the
-    shared test service unless another url is given."""
+def api(
+    method: str,
+    path: str,
+    body: Any = None,
+    *,
+    token: str | None = PLANNER,
+    url: str | None = None,
+    on_behalf_of: str | None = None,
+) -> Any:
+    """Call the service's HTTP API, as a planner unless another token is given (None for
+    no token), on the shared test service unless another url is given."""
+    headers = {"content-type": "application/json"}
+    if token is not None:
+        headers["authorization"] = f"Bearer {token}"
+    if on_behalf_of is not None:
+        headers[core.ON_BEHALF_OF] = on_behalf_of
     request = urllib.request.Request(
         f"{url or URL}{path}",
         method=method,
         data=None if body is None else json.dumps(body).encode(),
-        headers={"authorization": f"Bearer {token}", "content-type": "application/json"},
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             return json.loads(response.read() or b"null")
     except urllib.error.HTTPError as error:
         raise AssertionError(f"{method} {path}: {error.code} {error.read().decode()}") from None
+
+
+def guest(url: str | None = None) -> tuple[str, str]:
+    """A new guest pass from a service with guests on, and the audience it writes in."""
+    issued = api("POST", "/v1/guests", token=None, url=url)
+    token = issued["token"]  # g1.<id>.<exp>.<sig>
+    return token, f"guest:{token.split('.')[1]}"
 
 
 def open_study(prefix: str) -> str:
@@ -134,20 +164,21 @@ def open_study(prefix: str) -> str:
     return study
 
 
-def entries(study: str, url: str | None = None) -> list[dict[str, Any]]:
-    """The study's log entries, oldest first."""
+def entries(study: str, url: str | None = None, *, token: str | None = PLANNER, on_behalf_of: str | None = None) -> list[dict[str, Any]]:
+    """The study's log entries, oldest first, as the token sees them: a planner sees
+    the shared record."""
     found, after = [], 0
-    while page := api("GET", f"/v1/log?after={after}&limit=1000", url=url):
+    while page := api("GET", f"/v1/log?after={after}&limit=1000", url=url, token=token, on_behalf_of=on_behalf_of):
         found += [entry for entry in page if entry["studyId"] == study]
         after = page[-1]["seq"]
     return found
 
 
-def activities(study: str, kind: str | None = None, url: str | None = None) -> list[dict[str, Any]]:
-    """The study's activities, each with its actor, oldest first."""
+def activities(study: str, kind: str | None = None, url: str | None = None, **seen_by: Any) -> list[dict[str, Any]]:
+    """The study's activities, each with its actor, oldest first, as entries() sees them."""
     return [
         {**entry["data"], "actor": entry["actor"]}
-        for entry in entries(study, url)
+        for entry in entries(study, url, **seen_by)
         if entry["type"] == "activity" and (kind is None or entry["data"]["kind"] == kind)
     ]
 

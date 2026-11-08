@@ -12,19 +12,20 @@ flowchart LR
         models["Models and digital twins"]
     end
 
-    subgraph agents["Agents and skills"]
+    subgraph agents["Agents and skills, beside the service"]
         direction TB
         lead["Lead agent"]
         subs["Sub-agents, one per question"]
         skills["Skills"]
+        media["Media agent"]
         lead --> subs --> skills
     end
 
     subgraph service["Transit Agents service"]
         direction TB
         api["API<br/>context · studies · figures · assumptions · decisions"]
-        gate{{"Enforced at the door<br/>no source, no figure<br/>quote must be on the cited page<br/>planners set rules, rate consultation, decide"}}
-        log[("Append-only log<br/>hash-chained")]
+        gate{{"Enforced at the door<br/>no source, no figure<br/>quote must be on the cited page<br/>only planners decide<br/>visitors' daily budget"}}
+        log[("Append-only log<br/>hash-chained<br/>shared record · visitors' sandboxes")]
         views["Views<br/>draft · trace · compare · timeline · usage"]
         out["Event stream<br/>SSE · signed webhooks"]
         api --> gate --> log
@@ -41,6 +42,7 @@ flowchart LR
         chat["Teams or Slack<br/>notify"]
         display["Display"]
         planner["Named planner<br/>signs every decision"]
+        visitor["Visitor<br/>guest pass · own sandbox"]
         external["Board · Auditor · public"]
     end
 
@@ -53,7 +55,9 @@ flowchart LR
     out --> external
     chat --> planner
     display --> planner
+    display --> visitor
     planner -- "decision and reason" --> api
+    visitor -- "chat · changes · Create" --> api
 ```
 
 ## Rules
@@ -77,11 +81,12 @@ flowchart LR
 7. **Content can be removed; history can't.** Entry content sits outside the
    hash chain, so it can be removed for retention or privacy while the chain
    still verifies and shows that something was there.
-8. **Generated media is illustrative, and made only when a planner asks.**
-   Agents propose what a neighbourhood needs to hear about a change. Images and
-   videos are kept by their hash outside the log, which records the hash, the
-   model, the prompt and what it drew on, and they are always labelled
-   Illustrative.
+8. **Generated media is illustrative, and made only when a person asks.**
+   Agents propose what a neighbourhood needs to hear about a change, and what
+   its render shows: a station entrance, the guideway, a platform, the line on
+   its street, or a bus stop with its bus. Images and videos are kept by their
+   hash outside the log, which records the hash, the model, the prompt and what
+   it drew on, and they are always labelled Illustrative.
 
 ## API
 
@@ -115,29 +120,41 @@ Full schema at `GET /openapi.json`.
 - What changed between versions: `GET /v1/studies/{id}/compare`
 - Results over time: `GET /v1/studies/{id}/timeline`
 - Read or verify the log: `GET /v1/log`, `GET /v1/log/verify`, `GET /v1/log/head`
-- Remove an entry's content: `POST /v1/log/{seq}/remove-content`
+- Remove an entry's content: `POST /v1/log/{seq}/remove-content`, with the
+  visitor's `audience` for an entry in their sandbox
 - Live vehicles: `GET /v1/live/vehicles`
-- Tokens and cost: `GET /v1/usage`
-- Stream everything live: `GET /v1/events`
+- Tokens and cost: `GET /v1/usage`. Everything agents have spent, visitors'
+  sandboxes included in the total, so the spend screen shows it all; the same
+  for everyone. By study, it counts the shared record only.
+  Each total also has at least the energy, CO2e and water its model calls used,
+  each call counted as Google's median Gemini prompt
+  ([paper](https://arxiv.org/abs/2508.15734)).
+- Stream everything live: `GET /v1/events`. A model call made in a sandbox you
+  can't read comes as an empty `usage` event, so the spend screen updates at once
 - Be told about decisions: `POST /v1/subscriptions`
 - Connect an agent over MCP: `/v1/mcp`
+- Get a guest pass: `POST /v1/guests`
+- What is left of visitors' budget today: `GET /v1/budget`
 
 ## Who may do what
 
-Every request needs a token, unless open access is switched on for a local demo.
-Then a request without a token acts as a planner, but is answered only at an IP
-address, localhost or `PUBLIC_URL`'s name: a page that reaches the service under
-another name, after DNS rebinding, gets nothing. Writes come only from the
-service's own pages (see below). Bodies are JSON, sent as JSON.
+Every request needs a token, unless demo mode (anyone reads) or open access (a
+local demo) is switched on. Under open access a request without a token acts as
+a planner, but is answered only at an IP address, localhost or `PUBLIC_URL`'s
+name: a page that reaches the service under another name, after DNS rebinding,
+gets nothing. Writes come only from the service's own pages (see below). Bodies
+are JSON, sent as JSON.
 
 - **Viewer:** reads.
 - **Integration:** reads, adds citable context, subscribes webhooks.
 - **Agent:** reads, adds context that can't be cited, adds figures and findings,
-  and proposes engagement needs. An agent that claims a planner's request
+  and proposes engagement needs. An agent that claims a request to make a need
   attaches the media made for it, or says why it couldn't.
-- **Planner:** everything else, with citable context. Only planners set rules,
-  rate, accept, decide, ask for engagement media to be made, take a file down
-  and drop a need.
+- **Guest:** a visitor, or someone signed in who isn't a planner. Chats, rates,
+  accepts, sets assumptions and asks for engagement media, in their own sandbox.
+- **Planner:** everything else, with citable context. Only planners decide, take
+  a file down and drop a need, and only their rules, ratings, acceptances and
+  requests for media reach the shared record.
 
 Webhooks can only go to hosts listed in `WEBHOOK_HOSTS`.
 
@@ -147,3 +164,53 @@ own address at an IP or localhost, or `PUBLIC_URL`, and a browser that says the
 request is cross-site is refused. JSON bodies need `content-type:
 application/json` (415 otherwise). Without these, under open access any page could
 act as the local planner.
+
+## Visitors
+
+In demo mode with `GUEST_SECRET` set, as on the public site, visitors can do
+everything but decide.
+
+- **Guest pass.** The display gets one from `POST /v1/guests` and keeps it. The
+  service signs it, and keeps no record of it.
+- **Sandbox.** What a visitor does, and what agents do for them, goes into the
+  same log, tagged `guest:<id>` (`user:<id>` for someone signed in). Each
+  visitor sees the shared record plus their own entries. Everyone else, webhooks included, sees only the shared record. A
+  visitor can't open a study, add context, approve a skill, remove content,
+  take a file down or drop a need. What agents spend for visitors counts in
+  everyone's `GET /v1/usage` total, added up: numbers only, never one
+  visitor's apart, nor by study, nor any entry.
+- **Log positions.** Entries are numbered across every sandbox, so the numbers
+  anyone else sees have gaps where visitors wrote. The head `GET /v1/log/head`,
+  `GET /v1/log/verify`, `/health` and webhooks give is the latest entry the
+  reader can read, so it doesn't move while visitors work. Only an agent acting
+  for everyone gets the head of the whole log, and the number of its entries.
+- **Only planners decide.** A visitor's decision gets `403 sign_in_required`, and
+  the display offers Sign in to decide.
+- **Budget.** Visitors share $10 of Gemini a day (`GUEST_DAILY_USD`), counted
+  from the agents' usage reports by the Toronto day. A model call that timed out
+  or was stopped is reported from an estimate, since Gemini may have billed it.
+  New visitor work stops $2 short (`GUEST_MARGIN_USD`), and each guest pass gets
+  at most $1 (`GUEST_SHARE_USD`): passes are free, so the share holds a pass, not
+  a person.
+  Then the service answers `429 budget_spent`, and a running
+  agent stops once less is left than its last call cost. Planners aren't capped.
+  The agents' own daily limits, `MAX_DAILY_USD` and `MEDIA_DAILY_LIMIT_USD`,
+  count visitors' work too. A visitor may also make 10 changes a minute and 200
+  a day.
+- **Agents act for a visitor** with `X-On-Behalf-Of: guest:<id>`. Only static
+  agent tokens named in `VISITOR_AGENTS` (default `lead,media`) may send it. The
+  media agent claims a visitor's request, attaches its files and says why it
+  failed in their sandbox, so nobody else sees that it was asked for. A file made
+  there is served to whoever has its address, marked private.
+  `X-On-Behalf-Of: *` reads every sandbox through `GET /v1/log`, only to poll;
+  any write with it is refused. `get_budget` says what is left for the visitor.
+- **Agents on Fly.** `services/api/start.sh` runs the chat agent and the media
+  agent beside the service when `GEMINI_API_KEY` and `TRANSIT_TOKEN_AGENT` (the
+  lead's token) are set. Only they get the key. The media agent uses
+  `TRANSIT_TOKEN_MEDIA` if set, which must then be an `agent:media` token; set
+  it, so `MEDIA_DAILY_LIMIT_USD` counts the media agent's calls apart from the
+  chat's. `RUNS_AT_ONCE` (2) visitors' runs go at once, a planner's never waits
+  for them, and a visitor's run makes at most `GUEST_RUN_CALLS` (20) model calls.
+  Each person's messages are answered in order, planners' as one person's, and
+  those a person sends while waiting get one answer, to the last of them. Each
+  run is given the study's chat as the person asking sees it.

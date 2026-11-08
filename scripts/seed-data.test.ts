@@ -7,8 +7,9 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { type Citation, NewAssumption, NewCheck, NewContext, NewDecision, NewFigure, NewFinding, NewStudy } from "@transit-agents/contracts";
 import { RULES, SOURCES, STUDIES } from "../clients/seed-data.ts";
-import { METROLINX_RULES, ONTARIO } from "../clients/seed-ontario.ts";
+import { GAP, METROLINX_RULES, ONTARIO } from "../clients/seed-ontario.ts";
 import { Service } from "../services/api/src/service.ts";
+import { citedQuotes } from "./cited-pages.ts";
 
 const root = join(import.meta.dirname, "..");
 const read = (path: string) => JSON.parse(readFileSync(join(root, path), "utf8"));
@@ -46,6 +47,11 @@ describe("seed data", () => {
     assert.ok(view.findings.every((f) => f.tone === "unrated"));
   });
 
+  it("flags the Ontario Line's gaps as what's missing, then the next step, then who to contact", () => {
+    const gaps = ONTARIO.findings.filter((finding) => GAP.test(finding.text)).map((finding) => finding.id);
+    for (const gap of ["cost-precedent", "riders-model", "east-don-crossing", "don-mills-road"]) assert.ok(gaps.includes(gap), gap);
+  });
+
   it("puts optimism bias in place of the contingency, as Table 5.6 does without a cost-risk analysis", () => {
     const view = service.viewStudy(ONTARIO.study.id);
     const value = (id: string) => view.figures.find((f) => f.id === id)?.value ?? NaN;
@@ -62,15 +68,17 @@ describe("seed data", () => {
     for (const { contextId, page, quote } of valued) assert.ok(highlights[`${contextId}|${page}|${quote}`]?.cell, `${contextId} p. ${page}: ${quote}`);
   });
 
-  it("has a page image and highlight for every Ontario Line citation", () => {
+  // So a cited page opens as the page itself, never as its text.
+  it("has a page image and highlight for every quote a rule, figure, check, finding, decision, need or hand-over cites", () => {
     const highlights = read("apps/display/public/sources/highlights.json") as Record<string, { boxes: unknown[] }>;
-    const citations: Citation[] = [
-      ...METROLINX_RULES.flatMap((rule) => (rule.citation ? [rule.citation] : [])),
-      ...ONTARIO.figures.flatMap((figure) => (figure.basis.kind === "cited" ? [figure.basis.citation] : [])),
-      ...ONTARIO.findings.map((finding) => finding.citation),
-    ];
-    for (const { contextId, page, quote } of citations) {
-      assert.ok(existsSync(join(root, `apps/display/public/sources/${contextId}/p${page}.png`)), `${contextId} p. ${page}`);
+    const cited = citedQuotes();
+    const needs = STUDIES.flatMap((seed) => [...seed.needs, ...(seed.outcome?.needs ?? [])]);
+    for (const { contextId, page, quote } of needs.flatMap((need) => need.citations ?? [])) {
+      assert.ok(cited.some((c) => c.contextId === contextId && c.page === page && c.quote === quote), `${contextId} p. ${page}: ${quote}`);
+    }
+    assert.ok(cited.some((c) => c.contextId === "ttc-anp-2026" && c.page === 115 && c.quote.includes("discretionary recommendations")));
+    for (const { contextId, page, quote } of cited) {
+      assert.ok(existsSync(join(root, `apps/display/public/sources/${contextId}/p${page}.webp`)), `${contextId} p. ${page}`);
       assert.ok(highlights[`${contextId}|${page}|${quote}`]?.boxes.length, `${contextId} p. ${page}: ${quote}`);
     }
   });

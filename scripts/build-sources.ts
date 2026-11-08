@@ -4,10 +4,13 @@
 // Usage: node scripts/build-sources.ts <source-id>=<pdf> ...
 //   e.g. ttc-anp-2026=anp-2026.pdf ttc-standards-2024=service-standards-2024.pdf
 // Only the sources named are rebuilt. The others keep their pages and highlights.
+// Needs Poppler (pdftotext, pdftoppm) and cwebp.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RULES, SOURCES, STUDIES } from "../clients/seed-data.ts";
+import { SOURCES } from "../clients/seed-data.ts";
+import { citedQuotes } from "./cited-pages.ts";
 
 const USAGE = "Usage: build-sources.ts <source-id>=<pdf> ...";
 const PDFS: Record<string, string> = Object.fromEntries(
@@ -24,6 +27,8 @@ const root = join(import.meta.dirname, "..");
 const FIXTURES = join(root, "clients/fixtures");
 const PUBLIC = join(root, "apps/display/public/sources");
 const DPI = 120;
+// A page of text is smallest kept whole; a page with a photo or a map, at this quality.
+const QUALITY = 75;
 
 const text = (args: string[]) => execFileSync("pdftotext", args, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
 
@@ -36,27 +41,6 @@ for (const source of SOURCES) {
     .filter((p) => p.text);
   writeFileSync(join(FIXTURES, `${source.id}.pages.json`), JSON.stringify(pages));
   console.log(source.id, pages.length, "pages");
-}
-
-// A figure's or rule's citation carries its value, so the number can be found too.
-type Citation = { contextId: string; page: number; quote: string; value?: number };
-const citations: Citation[] = [];
-const collect = (value: unknown, figure?: number) => {
-  if (Array.isArray(value)) value.forEach((item) => collect(item, figure));
-  else if (value && typeof value === "object") {
-    const o = value as Record<string, unknown>;
-    if (typeof o.contextId === "string" && typeof o.page === "number" && typeof o.quote === "string") {
-      citations.push({ ...(o as unknown as Citation), ...(figure === undefined ? {} : { value: figure }) });
-    } else Object.values(o).forEach((item) => collect(item, typeof o.value === "number" ? o.value : figure));
-  }
-};
-collect(RULES);
-collect(STUDIES);
-// One per quote. A check cites its rule's page too, but without the rule's value.
-const quotes = new Map<string, Citation>();
-for (const citation of citations) {
-  const key = `${citation.contextId}|${citation.page}|${citation.quote}`;
-  if (quotes.get(key)?.value === undefined) quotes.set(key, citation);
 }
 
 type Word = { x0: number; y0: number; x1: number; y1: number; word: string };
@@ -99,6 +83,22 @@ const numberIn = (word: string) => (WORDS.includes(word) ? WORDS.indexOf(word) :
 // figure is its last cell, so a row's other columns aren't taken for it.
 const figureWord = (words: Word[], value: number) => words.findLast((w) => Math.abs(numberIn(w.word) - Math.abs(value)) < 1e-9);
 
+// The page in grey, as WebP: lossless or at QUALITY, whichever is smaller.
+function renderPage(pdf: string, page: number, out: string) {
+  const work = mkdtempSync(join(tmpdir(), "transit-page-"));
+  try {
+    const png = join(work, "page");
+    execFileSync("pdftoppm", ["-r", String(DPI), "-f", String(page), "-l", String(page), "-singlefile", "-gray", "-png", pdf, png]);
+    const whole = join(work, "whole.webp");
+    const lossy = join(work, "lossy.webp");
+    execFileSync("cwebp", ["-quiet", "-lossless", "-m", "6", `${png}.png`, "-o", whole]);
+    execFileSync("cwebp", ["-quiet", "-q", String(QUALITY), "-m", "6", "-sharp_yuv", `${png}.png`, "-o", lossy]);
+    renameSync(statSync(whole).size <= statSync(lossy).size ? whole : lossy, out);
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
+
 type Box = [number, number, number, number];
 
 // Highlights are keyed by source, page and quote. Those of the sources being
@@ -112,7 +112,8 @@ for (const id of Object.keys(PDFS)) rmSync(join(PUBLIC, id), { recursive: true, 
 
 const rendered = new Set<string>();
 let located = 0;
-for (const citation of quotes.values()) {
+let missed = 0;
+for (const citation of citedQuotes()) {
   const pdf = PDFS[citation.contextId];
   if (!pdf) continue;
   const directory = join(PUBLIC, citation.contextId);
@@ -120,12 +121,13 @@ for (const citation of quotes.values()) {
   const key = `${citation.contextId}/${citation.page}`;
   if (!rendered.has(key)) {
     rendered.add(key);
-    execFileSync("pdftoppm", ["-r", String(DPI), "-f", String(citation.page), "-l", String(citation.page), "-singlefile", "-gray", "-png", pdf, join(directory, `p${citation.page}`)]);
+    renderPage(pdf, citation.page, join(directory, `p${citation.page}.webp`));
   }
   const { width, height, words } = wordsOn(pdf, citation.page);
   const found = locate(words, citation.quote);
   if (!found) {
-    console.warn("No position for quote:", citation.page, citation.quote);
+    console.warn("No position for quote:", citation.contextId, citation.page, citation.quote);
+    missed++;
     continue;
   }
   // One box per line of text.
@@ -134,7 +136,7 @@ for (const citation of quotes.values()) {
     const line = Math.round(w.y0);
     lines.set(line, [...(lines.get(line) ?? []), w]);
   }
-  const boxes = [...lines.values()].map((line): [number, number, number, number] => {
+  const boxes = [...lines.values()].map((line): Box => {
     const x0 = Math.min(...line.map((w) => w.x0));
     const x1 = Math.max(...line.map((w) => w.x1));
     const y0 = Math.min(...line.map((w) => w.y0));
@@ -150,4 +152,5 @@ for (const citation of quotes.values()) {
   located++;
 }
 writeFileSync(highlightsFile, JSON.stringify(highlights));
-console.log("pages rendered", rendered.size, "quotes located", located);
+console.log("pages rendered", rendered.size, "quotes located", located, "not located", missed);
+if (missed) process.exitCode = 1;

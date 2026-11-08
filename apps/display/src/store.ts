@@ -3,6 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Activity, Assumption, Context, LogEntry, StudyView, Usage } from "@transit-agents/contracts";
 import { api, bearer, eventsUrl } from "./api.ts";
+import { hear, NOTHING_HEARD, type Heard } from "./notify.ts";
 
 // replay is true for the scripted replay's work, which no model did. It's kept for
 // each message and sub-agent, so a study's chat says so whatever comes after.
@@ -29,6 +30,8 @@ export type Store = {
   // without a cost are counted, so no dollar sum shows while one is missing.
   usage: Record<string, Usage>;
   focus: string | null;
+  // The notices new entries raise, and what they need from earlier ones.
+  heard: Heard;
 };
 
 export const EMPTY_USAGE: Usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, computeSeconds: 0, calls: 0 };
@@ -44,10 +47,14 @@ export const initial: Store = {
   reading: null,
   usage: {},
   focus: null,
+  heard: NOTHING_HEARD,
 };
 
 // How long a folder stays lit after the agent reads from it.
 const READING_MS = 1600;
+
+// The person's own side of the chat: a planner's words, or a visitor's.
+const PERSON = /^(planner|guest):/;
 
 // Only new work moves the focus: a study opening, or activity on one. What the log
 // already held when the display opened fills the view, but leaves the camera where
@@ -70,7 +77,7 @@ export function reduce(store: Store, entry: LogEntry, live = true): Store {
         ...next,
         messages: [
           ...store.messages,
-          { seq: entry.seq, studyId: entry.studyId, from: entry.actor.startsWith("planner") ? "planner" : "agent", text: activity.text, replay },
+          { seq: entry.seq, studyId: entry.studyId, from: PERSON.test(entry.actor) ? "planner" : "agent", text: activity.text, replay },
         ],
       };
     case "reading":
@@ -115,6 +122,34 @@ export function reduce(store: Store, entry: LogEntry, live = true): Store {
   }
 }
 
+// How long to wait before asking the log's head again, doubling each time.
+const HEAD_RETRY_MS = 500;
+const HEAD_RETRY_MAX_MS = 10_000;
+
+// Asks for the log's last entry until the service answers, a little later each
+// time, and passes it on. A failed read is never taken for an empty log, which
+// would make all of it new. `first` settles after the first try, whatever its
+// answer. Returns a way to stop asking.
+export function readHead(found: (seq: number) => void): { first: Promise<void>; stop: () => void } {
+  let stopped = false;
+  let timer = 0;
+  const ask = async (wait: number): Promise<void> => {
+    const seq = await api("/v1/log/head")
+      .then(async (r) => (r.ok ? ((await r.json()) as { seq: number }).seq : undefined))
+      .catch(() => undefined);
+    if (stopped) return;
+    if (typeof seq === "number") return found(seq);
+    timer = window.setTimeout(() => void ask(Math.min(wait * 2, HEAD_RETRY_MAX_MS)), wait);
+  };
+  return {
+    first: ask(HEAD_RETRY_MS),
+    stop: () => {
+      stopped = true;
+      clearTimeout(timer);
+    },
+  };
+}
+
 const REFRESHES = /^(study|figure|check|finding|assumption|decision|need|media)\./;
 
 const EVENT_TYPES = [
@@ -143,9 +178,15 @@ export function useStore(ready: boolean): Store {
     let idle = 0;
     let last = 0;
     // The log's last entry when the display connected. Anything after it is new.
+    // Until a read of it works, nothing is: the stream still opens after the
+    // first try, so the display fills in either way.
     let opened: number | undefined;
     let stopped = false;
     let source: EventSource | undefined;
+    const head = readHead((seq) => {
+      opened = seq;
+      setStore((s) => (s.since === seq ? s : { ...s, since: seq }));
+    });
     const loadStudies = () => {
       clearTimeout(refresh);
       refresh = window.setTimeout(async () => {
@@ -160,7 +201,12 @@ export function useStore(ready: boolean): Store {
     const onEntry = (event: MessageEvent<string>) => {
       const entry = JSON.parse(event.data) as LogEntry;
       last = entry.seq;
-      setStore((s) => reduce(s, entry, entry.seq > (opened ?? Infinity)));
+      const live = entry.seq > (opened ?? Infinity);
+      setStore((s) => {
+        const next = reduce(s, entry, live);
+        const heard = hear(next.heard, entry, live);
+        return heard === next.heard ? next : { ...next, heard };
+      });
       if (REFRESHES.test(entry.type)) loadStudies();
       if (entry.type === "activity" && (entry.data as Activity).kind === "reading") {
         clearTimeout(idle);
@@ -170,12 +216,8 @@ export function useStore(ready: boolean): Store {
 
     const connect = async () => {
       const token = await bearer();
-      opened ??= await api("/v1/log/head")
-        .then(async (r) => (r.ok ? ((await r.json()) as { seq: number }).seq : 0))
-        .catch(() => 0);
+      await head.first;
       if (stopped) return;
-      const since = opened;
-      setStore((s) => (s.since === since ? s : { ...s, since }));
       const stream = new EventSource(eventsUrl(token, last));
       source = stream;
       stream.onopen = () => setStore((s) => ({ ...s, connected: true }));
@@ -194,6 +236,7 @@ export function useStore(ready: boolean): Store {
 
     return () => {
       stopped = true;
+      head.stop();
       source?.close();
       clearTimeout(refresh);
       clearTimeout(idle);

@@ -25,6 +25,10 @@ class FakeEventSource {
   send(kind: string) {
     this.listeners.get("activity")?.({ data: JSON.stringify({ type: "activity", data: { kind } }) });
   }
+  // A model call made in a sandbox the screen can't read.
+  sendUnseen() {
+    this.listeners.get("usage")?.({ data: "{}" });
+  }
 }
 
 const total = (calls: number): Usage => ({ inputTokens: 100 * calls, outputTokens: 0, costUsd: calls / 1000, computeSeconds: 0, calls });
@@ -178,6 +182,18 @@ describe("spend screen's requests", () => {
     await settle();
     assert.deepEqual(requested, ["/v1/config", "/v1/log/head", "/v1/usage", "/v1/usage"]);
     assert.deepEqual(shown, [3, 5]);
+  });
+
+  it("loads the totals soon after a model call made for a visitor, which the stream only counts", async () => {
+    await start();
+    const [source] = FakeEventSource.opened;
+    calls = 4;
+    source?.sendUnseen();
+    source?.sendUnseen();
+    mock.timers.tick(500);
+    await settle();
+    assert.deepEqual(requested, ["/v1/config", "/v1/log/head", "/v1/usage", "/v1/usage"]);
+    assert.deepEqual(shown, [3, 4]);
   });
 
   it("reopens a refused stream at the new head on the next poll", async () => {

@@ -1,5 +1,8 @@
 // The service core. Every method validates against current state, appends one
 // entry, and applies it. HTTP lives in app.ts; this file knows nothing about it.
+//
+// The root service holds the shared record. A visitor works in a view of it: the
+// shared record plus that visitor's own entries, which only that view applies.
 import { createHash } from "node:crypto";
 import {
   evaluate,
@@ -41,22 +44,28 @@ import type {
 } from "@transit-agents/contracts";
 import { checkValue, findQuote } from "./citations.ts";
 import type { Page } from "./extract.ts";
-import { Log, REDACTED, type Entry, type NewEntry } from "./log.ts";
+import type { VisitorBudget } from "./budget.ts";
+import { estimate } from "./footprint.ts";
+import { EVERYONE, Log, REDACTED, type Entry, type NewEntry, type Scope } from "./log.ts";
 import { isSha256, isWhole, MediaStore, sniff } from "./media.ts";
 import { SearchIndex } from "./search.ts";
 import {
+  addSpend,
   analysisOf,
   apply,
   assumptionValues,
   checksFor,
+  countUsage,
   emptyState,
   isOpen,
   isOverride,
   missingKinds,
+  noSpend,
   resolveFigures,
   viewFigures,
   viewNeed,
   type Need,
+  type Spend,
   type State,
   type Study,
 } from "./state.ts";
@@ -82,6 +91,8 @@ export class ApiError extends Error {
 }
 
 const notFound = (what: string, id: string) => new ApiError(404, "not_found", `No ${what} "${id}"`);
+
+const sharedOnly = (what: string) => new ApiError(403, "shared_only", `${what} only in the shared record, not in a visitor's sandbox`);
 
 type Change = { id: string; from: number; to: number };
 type CheckChange = { id: string; from: string; to: string };
@@ -139,25 +150,38 @@ export type ServiceOptions = {
   clock?: () => Date;
   // Where generated media is kept. Without it, media can't be attached.
   mediaDir?: string;
+  // Counts what agents spend for visitors, from every entry, visitors' included.
+  budget?: VisitorBudget;
 };
 
-export type MediaFile = { id: string; path: string; type: MediaType; size: number };
+// private is true for a file made in a visitor's sandbox, and need names a need it's
+// for, which a saved file is named after.
+export type MediaFile = { id: string; path: string; type: MediaType; size: number; private: boolean; need: string };
 
 export class Service {
   readonly log: Log;
+  // The visitor this view acts for, or null for the shared record.
+  readonly audience: string | null = null;
   readonly state: State = emptyState();
   readonly media: MediaStore | undefined;
   // Derived from the contexts in state and their pages, like state is from the
   // log, and never written to the log.
   private readonly index = new SearchIndex();
+  private readonly budget: VisitorBudget | undefined;
+  // The files agents made in visitors' sandboxes, by sha256, with the need each is
+  // for. The shared state names the shared record's files.
+  private readonly visitorMedia = new Map<string, { type: MediaType; size: number; studyId: string | null; need: string }>();
+  // What agents spent for visitors, every sandbox's together: numbers only.
+  private readonly visitorSpend: Spend = noSpend();
   private closed = false;
 
   private readonly clock: () => Date;
 
-  constructor(database: string, { clock = () => new Date(), mediaDir }: ServiceOptions = {}) {
+  constructor(database: string, { clock = () => new Date(), mediaDir, budget }: ServiceOptions = {}) {
     this.clock = clock;
     this.log = new Log(database, clock);
     this.media = mediaDir ? new MediaStore(mediaDir) : undefined;
+    this.budget = budget;
     this.log.db.exec(`
       CREATE TABLE IF NOT EXISTS context_pages (
         context_id TEXT NOT NULL,
@@ -166,15 +190,19 @@ export class Service {
         PRIMARY KEY (context_id, page)
       );
     `);
-    for (const entry of this.allEntries()) apply(this.state, entry);
+    for (const entry of this.allEntries(EVERYONE)) {
+      this.observe(entry);
+      if (!entry.audience) apply(this.state, entry);
+    }
     const pages = this.log.db.prepare("SELECT page, text FROM context_pages WHERE context_id = ? ORDER BY page");
     for (const context of this.state.contexts.values()) this.index.add(context.id, pages.all(context.id) as Page[], citable(context));
   }
 
-  private *allEntries(): Generator<Entry> {
+  // The shared record, plus this view's visitor's own entries.
+  private *allEntries(scope: Scope = this.audience): Generator<Entry> {
     let seq = 0;
     for (;;) {
-      const batch = this.log.since(seq, 1000);
+      const batch = this.log.since(seq, 1000, scope);
       if (!batch.length) return;
       yield* batch;
       seq = (batch.at(-1) as Entry).seq;
@@ -182,9 +210,40 @@ export class Service {
   }
 
   private commit(entry: NewEntry): Entry {
-    const written = this.log.append(entry);
+    const written = this.log.append({ ...entry, audience: this.audience });
     apply(this.state, written);
+    this.observe(written);
     return written;
+  }
+
+  // What every entry adds beyond state: spend for visitors, and the files made in
+  // their sandboxes. A need the shared record drops takes visitors' files for it.
+  private observe(entry: Entry) {
+    this.budget?.observe(entry);
+    if (entry.audience) countUsage(this.visitorSpend, entry);
+    const data = entry.data as { need?: string; sha256?: string; type?: MediaType; size?: number };
+    if (entry.type === "media.added" && entry.audience && data.sha256 && data.need && data.type && data.size !== undefined) {
+      this.visitorMedia.set(data.sha256, { type: data.type, size: data.size, studyId: entry.studyId, need: data.need });
+    } else if (entry.type === "need.dismissed" && !entry.audience) {
+      for (const [id, file] of this.visitorMedia) if (file.studyId === entry.studyId && file.need === data.need) this.visitorMedia.delete(id);
+    }
+  }
+
+  // The shared record plus one visitor's own entries, built for each request from
+  // a copy of the shared state, so nothing done through it changes the shared
+  // record. An entry the shared record no longer allows is skipped.
+  viewFor(audience: string | null): Service {
+    const root = this.audience === null ? this : (Object.getPrototypeOf(this) as Service);
+    if (audience === null) return root;
+    const state = structuredClone(root.state);
+    for (const entry of this.log.own(audience)) {
+      try {
+        apply(state, entry);
+      } catch {
+        // Skipped, as above.
+      }
+    }
+    return Object.assign(Object.create(root) as Service, { audience, state });
   }
 
   private study(id: string): Study {
@@ -198,6 +257,7 @@ export class Service {
   // `fileHash` is the hash of an uploaded file's bytes, so a changed file with no
   // readable text still counts as new.
   addContext(actor: string, input: z.output<typeof NewContextSchema>, fileHash?: string): Context {
+    if (this.audience) throw sharedOnly("Sources are added");
     const pages = input.pages ?? (input.text !== undefined ? [{ page: 1, text: input.text }] : []);
     const sha256 =
       fileHash ??
@@ -289,6 +349,7 @@ export class Service {
   // --- Studies -------------------------------------------------------------
 
   openStudy(actor: string, input: z.output<typeof NewStudySchema>): StudyView {
+    if (this.audience) throw sharedOnly("Studies are opened");
     if (this.state.studies.has(input.id)) throw new ApiError(409, "study_exists", `Study "${input.id}" already exists`);
     this.commit({ actor, type: "study.opened", studyId: input.id, data: input });
     return this.viewStudy(input.id);
@@ -407,7 +468,8 @@ export class Service {
     return finding;
   }
 
-  // How consultation reads is a judgement, so only a planner sets it.
+  // How consultation reads is a judgement, so a planner sets it, or a visitor in
+  // their sandbox.
   rateFinding(actor: string, studyId: string, findingId: string, tone: Exclude<FindingView["tone"], "unrated">): FindingView {
     const study = this.study(studyId);
     if (!study.findings.has(findingId)) throw notFound("finding", findingId);
@@ -498,14 +560,20 @@ export class Service {
   // --- Skills and removal ---------------------------------------------------
 
   registerSkill(actor: string, name: string, input: { version: string; description: string }) {
+    if (this.audience) throw sharedOnly("Skills are approved");
     if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new ApiError(400, "invalid_name", "Use lowercase letters, numbers and dashes");
     this.commit({ actor, type: "skill.registered", data: { name, ...input } });
     return { name, versions: [...(this.state.skills.get(name) ?? [])] };
   }
 
-  removeContent(actor: string, seq: number, reason: string) {
-    const entry = this.log.get(seq);
-    if (!entry) throw notFound("log entry", String(seq));
+  // Content is removed from the shared record or, given their audience, from one
+  // visitor's sandbox, where only they see the removal. A visitor's entry named
+  // without its audience, or with another, is not found, as a position nobody has
+  // written isn't, so the answer shows nothing of anyone's sandbox.
+  removeContent(actor: string, seq: number, reason: string, audience: string | null = null) {
+    if (this.audience) throw sharedOnly("Content is removed");
+    const entry = this.log.get(seq, audience);
+    if (!entry || entry.audience !== audience) throw notFound("log entry", String(seq));
     if (!REMOVABLE.has(entry.type)) {
       throw new ApiError(422, "not_removable", `${entry.type} entries can't be removed, because results depend on them`);
     }
@@ -513,7 +581,7 @@ export class Service {
       throw new ApiError(409, "already_removed", `Entry ${seq} has no content`);
     }
     this.log.removePayload(seq);
-    return this.commit({ actor, type: "content.removed", studyId: entry.studyId, data: { seq, reason } });
+    return this.viewFor(audience).commit({ actor, type: "content.removed", studyId: entry.studyId, data: { seq, reason } });
   }
 
   // --- Engagement ------------------------------------------------------------
@@ -534,9 +602,9 @@ export class Service {
     return viewNeed(this.need(study, input.id));
   }
 
-  // Only a planner asks for media to be made, and it is made once: asking again
-  // while a request is open changes nothing. After an agent fails, a planner can
-  // ask again.
+  // A planner asks for media to be made, or a visitor in their sandbox, and it is
+  // made once: asking again while a request is open changes nothing. After an
+  // agent fails, they can ask again.
   requestCreation(actor: string, studyId: string, needId: string): NeedView {
     const study = this.study(studyId);
     const need = this.need(study, needId);
@@ -567,8 +635,8 @@ export class Service {
     }
   }
 
-  // An agent couldn't make what a planner asked for, and says why. The request
-  // closes, so nothing more is made, or paid for, until a planner asks again.
+  // An agent couldn't make what was asked for, and says why. The request closes,
+  // so nothing more is made, or paid for, until someone asks again.
   failCreation(actor: string, studyId: string, needId: string, input: z.output<typeof NeedFailureSchema>): NeedView {
     const study = this.study(studyId);
     const need = this.need(study, needId);
@@ -596,7 +664,7 @@ export class Service {
     const study = this.study(studyId);
     const need = study.needs.get(input.needId);
     if (!need) throw new ApiError(422, "unknown_need", `No need "${input.needId}" in this study`);
-    // An agent makes media only while a planner's request is open.
+    // An agent makes media only while a request is open, and only the one holding its claim.
     if (!isOpen(need)) throw new ApiError(409, "not_requested", `No planner has asked for "${need.id}" to be created`);
     this.holds(need, actor, input.claim);
     if (!need.kinds.includes(input.kind)) {
@@ -614,8 +682,9 @@ export class Service {
     // Nothing may ride along after the file, to be served from this site.
     if (!isWhole(file.bytes, type)) throw new ApiError(422, "malformed_media", `The file isn't one whole ${type}`);
     for (const source of input.inputs) {
+      // A site photo is the agent's own, and is credited as it says.
       if ("citation" in source) this.verifyCitation(source.citation);
-      else if (!study.figures.has(source.figure)) throw new ApiError(422, "unknown_input", `No figure "${source.figure}" in this study`);
+      else if ("figure" in source && !study.figures.has(source.figure)) throw new ApiError(422, "unknown_input", `No figure "${source.figure}" in this study`);
     }
     if (!this.media) throw new ApiError(503, "no_media_store", "This service has nowhere to keep media");
 
@@ -647,17 +716,21 @@ export class Service {
   }
 
   // A planner drops a need nobody has to make any more, such as one for a change
-  // that won't go ahead. Its files stop being served, and leave the disk.
+  // that won't go ahead. Its files stop being served, and leave the disk, with the
+  // ones agents made for it in visitors' sandboxes.
   dismissNeed(actor: string, studyId: string, needId: string, input: z.output<typeof NeedWithdrawalSchema>): { dismissed: string } {
+    if (this.audience) throw sharedOnly("Needs are dropped");
     const need = this.need(this.study(studyId), needId);
+    const visitors = [...this.visitorMedia].filter(([, file]) => file.studyId === studyId && file.need === needId).map(([id]) => id);
     this.commit({ actor, type: "need.dismissed", studyId, data: { need: needId, reason: input.reason } });
-    this.forget(need.media.map((media) => media.id));
+    this.forget([...need.media.map((media) => media.id), ...visitors]);
     return { dismissed: needId };
   }
 
   // A planner takes down a file that shouldn't be shown. The need is needed again,
   // so nothing new is made until a planner asks.
   withdrawMedia(actor: string, studyId: string, needId: string, sha256: string, input: z.output<typeof NeedWithdrawalSchema>): NeedView {
+    if (this.audience) throw sharedOnly("Files are taken down");
     const need = this.need(this.study(studyId), needId);
     if (!need.media.some((media) => media.id === sha256)) throw notFound("media", sha256);
     this.commit({ actor, type: "media.withdrawn", studyId, data: { need: needId, sha256, reason: input.reason } });
@@ -665,17 +738,21 @@ export class Service {
     return viewNeed(need);
   }
 
-  // Deletes the files no need names any more.
+  // Deletes the files nothing names any more: no need in the shared record, and no
+  // visitor's sandbox.
   private forget(ids: string[]) {
-    for (const id of ids) if (!this.state.media.has(id)) this.media?.remove(id);
+    for (const id of ids) if (!this.state.media.has(id) && !this.visitorMedia.has(id)) this.media?.remove(id);
   }
 
-  // A file the log names, and only such a file.
+  // A file a need names, and only such a file: the shared record's, for anyone, or
+  // one made in a visitor's sandbox, served privately to whoever has its hash, which
+  // only their sandbox shows.
   mediaFile(id: string): MediaFile {
-    const known = isSha256(id) ? this.state.media.get(id) : undefined;
+    const shared = isSha256(id) ? this.state.media.get(id) : undefined;
+    const known = shared ?? (isSha256(id) ? this.visitorMedia.get(id) : undefined);
     const path = known && this.media?.path(id);
     if (!known || !path) throw notFound("media", id);
-    return { id, path, type: known.type, size: known.size };
+    return { id, path, type: known.type, size: known.size, private: !shared, need: known.need };
   }
 
   // --- Activity ------------------------------------------------------------
@@ -732,8 +809,19 @@ export class Service {
     return [...this.state.studies.keys()].map((id) => this.viewStudy(id));
   }
 
+  // Everything spent, the same for everyone: in total, the shared record's model
+  // calls and every visitor's, added up, so no one visitor's work shows. By study,
+  // the shared record's alone, which would otherwise show where visitors work.
+  // Each total comes with an estimate of the energy, emissions and water its model
+  // calls used: a floor.
   usage(): { total: Usage; byStudy: Record<string, Usage> } {
-    return { total: this.state.usage, byStudy: Object.fromEntries(this.state.usageByStudy) };
+    const root = this.audience === null ? this : (Object.getPrototypeOf(this) as Service);
+    const spent = addSpend(root.state, this.visitorSpend);
+    const estimated = (usage: Usage): Usage => ({ ...usage, estimate: estimate(usage.calls) });
+    return {
+      total: estimated(spent.usage),
+      byStudy: Object.fromEntries([...root.state.usageByStudy].map(([id, usage]) => [id, estimated(usage)])),
+    };
   }
 
   trace(studyId: string, figureId: string): TraceNode {

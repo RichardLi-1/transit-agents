@@ -9,6 +9,10 @@
 // Triggers stop ordinary writes from editing history. The hash chain makes edits
 // detectable by anyone holding an earlier head hash, even if a person with
 // database access removes the triggers and rewrites entries.
+//
+// An entry with an audience belongs to one visitor's sandbox: only that visitor
+// sees it. Entries with none are the shared record, which every read shows. The
+// audience is in the hash only when set, so older entries keep their hashes.
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
@@ -17,6 +21,7 @@ export type NewEntry = {
   type: string;
   studyId?: string | null;
   data: unknown;
+  audience?: string | null;
 };
 
 export type Entry = {
@@ -29,7 +34,15 @@ export type Entry = {
   payloadHash: string;
   prevHash: string;
   hash: string;
+  audience: string | null;
 };
+
+// Which entries a read returns: null for the shared record only, an audience for
+// the shared record plus that visitor's own entries, EVERYONE for all of them.
+export const EVERYONE = Symbol("everyone");
+export type Scope = string | null | typeof EVERYONE;
+
+export const visible = (entry: Pick<Entry, "audience">, audience: string | null) => !entry.audience || entry.audience === audience;
 
 export type Verification = { ok: true; entries: number; head: string } | { ok: false; brokenAt: number; reason: string };
 
@@ -46,7 +59,8 @@ const SCHEMA = `
     study_id TEXT,
     payload_hash TEXT NOT NULL,
     prev_hash TEXT NOT NULL,
-    hash TEXT NOT NULL UNIQUE
+    hash TEXT NOT NULL UNIQUE,
+    audience TEXT
   );
   CREATE INDEX IF NOT EXISTS log_study ON log (study_id);
   CREATE TABLE IF NOT EXISTS payloads (
@@ -76,9 +90,10 @@ export function canonical(value: unknown): string {
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
-type Chained = Pick<Entry, "seq" | "at" | "actor" | "type" | "studyId" | "payloadHash" | "prevHash">;
+type Chained = Pick<Entry, "seq" | "at" | "actor" | "type" | "studyId" | "payloadHash" | "prevHash" | "audience">;
 
-const hashOf = (e: Chained) => sha256(JSON.stringify([e.seq, e.at, e.actor, e.type, e.studyId, e.payloadHash, e.prevHash]));
+const hashOf = (e: Chained) =>
+  sha256(JSON.stringify([e.seq, e.at, e.actor, e.type, e.studyId, e.payloadHash, e.prevHash, ...(e.audience ? [e.audience] : [])]));
 
 type Row = {
   seq: number;
@@ -89,6 +104,7 @@ type Row = {
   payload_hash: string;
   prev_hash: string;
   hash: string;
+  audience: string | null;
   json: string | null;
 };
 
@@ -104,7 +120,16 @@ const toEntry = (r: Row): Entry => ({
   payloadHash: r.payload_hash,
   prevHash: r.prev_hash,
   hash: r.hash,
+  audience: r.audience,
 });
+
+// The SQL that limits a read to a scope, and its parameters.
+const within = (scope: Scope): [string, string[]] =>
+  scope === EVERYONE
+    ? ["", []]
+    : scope === null
+      ? [" AND log.audience IS NULL", []]
+      : [" AND (log.audience IS NULL OR log.audience = ?)", [scope]];
 
 export class Log {
   readonly db: DatabaseSync;
@@ -115,14 +140,26 @@ export class Log {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec(SCHEMA);
+    // A log made before audiences gains the column first, then its index.
+    const columns = this.db.prepare("PRAGMA table_info(log)").all() as { name: string }[];
+    if (!columns.some((column) => column.name === "audience")) this.db.exec("ALTER TABLE log ADD COLUMN audience TEXT");
+    this.db.exec("CREATE INDEX IF NOT EXISTS log_audience ON log (audience, seq)");
     this.clock = clock;
   }
 
+  // The newest entry of all.
   head(): { seq: number; hash: string } {
-    const row = this.db.prepare("SELECT seq, hash FROM log ORDER BY seq DESC LIMIT 1").get() as
+    return this.headFor(EVERYONE);
+  }
+
+  // The newest entry a scope reads. A visitor's work moves only their own head and
+  // the whole log's, so nobody else can tell from theirs when visitors work.
+  headFor(scope: Scope): { seq: number; hash: string } {
+    const [where, params] = within(scope);
+    const row = this.db.prepare(`SELECT seq, hash FROM log WHERE TRUE${where} ORDER BY seq DESC LIMIT 1`).get(...params) as
       | { seq: number; hash: string }
       | undefined;
-    return row ?? { seq: 0, hash: GENESIS };
+    return row ? { seq: row.seq, hash: row.hash } : { seq: 0, hash: GENESIS };
   }
 
   append(entry: NewEntry): Entry {
@@ -139,14 +176,15 @@ export class Log {
       studyId: entry.studyId ?? null,
       payloadHash,
       prevHash,
+      audience: entry.audience || null,
     };
     const hash = hashOf(chained);
     this.db.exec("BEGIN");
     try {
       this.db.prepare("INSERT INTO payloads (hash, json) VALUES (?, ?)").run(payloadHash, json);
       this.db
-        .prepare("INSERT INTO log (seq, at, actor, type, study_id, payload_hash, prev_hash, hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(chained.seq, chained.at, chained.actor, chained.type, chained.studyId, payloadHash, prevHash, hash);
+        .prepare("INSERT INTO log (seq, at, actor, type, study_id, payload_hash, prev_hash, hash, audience) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(chained.seq, chained.at, chained.actor, chained.type, chained.studyId, payloadHash, prevHash, hash, chained.audience);
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -157,13 +195,23 @@ export class Log {
     return written;
   }
 
-  get(seq: number): Entry | undefined {
-    const row = this.db.prepare(`${SELECT} WHERE log.seq = ?`).get(seq) as Row | undefined;
+  get(seq: number, scope: Scope = null): Entry | undefined {
+    const [where, params] = within(scope);
+    const row = this.db.prepare(`${SELECT} WHERE log.seq = ?${where}`).get(seq, ...params) as Row | undefined;
     return row && toEntry(row);
   }
 
-  since(seq: number, limit = 1000): Entry[] {
-    const rows = this.db.prepare(`${SELECT} WHERE log.seq > ? ORDER BY log.seq LIMIT ?`).all(seq, limit) as Row[];
+  // Filtered in SQL, so a page is full however many entries others can't see.
+  since(seq: number, limit = 1000, scope: Scope = null): Entry[] {
+    const [where, params] = within(scope);
+    const count = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : 1;
+    const rows = this.db.prepare(`${SELECT} WHERE log.seq > ?${where} ORDER BY log.seq LIMIT ?`).all(seq, ...params, count) as Row[];
+    return rows.map(toEntry);
+  }
+
+  // One visitor's own entries, in order.
+  own(audience: string): Entry[] {
+    const rows = this.db.prepare(`${SELECT} WHERE log.audience = ? ORDER BY log.seq`).all(audience) as Row[];
     return rows.map(toEntry);
   }
 
@@ -196,6 +244,7 @@ export class Log {
         studyId: row.study_id,
         payloadHash: row.payload_hash,
         prevHash: row.prev_hash,
+        audience: row.audience,
       });
       if (hash !== row.hash) return { ok: false, brokenAt: row.seq, reason: "Entry does not match its hash" };
       if (row.json !== null && sha256(`${row.seq}:${row.json}`) !== row.payload_hash) {

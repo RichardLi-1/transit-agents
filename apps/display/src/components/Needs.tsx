@@ -1,9 +1,11 @@
 // What people near a change need to see, floating over the place each is for. An
-// agent proposes it; only a planner asks for it to be made. Then an agent makes
-// the image or video, and it shows here, labelled as illustrative.
+// agent proposes it; a planner, or a visitor in their own sandbox, asks for it to
+// be made. Then an agent makes the image or video, and it shows here, labelled as
+// illustrative.
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import type { MediaView, NeedStatus, NeedView, StudyView } from "@transit-agents/contracts";
+import type { MediaView, NeedStatus, NeedView, SitePhoto, StudyView } from "@transit-agents/contracts";
 import { api } from "../api.ts";
+import { refusal, setNotice } from "../notice.ts";
 import { projector, toPoint, type ViewFeed } from "../map/projection.ts";
 import { stillOf, type Still } from "../still.ts";
 import { AlertIcon, ImageIcon, PlayIcon, VideoIcon } from "./icons.tsx";
@@ -16,10 +18,14 @@ const MODELS: Record<string, string> = { "gemini-3.1-flash-image": "Nano Banana 
 function sourcesOf(media: MediaView, study: StudyView | null): OpenedSource[] {
   return media.inputs.flatMap((input): OpenedSource[] => {
     if ("citation" in input) return [{ label: `p. ${input.citation.page}`, ...input.citation }];
+    if (!("figure" in input)) return [];
     const figure = study?.figures.find((f) => f.id === input.figure);
     return figure?.basis.kind === "cited" ? [{ label: figure.label, value: figure.value, unit: figure.unit, ...figure.basis.citation }] : [];
   });
 }
+
+// The photos of its site a file was made with.
+const photosOf = (media: MediaView): SitePhoto[] => media.inputs.flatMap((input) => ("photo" in input ? [input.photo] : []));
 
 const pagesOf = (sources: OpenedSource[]) => {
   const pages = [...new Set(sources.map((source) => source.page))];
@@ -32,11 +38,16 @@ const article = (kinds: readonly string[]) => kinds.map((kind) => (kind === "ima
 
 // What the card says about a need, in the words of what it is for.
 function stateOf(need: NeedView, status: NeedStatus): string {
-  if (status === "needed") return "Needed for public engagement";
-  if (status === "failed") return "Couldn't be made";
   if (status === "ready") return "Illustrative, for public engagement";
+  const made = need.media.length > 0;
+  let state: string;
+  if (status === "needed") state = "Needed for public engagement";
+  else if (status === "failed") state = made ? `Couldn't make the ${kindsIn(missing(need))}` : "Couldn't be made";
   // Asked for here, a need still shows its last request's claim until the log's echo.
-  return need.status === "creating" && need.claimedAt ? `Making the ${kindsIn(missing(need))}…` : "Waiting for an agent";
+  else state = need.status === "creating" && need.claimedAt ? `Making the ${kindsIn(missing(need))}…` : "Waiting for an agent";
+  // What is made shows beside it, mid-way or after a failure too, so the card says
+  // it's illustrative whenever it shows any.
+  return made ? `Illustrative, ${state.charAt(0).toLowerCase()}${state.slice(1)}` : state;
 }
 
 // Room between a card and its place, and between a card and the map's edges.
@@ -54,7 +65,7 @@ const latest = (need: NeedView) => (["image", "video"] as const).flatMap((kind) 
 // The kinds it asks for that no file has yet.
 const missing = (need: NeedView) => need.kinds.filter((kind) => !need.media.some((m) => m.kind === kind));
 
-// A planner can ask for a need that hasn't been made, or whose last request failed.
+// A need can be asked for when it hasn't been made, or its last request failed.
 const creatable = (status: NeedStatus) => status === "needed" || status === "failed";
 
 // A need as the log last told it. Asked for here, it shows as creating until the
@@ -63,11 +74,14 @@ const version = (need: NeedView) => `${need.status} ${need.failedAt ?? ""}`;
 
 const actionOf = (status: NeedStatus) => (status === "failed" ? "Try again" : "Create");
 
-// The panels over the map, in the cards' coordinates: the study card and the time
-// bar. A place under one can't be pointed at, and a card keeps off them.
+// The panels over the map, in the cards' coordinates: the folders, the map's
+// buttons, the study card and the time bar. A place under one can't be pointed at,
+// and a card keeps off them.
+const PANELS = ".shelf, .reset, .map-buttons, .stage > .card, .stage > .time";
+
 function panels(list: HTMLElement): DOMRect[] {
   const origin = list.getBoundingClientRect();
-  return [...document.querySelectorAll<HTMLElement>(".stage > .card, .stage > .time")]
+  return [...document.querySelectorAll<HTMLElement>(PANELS)]
     .map((panel) => panel.getBoundingClientRect())
     .filter((rect) => rect.width > 0 && rect.height > 0)
     .map((rect) => new DOMRect(rect.left - origin.left, rect.top - origin.top, rect.width, rect.height));
@@ -79,10 +93,11 @@ const overlap = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left
 // How long to wait for the map before listing the cards without it.
 const MAP_WAIT_MS = 3000;
 
-// Keeps each card over its place while the camera moves. A card whose place is off
-// the map or under a panel, or every card while the map hasn't drawn, is listed at
-// the map's top left instead, so it's never hidden. Cards move only by transform,
-// so nothing on the page shifts.
+// Keeps each card over its place while the camera moves. A card that would cover
+// one already placed goes below its place instead. A card whose place is off the
+// map or under a panel, one with no clear side of its place, or every card while the
+// map hasn't drawn, is listed at the map's top left instead, so it's never hidden.
+// Cards move only by transform, so nothing on the page shifts.
 function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, needs: NeedView[]) {
   useLayoutEffect(() => {
     const element = list.current;
@@ -100,7 +115,9 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
       const top = parseFloat(style.getPropertyValue("--map-top")) || EDGE;
       const right = width - (parseFloat(style.getPropertyValue("--map-right")) || 0) - EDGE;
       const over = panels(element);
-      let listed = top;
+      // The cards pinned, and those to list once every pinned one is placed.
+      const pinned: DOMRect[] = [];
+      const unpinned: { pin: HTMLElement; card: HTMLElement; size: [number, number] }[] = [];
       for (const pin of element.querySelectorAll<HTMLElement>(".pin")) {
         const card = pin.querySelector<HTMLElement>(".need");
         if (!card) continue;
@@ -110,23 +127,43 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
         pin.style.visibility = "visible";
         const shown = at && at[0] >= 0 && at[0] <= width && at[1] >= 0 && at[1] <= height && !over.some((rect) => covers(rect, at[0], at[1]));
         const [x, y] = at ?? [0, 0];
-        const below = y - GAP - cardHeight < top;
-        const cardTop = below ? y + GAP : y - GAP - cardHeight;
-        let left = Math.max(EDGE, Math.min(x - cardWidth / 2, right - cardWidth));
-        // Beside a panel it would cover, never under it.
-        for (const rect of over) {
-          if (overlap(new DOMRect(left, cardTop, cardWidth, cardHeight), rect)) left = Math.max(EDGE, Math.min(rect.right + EDGE, right - cardWidth));
+        // Beside a panel it would cover, to its right if there's room, never under it.
+        const beside = (cardTop: number) => {
+          let left = Math.max(EDGE, Math.min(x - cardWidth / 2, right - cardWidth));
+          for (const rect of over) {
+            if (!overlap(new DOMRect(left, cardTop, cardWidth, cardHeight), rect)) continue;
+            left = rect.right + EDGE <= right - cardWidth ? rect.right + EDGE : Math.max(EDGE, rect.left - EDGE - cardWidth);
+          }
+          return new DOMRect(left, cardTop, cardWidth, cardHeight);
+        };
+        const clear = (rect: DOMRect) => ![...over, ...pinned].some((other) => overlap(rect, other));
+        let below = y - GAP - cardHeight < top;
+        let placed = beside(below ? y + GAP : y - GAP - cardHeight);
+        // Over a card already pinned, it goes below its place instead, where that's clear.
+        if (!below && pinned.some((other) => overlap(placed, other)) && y + GAP + cardHeight <= height - EDGE) {
+          const under = beside(y + GAP);
+          if (clear(under)) [below, placed] = [true, under];
         }
-        if (!shown || over.some((rect) => overlap(new DOMRect(left, cardTop, cardWidth, cardHeight), rect))) {
-          pin.dataset.side = "listed";
-          pin.style.transform = `translate(${EDGE * 3}px, ${listed}px)`;
-          card.style.transform = "translate(0, 0)";
-          listed += cardHeight + EDGE;
+        if (!shown || !clear(placed)) {
+          unpinned.push({ pin, card, size: [cardWidth, cardHeight] });
           continue;
         }
         pin.dataset.side = below ? "below" : "above";
         pin.style.transform = `translate(${x}px, ${y}px)`;
-        card.style.transform = `translate(${left - x}px, ${cardTop - y}px)`;
+        card.style.transform = `translate(${placed.left - x}px, ${placed.top - y}px)`;
+        pinned.push(placed);
+      }
+      // Listed down from the top, past any pinned card in the way, so a listed card
+      // never hides a pinned one.
+      let listed = top;
+      for (const { pin, card, size } of unpinned) {
+        const [cardWidth, cardHeight] = size;
+        let under: DOMRect | undefined;
+        while ((under = pinned.find((rect) => overlap(new DOMRect(EDGE * 3, listed, cardWidth, cardHeight), rect)))) listed = under.bottom + EDGE;
+        pin.dataset.side = "listed";
+        pin.style.transform = `translate(${EDGE * 3}px, ${listed}px)`;
+        card.style.transform = "translate(0, 0)";
+        listed += cardHeight + EDGE;
       }
     };
     const later = () => {
@@ -145,7 +182,7 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
     }, MAP_WAIT_MS);
     // When a card or a panel changes size, such as when a Create button goes.
     const resized = new ResizeObserver(later);
-    for (const watched of document.querySelectorAll(".needs .need, .stage > .card, .stage > .time")) resized.observe(watched);
+    for (const watched of document.querySelectorAll(`.needs .need, ${PANELS}`)) resized.observe(watched);
     return () => {
       stop();
       resized.disconnect();
@@ -345,8 +382,11 @@ function Viewer({ opened, study, onClose, onSources }: ViewerProps) {
 }
 
 // Which model made a file, and the pages it drew on, which open as any source does.
+// Then the photos of its site it was made with, each credited and linked to its page,
+// as their licences ask.
 function Made({ opened, study, onSources, onClose }: { opened: Opened; study: StudyView | null; onSources: ViewerProps["onSources"]; onClose: () => void }) {
   const sources = sourcesOf(opened.media, study);
+  const photos = photosOf(opened.media);
   const open = () => {
     onClose();
     onSources({ title: `${opened.need.title}, ${opened.need.place}`, sources, steps: [] }, opened.from);
@@ -362,24 +402,45 @@ function Made({ opened, study, onSources, onClose }: { opened: Opened; study: St
           </button>
         </>
       )}
+      {photos.length > 0 && (photos.length === 1 ? ". Site photo: " : ". Site photos: ")}
+      {photos.map((photo, i) => (
+        <span key={photo.source}>
+          {i > 0 && "; "}
+          <a class="link" href={photo.source} target="_blank" rel="noopener noreferrer">
+            {photo.credit}
+          </a>
+        </span>
+      ))}
     </p>
   );
 }
 
-type Props = { study: StudyView | null; feed: ViewFeed; canCreate: boolean; onDetails: (details: Details, from: Element) => void };
+type Props = {
+  study: StudyView | null;
+  feed: ViewFeed;
+  canCreate: boolean;
+  onDetails: (details: Details, from: Element) => void;
+  // Whether the viewer is open. Like a source page, it hides the rest of the page.
+  onViewer: (open: boolean) => void;
+};
 
-export function Needs({ study, feed, canCreate, onDetails }: Props) {
+export function Needs({ study, feed, canCreate, onDetails, onViewer }: Props) {
   const list = useRef<HTMLUListElement>(null);
   // Asked for here and accepted, before the log's echo arrives: each need as it was.
   const [asked, setAsked] = useState<ReadonlyMap<string, string>>(new Map());
   const [opened, setOpened] = useState<Opened | null>(null);
+  const viewing = opened !== null;
+  useEffect(() => onViewer(viewing), [viewing]);
   const needs = study?.needs ?? [];
   useFollow(feed, list, needs);
 
   const create = async (need: NeedView) => {
     if (!study) return false;
     const response = await api(`/v1/studies/${study.id}/needs/${need.id}/create`, { method: "POST" }).catch(() => undefined);
+    // Visitors' budget is spent, or they asked too often: the card stays as it was, and the chat says why.
+    if (response?.status === 429) setNotice(await refusal(response));
     if (!response?.ok) return false;
+    setNotice(null);
     setAsked((before) => new Map(before).set(`${study.id}/${need.id}`, version(need)));
     return true;
   };

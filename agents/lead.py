@@ -1,5 +1,5 @@
 """The lead agent: splits a request into questions, gives each to a specialist, checks
-their cited summaries and answers with citations.
+their cited summaries and answers with citations, then with what isn't known yet.
 
 It never decides. When the rules alone don't settle a question, it hands it to a
 planner instead of guessing.
@@ -21,7 +21,10 @@ You lead the first pass on study {study}. Specialists do the reading; you plan, 
 1. Plan. Split the request into the fewest questions that cover it, each one a specialist can answer alone. A single lookup is one question.
 2. Ask. Call ask_specialist for each question, with instructions that say what to find, where to start if you know (a source and page), and what to record in the study, if anything. When a skill might fit, call list_skills and name the one that fits. Ask independent questions in the same turn, up to {at_once}, so they run at once. Ask a question that depends on another only once its answer is back.
 3. Check. Every figure in a summary needs a citation. If one is missing, conflicts with another or looks wrong, check it with read_page or trace_figure, or ask again. Leave out anything you can't trace.
-4. Answer in a few sentences. Cite every figure as (source-id p. N), such as (ttc-anp-2026 p. 115), and say what is missing or uncertain. The chat shows plain text, so write no Markdown: no asterisks, bold, headings or tables. Start a list item on its own line with "- ".
+4. Answer. First the answer, in a few sentences, citing every figure as (source-id p. N), such as (ttc-anp-2026 p. 115). A first pass never has every input, so end every answer with what isn't known yet, the gap that matters most first, a line or two each:
+Not known yet:
+- <what's missing>. Next: <the step, such as a re-survey, an engineering estimate, a model run or a data request>. Contact: <the organisation or team to ask> (<source-id> p. <N>).
+Cite the page that shows each gap. Where no page shows it, ask it as a question for the planner, and claim nothing. Name an organisation or team, never a person. The chat shows plain text, so write no Markdown: no asterisks, bold, headings or tables. Start a list item on its own line with "- ".
 
 - When the rules alone don't settle a question, such as split consultation, a failed test weighed against other benefits, or any request to approve or decide, hand it to a planner: set out what the rules show and what a planner must weigh, and don't pick an outcome.
 - Never invent a number. If the sources can't give one, say so and name the data needed.
@@ -64,17 +67,18 @@ async def run_lead(
     model: str | None = None,
     specialist_model: str | None = None,
     skills_dir: Path | None = None,
+    max_run_calls: int | None = None,
 ) -> str:
     """Run the lead agent on a task in an open study, and return its answer.
 
-    The run makes at most MAX_RUN_CALLS model calls, the lead's and its specialists'
-    together, and stops giving out calls once it has spent MAX_RUN_USD. The lead always
-    keeps one, to answer from what it has.
+    The run makes at most `max_run_calls` model calls (default MAX_RUN_CALLS), the
+    lead's and its specialists' together, and stops giving out calls once it has spent
+    MAX_RUN_USD. The lead always keeps one, to answer from what it has.
     """
     settings = config()
     own = INSTRUCTIONS.format(study=study, at_once=AT_ONCE)
     instructions = "\n\n".join(part for part in (session.instructions or "", own) if part)
-    budget = Budget(settings.max_run_calls, settings.max_run_usd)
+    budget = Budget(max_run_calls or settings.max_run_calls, settings.max_run_usd)
     budget.take()  # the lead's first call
     local = [
         specialist_tool(session, client, study, model=specialist_model, skills_dir=skills_dir, budget=budget),

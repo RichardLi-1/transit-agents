@@ -4,7 +4,7 @@
 // test plays the tenant.
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import type { ServiceConfig, SignIn } from "@transit-agents/contracts";
+import type { Role, ServiceConfig, SignIn } from "@transit-agents/contracts";
 import type { Session } from "./session.ts";
 
 type Held = { path: string; authorization: string | null; answered: boolean; answer: (status: number, body: unknown) => void };
@@ -72,7 +72,7 @@ define("fetch", (input: string | Request, init: RequestInit = {}) => {
   });
 });
 
-const { forgetTokens, hasToken, setPersonalToken } = await import("./api.ts");
+const { bearer, forgetTokens, hasToken, setPersonalToken } = await import("./api.ts");
 
 const wait = () => new Promise((resolve) => setTimeout(resolve, 1));
 
@@ -120,7 +120,12 @@ async function signInAndReturn(from: string, answer: Record<string, string>) {
 }
 
 const SIGN_IN: SignIn = { provider: "auth0", domain: "tenant.auth0.test", clientId: "display-client", audience: "https://api.transit.test" };
-const DEMO: ServiceConfig = { auth: "demo", signIn: null };
+const DEMO: ServiceConfig = { auth: "demo", signIn: null, guests: false };
+const GUESTS: ServiceConfig = { auth: "demo", signIn: SIGN_IN, guests: true };
+const GUEST = { role: "guest", name: "c2FuZGJveC1vZi1pdHMtb3du" };
+const REFUSED = { error: { code: "bad_token", message: "Unknown token" } };
+const PASS = "transit-guest";
+const pass = (token: string) => ({ token, expiresAt: "2026-11-15T12:00:00.000Z" });
 
 describe("session", () => {
   beforeEach(() => {
@@ -178,11 +183,106 @@ describe("session", () => {
 
   it("offers uploads only to roles that can add context, and the chat only to roles that can post to it", async () => {
     const { canAdd, canPost } = await import("./session.ts");
-    for (const [role, add, post] of [["viewer", false, false], ["integration", true, false], ["agent", true, true], ["planner", true, true]] as const) {
+    for (const [role, add, post] of [["viewer", false, false], ["integration", true, false], ["agent", true, true], ["planner", true, true], ["guest", false, true]] as const) {
       assert.equal(canAdd({ role, name: "someone" }), add, role);
       assert.equal(canPost({ role, name: "someone" }), post, role);
     }
     assert.equal(canAdd(null) || canPost(null), false);
+  });
+
+  it("offers a guest the chat and Create but not deciding, and a planner all three", async () => {
+    const { canCreate, canDecide, canPost, isGuest } = await import("./session.ts");
+    const offers = (role: Role) => [canPost, canCreate, canDecide].map((can) => can({ role, name: "someone" }));
+    assert.deepEqual(offers("guest"), [true, true, false]);
+    assert.deepEqual(offers("planner"), [true, true, true]);
+    for (const role of ["viewer", "integration", "agent"] as const) assert.deepEqual(offers(role).slice(1), [false, false], role);
+    assert.deepEqual([canCreate(null), canDecide(null), isGuest(null)], [false, false, false]);
+    assert.equal(isGuest({ role: "guest", name: "someone" }), true);
+  });
+});
+
+describe("guest pass", () => {
+  beforeEach(() => {
+    requests.length = 0;
+    forgetTokens();
+  });
+
+  it("gets a visitor a pass of their own, keeps it, and only then reads, with it", async () => {
+    const { followSession } = await load();
+    // The pass the browser held each time the session was published.
+    const seen: (Session & { pass: string | null })[] = [];
+    void followSession((session) => seen.push({ ...session, pass: localStorage.getItem(PASS) }));
+    (await next("/v1/config")).answer(200, GUESTS);
+    const minted = await next("/v1/guests");
+    assert.equal(minted.authorization, null);
+    assert.equal(seen.some((session) => session.reads), false);
+    minted.answer(201, pass("g1.minted"));
+    await until(() => seen.at(-1)?.reads);
+    assert.equal(seen.find((session) => session.reads)?.pass, "g1.minted");
+    assert.equal(await bearer(), "g1.minted");
+    const me = await next("/v1/me");
+    assert.equal(me.authorization, "Bearer g1.minted");
+    me.answer(200, GUEST);
+    await until(() => seen.at(-1)?.me);
+    assert.deepEqual(seen.at(-1), { config: GUESTS, me: GUEST, anonymous: true, signedIn: false, reads: true, pass: "g1.minted" });
+  });
+
+  it("uses the pass the browser kept, and asks for no other", async () => {
+    localStorage.setItem(PASS, "g1.kept");
+    const seen = await start();
+    const me = await next("/v1/me");
+    assert.equal(me.authorization, "Bearer g1.kept");
+    me.answer(200, GUEST);
+    (await next("/v1/config")).answer(200, GUESTS);
+    await until(() => seen.at(-1)?.config && seen.at(-1)?.reads);
+    assert.deepEqual(seen.at(-1), { config: GUESTS, me: GUEST, anonymous: true, signedIn: false, reads: true });
+    assert.equal(requests.some((request) => request.path === "/v1/guests"), false);
+  });
+
+  it("swaps a pass the service refuses for a new one, once", async () => {
+    localStorage.setItem(PASS, "g1.expired");
+    const seen = await start();
+    (await next("/v1/me")).answer(401, REFUSED);
+    (await next("/v1/config")).answer(200, GUESTS);
+    (await next("/v1/guests")).answer(201, pass("g1.new"));
+    await until(() => seen.at(-1)?.reads);
+    assert.equal(localStorage.getItem(PASS), "g1.new");
+    const me = await next("/v1/me");
+    assert.equal(me.authorization, "Bearer g1.new");
+    // Refused again, it is dropped rather than swapped again, and the display reads without one.
+    me.answer(401, REFUSED);
+    const again = await next("/v1/me");
+    assert.equal(again.authorization, null);
+    again.answer(200, { role: "viewer", name: "demo" });
+    await until(() => seen.at(-1)?.me);
+    assert.equal(requests.filter((request) => request.path === "/v1/guests").length, 1);
+    assert.equal(hasToken(), false);
+    assert.deepEqual(seen.at(-1), { config: GUESTS, me: { role: "viewer", name: "demo" }, anonymous: true, signedIn: false, reads: true });
+  });
+
+  it("sends the signed-in person's token rather than the pass, and keeps the pass for later", async () => {
+    localStorage.setItem(PASS, "g1.kept");
+    setPersonalToken(async () => "a-token");
+    const seen = await start();
+    const me = await next("/v1/me");
+    assert.equal(me.authorization, "Bearer a-token");
+    me.answer(200, { role: "planner", name: "ana" });
+    (await next("/v1/config")).answer(200, GUESTS);
+    await until(() => seen.at(-1)?.config && seen.at(-1)?.reads);
+    assert.equal(seen.at(-1)?.anonymous, false);
+    assert.equal(await bearer(), "a-token");
+    assert.equal(localStorage.getItem(PASS), "g1.kept");
+    assert.equal(requests.some((request) => request.path === "/v1/guests"), false);
+  });
+
+  it("reads without a pass when the service won't give one", async () => {
+    const seen = await start();
+    (await next("/v1/config")).answer(200, GUESTS);
+    (await next("/v1/guests")).answer(404, { error: { code: "not_found", message: "Not found" } });
+    await until(() => seen.at(-1)?.reads);
+    const me = await next("/v1/me");
+    assert.equal(me.authorization, null);
+    assert.equal(hasToken(), false);
   });
 });
 
