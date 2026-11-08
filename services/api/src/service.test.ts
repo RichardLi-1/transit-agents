@@ -60,6 +60,11 @@ describe("Service", () => {
       rejects(() => service.addFigure("agent:a", "lawrence", cited("x", 2000, 1, "ridership increase of 1,680 customers")), "value_not_in_quote");
     });
 
+    it("rejects a quote that cuts the page's number in half", () => {
+      rejects(() => service.addFigure("agent:a", "lawrence", cited("x", 1, 1, "weekly system ridership increase of 1")), "quote_not_found");
+      rejects(() => service.addFigure("agent:a", "lawrence", cited("x", 680, 1, "680 customers")), "quote_not_found");
+    });
+
     it("rejects an unknown source and a page that does not exist", () => {
       const figure = (contextId: string, page: number) =>
         NewFigure.parse({ id: "x", label: "x", value: 25, basis: { kind: "cited", citation: { contextId, page, quote: "cost 25 weekly service hours" } } });
@@ -276,6 +281,15 @@ describe("Service", () => {
 
     it("refuses different content under the same id", () => {
       rejects(() => service.addContext("agent:a", NewContext.parse({ id: "plan", title: "x", text: "changed" })), "context_conflict");
+    });
+
+    it("leaves no pages behind when it can't add a context, so the id stays free", () => {
+      const input = NewContext.parse({ id: "two", title: "Two pages", pages: [{ page: 1, text: "first" }, { page: 2, text: "second" }] });
+      assert.throws(() => service.addContext("planner:ana", { ...input, pages: [{ page: 1, text: "first" }, { page: 1, text: "again" }] }));
+      // Pages left by an attempt that never reached the log.
+      service.log.db.prepare("INSERT INTO context_pages (context_id, page, text) VALUES (?, ?, ?)").run("two", 2, "stray");
+      assert.equal(service.addContext("planner:ana", input).pageCount, 2);
+      assert.equal(service.contextPage("two", 2), "second");
     });
   });
 });

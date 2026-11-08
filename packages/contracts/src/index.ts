@@ -32,7 +32,10 @@ export const NewContext = z.object({
   source: z.string().max(200).optional(),
   url: z.url().optional(),
   publishedOn: z.iso.date().optional(),
-  pages: z.array(z.object({ page: z.number().int().positive(), text: z.string() })).optional(),
+  pages: z
+    .array(z.object({ page: z.number().int().positive(), text: z.string() }))
+    .refine((pages) => new Set(pages.map(({ page }) => page)).size === pages.length, "Give each page number once")
+    .optional(),
   text: z.string().optional(),
 });
 export type NewContext = z.input<typeof NewContext>;

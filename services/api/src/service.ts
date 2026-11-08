@@ -28,7 +28,9 @@ import type {
   NewStudy as NewStudySchema,
 } from "@transit-agents/contracts";
 import { checkValue, findQuote } from "./citations.ts";
+import type { Page } from "./extract.ts";
 import { Log, REDACTED, type Entry, type NewEntry } from "./log.ts";
+import { SearchIndex } from "./search.ts";
 import {
   analysisOf,
   apply,
@@ -49,6 +51,7 @@ const REMOVABLE = new Set(["activity", "finding.recorded"]);
 // Only sources added by people or agency systems can back a figure, so an agent
 // can't upload a document and then cite it.
 const CITABLE_ROLES = ["planner:", "integration:"];
+const citable = (context: Context) => CITABLE_ROLES.some((role) => context.addedBy.startsWith(role));
 
 export class ApiError extends Error {
   readonly status: number;
@@ -98,6 +101,8 @@ export type Comparison = {
   checks: CheckChange[];
 };
 
+export type SearchResult = { contextId: string; title: string; page: number; snippet: string; citable: boolean };
+
 const slugify = (text: string) =>
   text
     .toLowerCase()
@@ -108,6 +113,9 @@ const slugify = (text: string) =>
 export class Service {
   readonly log: Log;
   readonly state: State = emptyState();
+  // Derived from the contexts in state and their pages, like state is from the
+  // log, and never written to the log.
+  private readonly index = new SearchIndex();
 
   constructor(database: string, clock?: () => Date) {
     this.log = new Log(database, clock);
@@ -120,6 +128,8 @@ export class Service {
       );
     `);
     for (const entry of this.allEntries()) apply(this.state, entry);
+    const pages = this.log.db.prepare("SELECT page, text FROM context_pages WHERE context_id = ? ORDER BY page");
+    for (const context of this.state.contexts.values()) this.index.add(context.id, pages.all(context.id) as Page[], citable(context));
   }
 
   private *allEntries(): Generator<Entry> {
@@ -163,8 +173,18 @@ export class Service {
       throw new ApiError(409, "context_conflict", `Context "${id}" already exists with different content`);
     }
 
+    // All the pages or none. The log entry comes after them, so first clear any
+    // pages an attempt that never reached the log left under this id.
     const insert = this.log.db.prepare("INSERT INTO context_pages (context_id, page, text) VALUES (?, ?, ?)");
-    for (const { page, text } of pages) insert.run(id, page, text);
+    this.log.db.exec("BEGIN");
+    try {
+      this.log.db.prepare("DELETE FROM context_pages WHERE context_id = ?").run(id);
+      for (const { page, text } of pages) insert.run(id, page, text);
+      this.log.db.exec("COMMIT");
+    } catch (error) {
+      this.log.db.exec("ROLLBACK");
+      throw error;
+    }
 
     const data = {
       id,
@@ -177,7 +197,9 @@ export class Service {
       pageCount: pages.length,
     };
     this.commit({ actor, type: "context.added", data });
-    return this.state.contexts.get(id) as Context;
+    const context = this.state.contexts.get(id) as Context;
+    this.index.add(id, pages, citable(context));
+    return context;
   }
 
   contextPage(id: string, page: number): string {
@@ -189,10 +211,20 @@ export class Service {
     return row.text;
   }
 
+  // Pages that mention any of the query's words, those that can be cited first,
+  // then best match first. `citable` is verifyCitation's rule: only a source a
+  // planner or an agency system added can back a figure.
+  search(query: string, limit: number): SearchResult[] {
+    return this.index.find(query, limit).map(({ contextId, page, snippet }) => {
+      const context = this.state.contexts.get(contextId) as Context;
+      return { contextId, title: context.title, page, snippet, citable: citable(context) };
+    });
+  }
+
   private verifyCitation(citation: Citation): "exact" | "table" {
     const context = this.state.contexts.get(citation.contextId);
     if (!context) throw new ApiError(422, "unknown_source", `No context "${citation.contextId}"`);
-    if (!CITABLE_ROLES.some((role) => context.addedBy.startsWith(role))) {
+    if (!citable(context)) {
       throw new ApiError(422, "uncitable_source", `"${context.id}" was added by ${context.addedBy}, so it can't back a figure`);
     }
     if (!context.pageCount) throw new ApiError(422, "unreadable_source", `Context "${context.id}" has no readable text`);
@@ -592,6 +624,7 @@ export class Service {
   }
 
   close() {
+    this.index.close();
     this.log.close();
   }
 }

@@ -83,6 +83,7 @@ flowchart LR
 Full schema at `GET /openapi.json`.
 
 - Add context: `POST /v1/context`, or drop a file in the watched folder
+- Search source pages: `GET /v1/search`
 - Open a study: `POST /v1/studies`
 - Report agent activity, tokens and cost: `POST /v1/studies/{id}/activity`
 - Add a figure: `POST /v1/studies/{id}/figures`

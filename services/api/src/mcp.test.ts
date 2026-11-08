@@ -108,10 +108,12 @@ describe("mcp", () => {
 
   it("tells a model the rules when it connects", async () => {
     const instructions = (await env.connect("agent-token")).getInstructions() ?? "";
+    assert.match(instructions, /Find pages with search_sources/);
     assert.match(instructions, /read_page before citing/);
     assert.match(instructions, /only from list_rules/);
     assert.match(instructions, /Only planners decide/);
-    assert.match(instructions, /report_activity, kind "usage"/);
+    // A model can't see its own token counts, so the agent's code reports them.
+    assert.match(instructions, /never report usage numbers you weren't given/);
   });
 
   it("lists only the tools each role may call", async () => {
@@ -119,15 +121,29 @@ describe("mcp", () => {
     const [planner, agent, integration, viewer] = await Promise.all(
       ["planner-token", "agent-token", "integration-token", "viewer-token"].map(names),
     );
-    assert.equal(planner?.length, 27);
-    assert.equal(agent?.length, 21);
+    assert.equal(planner?.length, 28);
+    assert.equal(agent?.length, 22);
     assert.ok(agent?.includes("whoami"));
     assert.deepEqual(agent?.filter((name) => PLANNER_ONLY.includes(name)), []);
     assert.ok(agent?.includes("record_figure") && agent.includes("report_activity"));
-    assert.equal(integration?.length, 16);
+    assert.equal(integration?.length, 17);
     assert.ok(integration?.includes("add_source") && !integration.includes("record_figure"));
-    assert.equal(viewer?.length, 15);
+    assert.equal(viewer?.length, 16);
     assert.ok(viewer?.includes("read_page") && !viewer.includes("add_source"));
+    for (const names of [planner, agent, integration, viewer]) assert.ok(names?.includes("search_sources"));
+  });
+
+  it("finds the page that mentions something, and needs a query", async () => {
+    const client = await env.connect("agent-token");
+    const tool = (await client.listTools()).tools.find((t) => t.name === "search_sources");
+    assert.deepEqual(tool?.inputSchema.required, ["q"]);
+    const found = await callTool(client, "search_sources", { q: "riders", limit: 5 });
+    assert.deepEqual(found.structuredContent, {
+      results: [{ contextId: "plan", title: "Plan", page: 1, snippet: "Weekly [ridership] rose by 1,680 customers in the first month.", citable: true }],
+    });
+    const missing = await callTool(client, "search_sources", {});
+    assert.equal(missing.isError, true);
+    assert.equal(textOf(missing), "400 invalid_query: Say what to look for in q");
   });
 
   it("reads a page", async () => {

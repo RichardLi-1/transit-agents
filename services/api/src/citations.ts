@@ -38,14 +38,28 @@ function inOrderWithin(words: string[], wanted: string[]): boolean {
   return false;
 }
 
+// Whether position i of the text falls inside a word or a number: between two
+// letters or digits, or either side of the "," or "." in 1,680 or 1.29.
+function inside(text: string, i: number): boolean {
+  const before = text[i - 1] ?? "";
+  const after = text[i] ?? "";
+  if (/[\p{L}\p{N}]/u.test(before) && /[\p{L}\p{N}]/u.test(after)) return true;
+  if (/[.,]/.test(after)) return /\d/.test(before) && /\d/.test(text[i + 1] ?? "");
+  if (/[.,]/.test(before)) return /\d/.test(text[i - 2] ?? "") && /\d/.test(after);
+  return false;
+}
+
 export function findQuote(page: string, quote: string, nextPage = ""): QuoteMatch {
   const needle = normalize(quote);
   if (!needle) return "none";
   // A sentence can run onto the next page, but it has to start on the cited one.
+  // And a quote must start and end where the page's words and numbers do: "of 1"
+  // and "680 customers" are not on a page that says "of 1,680 customers".
   const cited = normalize(page);
   const haystack = normalize(nextPage ? `${page}\n${nextPage}` : page);
-  const at = haystack.indexOf(needle);
-  if (at !== -1 && at < cited.length) return "exact";
+  for (let at = haystack.indexOf(needle); at !== -1 && at < cited.length; at = haystack.indexOf(needle, at + 1)) {
+    if (!inside(haystack, at) && !inside(haystack, at + needle.length)) return "exact";
+  }
 
   const wanted = tokens(quote);
   const numeric = wanted.filter(isNumeric).length / (wanted.length || 1);

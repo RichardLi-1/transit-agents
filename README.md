@@ -38,7 +38,7 @@ Space plays time; the speed button steps from real time to a week a second.
 Vehicles are live at the present moment, and scheduled otherwise until the
 published timetable ends.
 
-Checks: `npm test` (140 tests) and `npm run typecheck`.
+Checks: `npm test` (163 tests) and `npm run typecheck`.
 
 ## Plug in your agents
 

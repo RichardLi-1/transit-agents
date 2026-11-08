@@ -347,6 +347,16 @@ describe("errors", () => {
     assert.equal((await response.json()).error.code, "invalid_body");
   });
 
+  it("refuses a page number given twice, and leaves the id free", async () => {
+    const { call, service } = setup();
+    const context = (pages: { page: number; text: string }[]) => call("POST", "/v1/context", "planner-token", { id: "plan", title: "Plan", pages });
+    const repeated = await context([{ page: 1, text: "first" }, { page: 1, text: "second" }]);
+    assert.equal(repeated.status, 400);
+    assert.match((await repeated.json()).error.message, /Give each page number once/);
+    assert.equal((await context([{ page: 1, text: "first" }, { page: 2, text: "second" }])).status, 201);
+    assert.deepEqual(service.search("second", 10).map((result) => result.page), [2]);
+  });
+
   it("returns 404 for an unknown study", async () => {
     const { call } = setup();
     assert.equal((await call("GET", "/v1/studies/nope", "viewer-token")).status, 404);

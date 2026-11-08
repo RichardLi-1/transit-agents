@@ -299,6 +299,19 @@ export function createApp(options: AppOptions) {
       handler: (c) => c.json({ text: service.contextPage(c.req.param("id") as string, Number(c.req.param("page"))) }),
     },
     {
+      method: "get",
+      path: "/v1/search",
+      summary: "Search source pages, best match first, citable pages before the rest",
+      roles: anyone,
+      handler: (c) => {
+        const q = c.req.query("q")?.trim();
+        if (!q) throw new ApiError(400, "invalid_query", "Say what to look for in q");
+        const limit = c.req.query("limit") ?? "10";
+        if (!/^\d+$/.test(limit) || Number(limit) < 1) throw new ApiError(400, "invalid_query", "limit must be a whole number, 1 or more");
+        return c.json({ results: service.search(q, Math.min(Number(limit), 50)) });
+      },
+    },
+    {
       method: "post",
       path: "/v1/studies",
       summary: "Open a study",

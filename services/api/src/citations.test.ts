@@ -46,6 +46,20 @@ describe("findQuote", () => {
     assert.equal(findQuote("first page text", "second page sentence", "second page sentence here"), "none");
   });
 
+  it("refuses a quote that cuts a number or a word in half", () => {
+    assert.equal(findQuote(PAGE, "weekly system ridership increase of 1"), "none");
+    assert.equal(findQuote(PAGE, "weekly system ridership increase of 1,"), "none");
+    assert.equal(findQuote(PAGE, "680 customers. This increase"), "none");
+    assert.equal(findQuote(PAGE, ",680 customers"), "none");
+    assert.equal(findQuote(PAGE, "increase of 1,680 cust"), "none");
+    const fare = "This recommendation would have a net cost per passenger gained of $1.29. This is less";
+    assert.equal(findQuote(fare, "net cost per passenger gained of $1"), "none");
+    assert.equal(findQuote(fare, "net cost per passenger gained of $1."), "none");
+    // Whole numbers and words still match, up to and including a full stop.
+    assert.equal(findQuote(fare, "net cost per passenger gained of $1.29."), "exact");
+    assert.equal(findQuote(PAGE, "increase of 1,680 customers."), "exact");
+  });
+
   it("rejects an invented quote and an empty one", () => {
     assert.equal(findQuote(PAGE, "ridership increase of 9,999 customers"), "none");
     assert.equal(findQuote(PAGE, "   "), "none");

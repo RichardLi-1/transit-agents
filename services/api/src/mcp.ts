@@ -38,15 +38,16 @@ type JsonSchema = {
   enum?: unknown[];
 };
 
-type Spec = { name: string; description: string; query?: Record<string, JsonSchema> };
+// `query` arguments go in the URL. Those named in `required` must be given.
+type Spec = { name: string; description: string; query?: Record<string, JsonSchema>; required?: string[] };
 
 export const INSTRUCTIONS = [
   "Transit Agents holds transit planning studies: agents do the first pass, and every figure must trace to the page it came from.",
-  "Read a source page with read_page before citing it.",
+  "Find pages with search_sources, then read the page with read_page before citing it.",
   "Every figure needs a basis: a quote that is on the cited page and contains the value, a formula over other figures and planner-set rules, or a planner-approved skill.",
   "Rule thresholds come only from list_rules.",
   "Only planners decide. They set rules, rate findings, accept skill results and record decisions.",
-  'After each model call, report its tokens and cost with report_activity, kind "usage".',
+  "The agent's own code reports each model call's tokens and cost; never report usage numbers you weren't given.",
 ].join("\n");
 
 // One tool per route, named and described for a model, keyed by method and path.
@@ -59,6 +60,15 @@ export const TOOLS: Record<string, Spec> = {
   "GET /v1/context/:id/pages/:page": {
     name: "read_page",
     description: "Read one page of a source document. Read a page before citing it: a quote must be on the page it cites.",
+  },
+  "GET /v1/search": {
+    name: "search_sources",
+    description: "Find which source pages mention something. Then read_page before citing.",
+    query: {
+      q: { type: "string", description: "Words or numbers to look for, such as: Lawrence weekly ridership" },
+      limit: { type: "integer", minimum: 1, maximum: 50, description: "Most pages to return. Default 10" },
+    },
+    required: ["q"],
   },
   "POST /v1/context": {
     name: "add_source",
@@ -96,7 +106,7 @@ export const TOOLS: Record<string, Spec> = {
   },
   "POST /v1/studies/:id/activity": {
     name: "report_activity",
-    description: "Report progress, messages, tokens and cost. After each model call, report kind usage with the model, tokens and cost.",
+    description: "Report progress, messages, tokens and cost. Report usage only with numbers you were given.",
   },
   "POST /v1/studies/:id/preview": {
     name: "preview_change",
@@ -264,7 +274,7 @@ function buildTools(routes: readonly ApiRoute[]): McpTool[] {
     const properties: Record<string, JsonSchema> = {};
     for (const name of path) properties[name] = PATH_ARGUMENTS[name] as JsonSchema;
     Object.assign(properties, spec.query);
-    const required = [...path];
+    const required = [...path, ...(spec.required ?? [])];
     if (route.body) {
       const body = bodySchema(route.body);
       for (const [name, schema] of Object.entries(body.properties ?? {})) {

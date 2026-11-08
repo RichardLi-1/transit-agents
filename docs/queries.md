@@ -12,6 +12,11 @@ Gold answers for each kind of work a planner hands over. The full set is in
 - Trial period for a major service change: at least 12 months (p. 115).
 - Highland Creek's forecast weekly ridership change: a decrease of 610 (p. 122).
 
+The 2024 Service Standards state the first four too (PDF pp. 33, 21, 33 and 29).
+Eval cases give the agent only the plan, so only the plan page counts there.
+Where both are loaded, as in the demo, a Standards page is also right, and
+search often ranks it first.
+
 ## 2. Check
 
 Apply the published tests, with the recommendation hidden.
