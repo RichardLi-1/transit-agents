@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Transit Agents System</title>
+<link rel="icon" href="/icons/icon-192.png">
+<style>
+/* Layout: four lanes read left to right, from what agencies have, through the agents
+   and the service's checks, to the people who decide. Stacks top to bottom on a phone. */
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+  color-scheme: light;
+  --bg: #f6f5f8;
+  --surface: #ffffff;
+  --ink: #1d1d1f;
+  --muted: #5d5b66;
+  --rule: #e2dfe7;
+  --accent: #b03488;
+  --accent-ink: #8e2a6e;
+  --accent-wash: #f7e9f2;
+  --line3: #0082c9;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: "New York", "Iowan Old Style", Georgia, serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141317; --surface: #1d1c21; --ink: #f1eff4; --muted: #aaa6b3; --rule: #34313b;
+    --accent: #e17bbd; --accent-ink: #f0a3d4; --accent-wash: #341a2b; --line3: #4fb3ea; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141317; --surface: #1d1c21; --ink: #f1eff4; --muted: #aaa6b3; --rule: #34313b;
+  --accent: #e17bbd; --accent-ink: #f0a3d4; --accent-wash: #341a2b; --line3: #4fb3ea; color-scheme: dark;
+}
+body {
+  margin: 0;
+  background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 56px;
+}
+.page { max-width: 1240px; margin: 0 auto; display: grid; gap: 28px; }
+header { display: grid; gap: 10px; max-width: 70ch; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent-ink); font-weight: 600; }
+h1 { font: 600 clamp(28px, 4vw, 40px)/1.15 var(--serif); margin: 0; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 17px; }
+
+.flow { display: grid; grid-template-columns: minmax(0,1fr) 44px minmax(0,1fr) 44px minmax(0,1.3fr) 44px minmax(0,1fr); align-items: stretch; }
+.lane { display: grid; align-content: start; gap: 10px; min-width: 0; }
+.lane h2 { font: 600 13px/1.3 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 2px; }
+.box { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px; display: grid; gap: 3px; }
+.box b { font-weight: 600; }
+.box span { color: var(--muted); font-size: 13.5px; }
+.box code { font: 12.5px var(--mono); color: var(--muted); }
+
+.service { background: var(--accent-wash); border: 2px solid var(--accent); border-radius: 18px; padding: 16px; display: grid; gap: 10px; align-content: start; }
+.service h2 { color: var(--accent-ink); }
+.service .box { border-color: transparent; }
+.step { display: grid; gap: 4px; }
+.down { justify-self: center; color: var(--accent); line-height: 0; }
+.checks { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px; }
+.checks li { display: flex; gap: 8px; align-items: baseline; }
+.checks li::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); transform: translateY(-1px); }
+
+.link { display: grid; place-items: center; align-content: center; gap: 6px; color: var(--muted); }
+.link svg { display: block; }
+.link small { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; text-align: center; line-height: 1.25; writing-mode: vertical-rl; transform: rotate(180deg); }
+
+.agents .lead { border-color: var(--line3); }
+.nested { display: grid; gap: 6px; margin-top: 6px; padding-left: 12px; border-left: 2px solid var(--rule); }
+.nested div { font-size: 13.5px; color: var(--muted); }
+
+.people .planner { border: 1.5px solid var(--ink); }
+
+footer { display: flex; flex-wrap: wrap; gap: 10px 28px; color: var(--muted); font-size: 13.5px; border-top: 1px solid var(--rule); padding-top: 16px; }
+footer strong { color: var(--ink); font-weight: 600; }
+
+@media (max-width: 980px) {
+  .flow { grid-template-columns: minmax(0,1fr); gap: 0; }
+  .link { padding-block: 8px; grid-auto-flow: column; }
+  .link svg { transform: rotate(90deg); }
+  .link small { writing-mode: horizontal-tb; transform: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">System architecture</div>
+    <h1>How Transit Agents works</h1>
+    <p>Agents do the first pass of a transit study. Everything they add goes through one service that checks it, keeps it, and leaves every decision to a named planner.</p>
+  </header>
+
+  <div class="flow" role="list">
+    <section class="lane" role="listitem" aria-labelledby="l1">
+      <h2 id="l1">What agencies already have</h2>
+      <div class="box"><b>Public sources</b><span>GTFS timetables, live vehicle positions, plans, business cases, board reports</span></div>
+      <div class="box"><b>Agency files</b><span>HASTUS and EMME exports, ridership counts, SharePoint, any PDF a planner drops in</span></div>
+      <div class="box"><b>Legacy software</b><span>Desktop tools with no API, such as scheduling and traffic simulation, worked by sight</span></div>
+    </section>
+
+    <div class="link" aria-hidden="true">
+      <svg width="28" height="16" viewBox="0 0 28 16"><path d="M1 8h22M17 2l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <small>read and cite</small>
+    </div>
+
+    <section class="lane agents" role="listitem" aria-labelledby="l2">
+      <h2 id="l2">Agents, run by Gemini</h2>
+      <div class="box lead"><b>Lead agent</b><span>Takes a planner's question and splits it up</span>
+        <div class="nested">
+          <div><b>Subagents</b>, one per question</div>
+          <div><b>13 skills</b> written from agency sources: TTC service standards, Metrolinx business cases, TPAP briefs, cost benchmarks</div>
+        </div>
+      </div>
+      <div class="box"><b>Media agent</b><span>Renders and short videos for public engagement</span></div>
+      <div class="box"><b>Computer use</b><span>Drives legacy software through its screen, and asks before it saves</span></div>
+    </section>
+
+    <div class="link" aria-hidden="true">
+      <svg width="28" height="16" viewBox="0 0 28 16"><path d="M5 8h18M17 2l6 6-6 6M11 2L5 8l6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <small>MCP, open to any agent</small>
+    </div>
+
+    <section class="service lane" role="listitem" aria-labelledby="l3">
+      <h2 id="l3">The Transit Agents service</h2>
+      <div class="step box">
+        <b>1. The checks at the door</b>
+        <span>Before anything goes in:</span>
+        <ul class="checks">
+          <li>No source, no number</li>
+          <li>A quote must really be on the page it cites</li>
+          <li>Only a named planner can decide</li>
+          <li>Visitors share a capped daily budget, in their own sandbox</li>
+        </ul>
+      </div>
+      <div class="down" aria-hidden="true"><svg width="16" height="20" viewBox="0 0 16 20"><path d="M8 1v16M2 11l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="step box">
+        <b>2. One shared record</b>
+        <span>Every document, finding, render and decision, in order. Nothing in it can be quietly edited or deleted later.</span>
+        <code>append-only · hash-chained</code>
+      </div>
+      <div class="down" aria-hidden="true"><svg width="16" height="20" viewBox="0 0 16 20"><path d="M8 1v16M2 11l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <div class="step box">
+        <b>3. Views and live updates</b>
+        <span>The draft study, the trail behind each number, a timeline, and the spend on AI, streamed as it changes</span>
+      </div>
+    </section>
+
+    <div class="link" aria-hidden="true">
+      <svg width="28" height="16" viewBox="0 0 28 16"><path d="M5 8h18M17 2l6 6-6 6M11 2L5 8l6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <small>updates out, decisions in</small>
+    </div>
+
+    <section class="lane people" role="listitem" aria-labelledby="l4">
+      <h2 id="l4">People, where they already work</h2>
+      <div class="box"><b>The study on a map</b><span>Cited numbers, route options, renders, and a chat with the agents</span></div>
+      <div class="box"><b>Slack</b><span>Ask the agents, get a TPAP brief as a PDF, hear when something's ready, ping an executive</span></div>
+      <div class="box planner"><b>The planner</b><span>Signs every decision with a name and a reason</span></div>
+      <div class="box"><b>Board, auditors and the public</b><span>Can follow every number back to its page</span></div>
+    </section>
+  </div>
+
+  <footer>
+    <span><strong>Gemini</strong> runs the lead, every subagent, the renders and computer use.</span>
+    <span><strong>Every AI call</strong> is counted: tokens, cost, energy, carbon and water.</span>
+    <span><strong>Accessibility:</strong> the app scores 100 on Lighthouse.</span>
+  </footer>
+</div>
+</body>
+</html>
