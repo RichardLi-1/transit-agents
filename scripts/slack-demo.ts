@@ -19,7 +19,7 @@ const samples = [
   { headline: "Answer ready" },
   { headline: "Decided", detail: "Adopted, by Ana Planner" },
   { headline: "Brief changed", detail: "Extension length set to 7.5 km" },
-  { headline: "Illustrative image ready", detail: "Viaduct rendering missing, Thorncliffe Park" },
+  { headline: "Illustrative image ready", detail: "Viaduct rendering, Thorncliffe Park" },
 ];
 
 for (const sample of samples) {

@@ -653,3 +653,10 @@ export const NewSubscription = z.object({
   secret: z.string().min(16).optional(),
 });
 export type NewSubscription = z.input<typeof NewSubscription>;
+
+// A need's title as people should read it. A need is named for what's missing, such
+// as "Viaduct rendering missing"; once it has its image or video, "missing" is
+// wrong, so the made thing goes by its own name: "Viaduct rendering".
+export function needTitle(need: { title: string; media?: readonly unknown[] | null }, made = Boolean(need.media?.length)): string {
+  return made ? need.title.replace(/\s+missing$/i, "") : need.title;
+}

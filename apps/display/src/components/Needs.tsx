@@ -3,7 +3,7 @@
 // be made. Then an agent makes the image or video, and it shows here, labelled as
 // illustrative.
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import type { MediaView, NeedStatus, NeedView, SitePhoto, StudyView } from "@transit-agents/contracts";
+import { needTitle, type MediaView, type NeedStatus, type NeedView, type SitePhoto, type StudyView } from "@transit-agents/contracts";
 import { api } from "../api.ts";
 import { refusal, setNotice } from "../notice.ts";
 import { projector, toPoint, type ViewFeed } from "../map/projection.ts";
@@ -277,7 +277,7 @@ function Thumb({ need, media, onOpen }: { need: NeedView; media: MediaView; onOp
     onOpen({ need, media, size, poster: still?.src, from: button });
   };
   return (
-    <button type="button" class="thumb" aria-label={`${video ? "Play video" : "View image"}, ${need.title}, ${media.label.toLowerCase()}`} onClick={open}>
+    <button type="button" class="thumb" aria-label={`${video ? "Play video" : "View image"}, ${needTitle(need)}, ${media.label.toLowerCase()}`} onClick={open}>
       {video ? still && <img src={still.src} alt="" /> : <img src={media.url} alt="" decoding="async" />}
       {video && (
         <span class="play" aria-hidden="true">
@@ -322,10 +322,10 @@ function Pin({ need, status, canCreate, onCreate, onOpen, onDetails }: PinProps)
 
   return (
     <li class="pin" data-lat={need.lat} data-lon={need.lon}>
-      <article class={`need ${status}`} aria-label={`${need.title}, ${need.place}`}>
+      <article class={`need ${status}`} aria-label={`${needTitle(need)}, ${need.place}`}>
         {/* Opens why it was proposed, and the pages it rests on. */}
         <button ref={card} type="button" class="words" aria-describedby={about} aria-haspopup="dialog" onClick={(event) => onDetails(need, status, event.currentTarget)}>
-          <span class="title">{need.title}</span>
+          <span class="title">{needTitle(need)}</span>
           <span class="state">{stateOf(need, status)}</span>
           <span class="place">{need.place}</span>
         </button>
@@ -354,7 +354,7 @@ function Pin({ need, status, canCreate, onCreate, onOpen, onDetails }: PinProps)
           {status === "failed" && need.failure ? ` It couldn't be made: ${need.failure}.` : ""}
         </p>
         {creatable(status) && canCreate && (
-          <button type="button" class="create" aria-label={`${actionOf(status)}: ${need.title}, ${need.place}`} aria-disabled={asking} onClick={create}>
+          <button type="button" class="create" aria-label={`${actionOf(status)}: ${needTitle(need)}, ${need.place}`} aria-disabled={asking} onClick={create}>
             {actionOf(status)}
           </button>
         )}
@@ -404,7 +404,7 @@ function Viewer({ opened, study, onClose, onSources }: ViewerProps) {
         <div class="sheet">
           <header>
             <h2 id="viewer-title">
-              {opened.need.title}
+              {needTitle(opened.need)}
               <span class="place"> {opened.need.place}</span>
             </h2>
             <button type="button" class="close" aria-label="Close" onClick={close}>
@@ -422,11 +422,11 @@ function Viewer({ opened, study, onClose, onSources }: ViewerProps) {
                 playsInline
                 preload="auto"
                 style={fit}
-                aria-label={`${opened.need.title}, ${opened.need.place}, video`}
+                aria-label={`${needTitle(opened.need)}, ${opened.need.place}, video`}
                 aria-describedby={opened.media.alt ? "viewer-alt" : undefined}
               />
             ) : (
-              <img src={opened.media.url} alt={opened.media.alt ?? `${opened.need.title}, ${opened.need.place}`} style={fit} />
+              <img src={opened.media.url} alt={opened.media.alt ?? `${needTitle(opened.need)}, ${opened.need.place}`} style={fit} />
             )}
             <figcaption class="tag">{opened.media.label}</figcaption>
           </figure>
@@ -451,7 +451,7 @@ function Made({ opened, study, onSources, onClose }: { opened: Opened; study: St
   const photos = photosOf(opened.media);
   const open = () => {
     onClose();
-    onSources({ title: `${opened.need.title}, ${opened.need.place}`, sources, steps: [] }, opened.from);
+    onSources({ title: `${needTitle(opened.need)}, ${opened.need.place}`, sources, steps: [] }, opened.from);
   };
   return (
     <p class="made">
@@ -515,13 +515,13 @@ export function Needs({ study, feed, canCreate, onDetails, onViewer }: Props) {
   const details = (need: NeedView, status: NeedStatus, from: Element) =>
     onDetails(
       {
-        title: `${need.title}, ${need.place}`,
+        title: `${needTitle(need)}, ${need.place}`,
         sources: need.citations.map((citation) => ({ label: `p. ${citation.page}`, ...citation })),
         steps: [],
         note: need.reason,
         ...(status === "failed" && need.failure ? { alert: `It couldn't be made: ${need.failure}.` } : {}),
         ...(canCreate && creatable(status)
-          ? { action: { label: actionOf(status), name: `${actionOf(status)}: ${need.title}, ${need.place}`, run: () => void create(need) } }
+          ? { action: { label: actionOf(status), name: `${actionOf(status)}: ${needTitle(need)}, ${need.place}`, run: () => void create(need) } }
           : {}),
       },
       from,

@@ -8,7 +8,7 @@
 // The webhook's address is itself the secret, so it never appears in a log line or
 // an error. Posting never blocks the service: each notice waits its turn in a short
 // queue, times out quickly, is tried twice at most, and is dropped after that.
-import { EXECUTIVE, HANDOVER, NO_ANSWER, type Decision, type LoggedActivity, type Outcome } from "@transit-agents/contracts";
+import { EXECUTIVE, HANDOVER, NO_ANSWER, needTitle, type Decision, type LoggedActivity, type Outcome } from "@transit-agents/contracts";
 import type { Entry } from "./log.ts";
 import type { Service } from "./service.ts";
 
@@ -159,7 +159,7 @@ export function notice(entry: Entry, said: Map<string, string>, service: Service
       if (!studyId || !need) return null;
       const kind = text(entry.data, "kind") === "video" ? "video" : "image";
       const found = service.state.studies.get(studyId)?.needs.get(need);
-      const where = found ? [found.title, found.place].filter(Boolean).join(", ") : need;
+      const where = found ? [needTitle(found, true), found.place].filter(Boolean).join(", ") : need;
       return { headline: `Illustrative ${kind} ready`, detail: where, studies: [studyId] };
     }
   }

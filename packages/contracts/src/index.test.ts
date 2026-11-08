@@ -123,3 +123,13 @@ describe("Escalation", () => {
     assert.throws(() => NewEscalation.parse({ text: " " }));
   });
 });
+
+describe("needTitle", () => {
+  it("drops 'missing' once a need has its image or video", async () => {
+    const { needTitle } = await import("./index.ts");
+    assert.equal(needTitle({ title: "Viaduct rendering missing", media: [] }), "Viaduct rendering missing");
+    assert.equal(needTitle({ title: "Viaduct rendering missing", media: [{}] }), "Viaduct rendering");
+    assert.equal(needTitle({ title: "Viaduct rendering missing" }, true), "Viaduct rendering");
+    assert.equal(needTitle({ title: "Poster at the entrance", media: [{}] }), "Poster at the entrance");
+  });
+});
