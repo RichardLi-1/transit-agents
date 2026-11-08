@@ -41,7 +41,7 @@ const INITIALIZE = {
 async function start({ publicUrl, openAccess = false }: { publicUrl?: string; openAccess?: boolean } = {}) {
   const service = new Service(":memory:");
   const webhooks = new Webhooks(service, "https://example.test", async () => new Response("ok"));
-  const app = createApp({ service, webhooks, tokens: TOKENS, openAccess, publicUrl });
+  const app = createApp({ service, webhooks, tokens: TOKENS, access: openAccess ? "open" : "token", publicUrl });
   const call = (method: string, path: string, token: string, body: unknown) =>
     app.request(path, {
       method,
@@ -119,13 +119,14 @@ describe("mcp", () => {
     const [planner, agent, integration, viewer] = await Promise.all(
       ["planner-token", "agent-token", "integration-token", "viewer-token"].map(names),
     );
-    assert.equal(planner?.length, 26);
-    assert.equal(agent?.length, 20);
+    assert.equal(planner?.length, 27);
+    assert.equal(agent?.length, 21);
+    assert.ok(agent?.includes("whoami"));
     assert.deepEqual(agent?.filter((name) => PLANNER_ONLY.includes(name)), []);
     assert.ok(agent?.includes("record_figure") && agent.includes("report_activity"));
-    assert.equal(integration?.length, 15);
+    assert.equal(integration?.length, 16);
     assert.ok(integration?.includes("add_source") && !integration.includes("record_figure"));
-    assert.equal(viewer?.length, 14);
+    assert.equal(viewer?.length, 15);
     assert.ok(viewer?.includes("read_page") && !viewer.includes("add_source"));
   });
 
@@ -266,7 +267,7 @@ describe("mcp", () => {
 describe("mcp drift", () => {
   it("makes every /v1 route a tool, or says why it isn't one", () => {
     const service = new Service(":memory:");
-    const app = createApp({ service, webhooks: new Webhooks(service), tokens: TOKENS, openAccess: false });
+    const app = createApp({ service, webhooks: new Webhooks(service), tokens: TOKENS, access: "token" });
     const routes = app.routes
       .filter((route) => route.path.startsWith("/v1/") && !route.path.endsWith("*"))
       .map((route) => `${route.method} ${route.path}`);

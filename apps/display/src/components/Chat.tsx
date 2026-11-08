@@ -6,7 +6,7 @@ import { CheckIcon, SendIcon } from "./icons.tsx";
 const number = new Intl.NumberFormat("en-CA");
 const money = new Intl.NumberFormat("en-CA", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 
-export function Chat({ store, studyId }: { store: Store; studyId: string | null }) {
+export function Chat({ store, studyId, canPost }: { store: Store; studyId: string | null; canPost: boolean }) {
   const [text, setText] = useState("");
   const log = useRef<HTMLDivElement>(null);
   const messages = store.messages.filter((m) => m.studyId === studyId);
@@ -56,19 +56,21 @@ export function Chat({ store, studyId }: { store: Store; studyId: string | null 
           {number.format(usage.inputTokens + usage.outputTokens)} tokens · {money.format(usage.costUsd)}
         </p>
       )}
-      <form onSubmit={send}>
-        <input
-          type="text"
-          value={text}
-          aria-label="Message"
-          placeholder="Message"
-          autocomplete="off"
-          onInput={(event) => setText(event.currentTarget.value)}
-        />
-        <button type="submit" aria-label="Send" disabled={!text.trim() || !studyId}>
-          <SendIcon />
-        </button>
-      </form>
+      {canPost && (
+        <form onSubmit={send}>
+          <input
+            type="text"
+            value={text}
+            aria-label="Message"
+            placeholder="Message"
+            autocomplete="off"
+            onInput={(event) => setText(event.currentTarget.value)}
+          />
+          <button type="submit" aria-label="Send" disabled={!text.trim() || !studyId}>
+            <SendIcon />
+          </button>
+        </form>
+      )}
     </aside>
   );
 }

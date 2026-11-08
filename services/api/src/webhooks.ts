@@ -98,8 +98,10 @@ export class Webhooks {
     this.service.log.db
       .prepare("INSERT INTO subscriptions (id, url, types, format, secret, cursor) VALUES (?, ?, ?, ?, ?, ?)")
       .run(id, input.url, JSON.stringify(input.types), input.format, input.secret ?? null, cursor);
-    // The address is recorded, but never the secret.
-    this.service.log.append({ actor, type: "subscription.added", data: { id, url: input.url, types: input.types, format: input.format } });
+    // Only the host is recorded. A Slack or Teams address is itself a secret, and
+    // anyone who can read the log could post with it. The signing secret never is.
+    const host = new URL(input.url).host;
+    this.service.log.append({ actor, type: "subscription.added", data: { id, host, types: input.types, format: input.format } });
     return { id, url: input.url, types: input.types, format: input.format };
   }
 

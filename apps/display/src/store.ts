@@ -2,7 +2,7 @@
 // fresh study values when something changes. It holds no truth of its own.
 import { useEffect, useState } from "preact/hooks";
 import type { Activity, Context, LogEntry, StudyView, Usage } from "@transit-agents/contracts";
-import { api, eventsUrl } from "./api.ts";
+import { api, bearer, eventsUrl } from "./api.ts";
 
 export type Message = { seq: number; studyId: string | null; from: "agent" | "planner"; text: string };
 
@@ -102,12 +102,17 @@ const EVENT_TYPES = [
   "activity",
 ];
 
-export function useStore(): Store {
+// Connects once the display knows who it is, and so which token to send.
+export function useStore(ready: boolean): Store {
   const [store, setStore] = useState(initial);
 
   useEffect(() => {
+    if (!ready) return;
     let refresh = 0;
     let idle = 0;
+    let last = 0;
+    let stopped = false;
+    let source: EventSource | undefined;
     const loadStudies = () => {
       clearTimeout(refresh);
       refresh = window.setTimeout(async () => {
@@ -118,11 +123,9 @@ export function useStore(): Store {
       }, 120);
     };
 
-    const source = new EventSource(eventsUrl());
-    source.onopen = () => setStore((s) => ({ ...s, connected: true }));
-    source.onerror = () => setStore((s) => ({ ...s, connected: false }));
     const onEntry = (event: MessageEvent<string>) => {
       const entry = JSON.parse(event.data) as LogEntry;
+      last = entry.seq;
       setStore((s) => reduce(s, entry));
       if (REFRESHES.test(entry.type)) loadStudies();
       if (entry.type === "activity" && (entry.data as Activity).kind === "reading") {
@@ -130,14 +133,33 @@ export function useStore(): Store {
         idle = window.setTimeout(() => setStore((s) => ({ ...s, reading: null })), READING_MS);
       }
     };
-    for (const type of EVENT_TYPES) source.addEventListener(type, onEntry as EventListener);
+
+    const connect = async () => {
+      const token = await bearer();
+      if (stopped) return;
+      const stream = new EventSource(eventsUrl(token, last));
+      source = stream;
+      stream.onopen = () => setStore((s) => ({ ...s, connected: true }));
+      stream.onerror = () => {
+        setStore((s) => ({ ...s, connected: false }));
+        // The browser reconnects by itself, unless the service refused the token.
+        // A signed-in person's token expires, so try again only with a new one.
+        if (stream.readyState !== EventSource.CLOSED) return;
+        void bearer().then((next) => {
+          if (next !== token && !stopped) void connect();
+        });
+      };
+      for (const type of EVENT_TYPES) stream.addEventListener(type, onEntry as EventListener);
+    };
+    void connect();
 
     return () => {
-      source.close();
+      stopped = true;
+      source?.close();
       clearTimeout(refresh);
       clearTimeout(idle);
     };
-  }, []);
+  }, [ready]);
 
   return store;
 }

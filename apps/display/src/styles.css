@@ -13,6 +13,8 @@
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --serif: "New York", "Iowan Old Style", Georgia, "Times New Roman", serif;
   --chat: 340px;
+  /* A row of folders: the icons, their names and the padding around them. */
+  --shelf: 119px;
   color-scheme: light;
 }
 
@@ -84,11 +86,14 @@ button {
 
 /* Context folders ------------------------------------------------------- */
 
+/* Comes before the map in the page, so Tab reaches the folders before the account
+   controls beside them, and is lifted above the map. */
 .shelf {
   position: fixed;
   top: 18px;
   left: 24px;
   right: calc(var(--chat) + 40px);
+  z-index: 1;
   border-radius: 18px;
   transition: background 0.2s, box-shadow 0.2s;
 }
@@ -101,6 +106,7 @@ button {
 .shelf ul {
   display: flex;
   gap: 8px;
+  min-height: var(--shelf);
   margin: 0;
   padding: 6px;
   list-style: none;
@@ -495,12 +501,7 @@ input[type="range"] {
   overflow: hidden;
 }
 
-/* Floats over the log, so its arrival never moves the messages. */
-.chat .tag {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  z-index: 1;
+.tag {
   margin: 0;
   padding: 2px 8px;
   border-radius: 999px;
@@ -508,6 +509,14 @@ input[type="range"] {
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
+}
+
+/* Floats over the log, so its arrival never moves the messages. */
+.chat .tag {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 1;
 }
 
 .chat .log {
@@ -625,6 +634,62 @@ input[type="range"] {
   background: #e5e5ea;
   color: var(--muted);
   cursor: default;
+}
+
+/* Account --------------------------------------------------------------- */
+
+/* Floats in the top of the chat panel, clear of the Replay tag, so its arrival
+   moves nothing. */
+.account {
+  position: fixed;
+  top: 25px;
+  right: 18px;
+  z-index: 1;
+  width: var(--chat);
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  pointer-events: none;
+}
+
+.account > * {
+  pointer-events: auto;
+}
+
+.account .tag {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account button {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.account button:hover {
+  background: #f5f5f7;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .account {
+    animation: appear 0.3s ease-out;
+  }
+}
+
+@keyframes appear {
+  from {
+    opacity: 0;
+  }
 }
 
 /* Quick Look ------------------------------------------------------------ */
@@ -785,6 +850,20 @@ input[type="range"] {
     margin: 12px 8px 0;
   }
 
+  /* Just under the folders, and scrolls with them. */
+  header {
+    position: relative;
+  }
+
+  .account {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: auto;
+    left: 14px;
+    width: auto;
+    padding: 0;
+  }
+
   /* Room is held for the study card, so its arrival doesn't push the chat down. */
   .stage {
     position: relative;
@@ -828,6 +907,27 @@ input[type="range"] {
   .round,
   .chat button[type="submit"] {
     forced-color-adjust: none;
+  }
+
+  /* Said outright, so contrast checkers, which read the colour each rule sets,
+     read the forced colours too. */
+  html,
+  body,
+  .tag,
+  .checks .label,
+  .sub,
+  .sub .question,
+  .when .clock,
+  .track .legend,
+  .bubble.planner {
+    color: CanvasText;
+  }
+
+  button,
+  .figure,
+  .finding,
+  .account button {
+    color: ButtonText;
   }
 }
 

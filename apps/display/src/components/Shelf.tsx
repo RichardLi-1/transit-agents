@@ -11,11 +11,14 @@ async function upload(file: File) {
 
 const extension = (title: string) => /\.(\w{1,4})$/.exec(title)?.[1]?.toUpperCase() ?? "";
 
-export function Shelf({ contexts, reading, highlight }: { contexts: Context[]; reading: string | null; highlight: string | null }) {
+type Props = { contexts: Context[]; reading: string | null; highlight: string | null; canAdd: boolean };
+
+export function Shelf({ contexts, reading, highlight, canAdd }: Props) {
   const [dragging, setDragging] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    if (!canAdd) return;
     let depth = 0;
     const enter = (event: DragEvent) => {
       if (!event.dataTransfer?.types.includes("Files")) return;
@@ -44,7 +47,7 @@ export function Shelf({ contexts, reading, highlight }: { contexts: Context[]; r
       window.removeEventListener("dragleave", leave);
       window.removeEventListener("drop", drop);
     };
-  }, []);
+  }, [canAdd]);
 
   const folders = new Map<string, Context[]>();
   const loose: Context[] = [];
@@ -76,24 +79,26 @@ export function Shelf({ contexts, reading, highlight }: { contexts: Context[]; r
             </span>
           </li>
         ))}
-        <li class="item">
-          <button type="button" class="add" aria-label="Add context" onClick={() => input.current?.click()}>
-            <PlusIcon />
-          </button>
-          <input
-            ref={input}
-            class="sr-only"
-            type="file"
-            multiple
-            tabIndex={-1}
-            aria-hidden="true"
-            onChange={(event) => {
-              const target = event.currentTarget;
-              for (const file of target.files ?? []) void upload(file);
-              target.value = "";
-            }}
-          />
-        </li>
+        {canAdd && (
+          <li class="item">
+            <button type="button" class="add" aria-label="Add context" onClick={() => input.current?.click()}>
+              <PlusIcon />
+            </button>
+            <input
+              ref={input}
+              class="sr-only"
+              type="file"
+              multiple
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={(event) => {
+                const target = event.currentTarget;
+                for (const file of target.files ?? []) void upload(file);
+                target.value = "";
+              }}
+            />
+          </li>
+        )}
       </ul>
     </nav>
   );

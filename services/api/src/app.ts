@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { Hono, type Context as HonoContext } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
@@ -20,7 +21,11 @@ import {
   NewSkill,
   NewStudy,
   NewSubscription,
+  type AccessMode,
+  type Me,
   type Role,
+  type ServiceConfig,
+  type SignIn,
 } from "@transit-agents/contracts";
 import { extractPages } from "./extract.ts";
 import type { Entry } from "./log.ts";
@@ -30,15 +35,25 @@ import type { Webhooks } from "./webhooks.ts";
 
 export type Actor = { role: Role; name: string };
 
+// A verifier can also say who stands behind a token, such as its Auth0 subject.
+// Two people can share a name, but not a subject.
+export type Verified = Actor & { subject?: string };
+
 export type AppOptions = {
   service: Service;
   webhooks: Webhooks;
   tokens: Map<string, Actor>;
-  // Open access makes a request without a token act as a local planner. It is
-  // for a demo on a machine you control, and must be switched on explicitly.
-  // Without it, every /v1 request needs a token.
-  openAccess: boolean;
-  // Hosts webhooks may send to. Without open access, an empty list allows none,
+  // Checks a bearer token that isn't one of `tokens`, such as an Auth0 access
+  // token. Resolves to undefined when the token doesn't check out.
+  verifyToken?: (token: string) => Promise<Verified | undefined>;
+  // What a request without a token may do. In "token" mode, every /v1 request
+  // needs a token. "demo" is for a public demo: a request without one reads as a
+  // viewer, and writes still need a token. "open" makes it a local planner, for a
+  // machine you control. A token that is sent is always checked, in every mode.
+  access: AccessMode;
+  // How people sign in. /v1/config tells the display.
+  signIn?: SignIn | null;
+  // Hosts webhooks may send to. Except in open mode, an empty list allows none,
   // so nothing can be sent anywhere nobody approved.
   webhookHosts?: string[];
   staticDir?: string;
@@ -49,7 +64,15 @@ export type AppOptions = {
   publicUrl?: string;
 };
 
-type Env = { Variables: { actor: Actor } };
+// The principal is the credential behind a request, which a name alone can't tell apart.
+type Env = { Variables: { actor: Actor; principal: string; anonymous?: boolean } };
+
+// Who a request without a token acts as, in each mode.
+const ANONYMOUS: Record<AccessMode, Actor | undefined> = {
+  token: undefined,
+  open: { role: "planner", name: "local" },
+  demo: { role: "viewer", name: "demo" },
+};
 
 const anyone: Role[] = ["viewer", "integration", "agent", "planner"];
 const contributors: Role[] = ["integration", "agent", "planner"];
@@ -57,6 +80,11 @@ const authors: Role[] = ["agent", "planner"];
 const planners: Role[] = ["planner"];
 // Agents can't create subscriptions: one could otherwise send the log anywhere.
 const integrators: Role[] = ["integration", "planner"];
+
+// Bodies are read only up to a limit, so nobody can make the service hold a huge
+// one. Context can be a whole document, so a contributor gets more room for it.
+const BODY_LIMIT = 1024 * 1024;
+const CONTEXT_LIMIT = 50 * 1024 * 1024;
 
 const Preview = z.object({
   assumptions: z.record(z.string(), z.number()).optional(),
@@ -88,21 +116,41 @@ const CONTENT_TYPES: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
 };
 
-const SECURITY_HEADERS: Record<string, string> = {
-  "content-security-policy":
-    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'",
-  "x-content-type-options": "nosniff",
-  "referrer-policy": "no-referrer",
-  "cross-origin-opener-policy": "same-origin",
-};
+// When people can sign in, the page talks to the Auth0 tenant, and renews their
+// token in a hidden frame from it.
+function securityHeaders(signIn: SignIn | null): Record<string, string> {
+  const tenant = signIn ? ` https://${signIn.domain}` : "";
+  const policy = [
+    "default-src 'self'",
+    "img-src 'self' data:",
+    "style-src 'self' 'unsafe-inline'",
+    `connect-src 'self'${tenant}`,
+    ...(signIn ? [`frame-src 'self'${tenant}`] : []),
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+  ];
+  return {
+    "content-security-policy": policy.join("; "),
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+    "cross-origin-opener-policy": "same-origin",
+  };
+}
 
 export function createApp(options: AppOptions) {
-  const { service, webhooks, tokens, openAccess, staticDir, live, timeline, webhookHosts = [] } = options;
+  const { service, webhooks, tokens, verifyToken, access, signIn = null, staticDir, live, timeline, webhookHosts = [] } = options;
+  const anonymous = ANONYMOUS[access];
+  // A person who signs in can't act as a static token, or as whoever a request
+  // without a token acts as. Otherwise the log couldn't tell them apart.
+  const taken = new Set([...tokens.values(), ...Object.values(ANONYMOUS)].map((actor) => actor && `${actor.role}:${actor.name}`));
+  const headers = securityHeaders(signIn);
   const app = new Hono<Env>();
 
   app.use("*", async (c, next) => {
     await next();
-    for (const [key, value] of Object.entries(SECURITY_HEADERS)) c.header(key, value);
+    for (const [key, value] of Object.entries(headers)) c.header(key, value);
   });
 
   app.onError((error, c) => {
@@ -113,25 +161,50 @@ export function createApp(options: AppOptions) {
     return c.json({ error: { code, message } }, status as 400);
   });
 
+  // Public routes need no token and read none, so a client holding a stale token
+  // can still find out how to sign in. Filled in as routes are registered.
+  const publicRoutes = new Set<string>();
   app.use("/v1/*", async (c, next) => {
+    if (publicRoutes.has(`${c.req.method} ${c.req.path}`)) return next();
     const header = c.req.header("authorization");
+    // The scheme is case-insensitive. Any other Authorization header still presents
+    // a credential, so it is refused, never read as no token.
+    const bearer = header === undefined ? undefined : /^bearer +(\S+)$/i.exec(header)?.[1];
+    if (header !== undefined && bearer === undefined) throw new ApiError(401, "bad_token", "Unknown token");
     // EventSource can't send headers, so the event stream also takes a query token.
-    const queryToken = c.req.path === "/v1/events" ? c.req.query("access_token") : undefined;
-    const token = header?.startsWith("Bearer ") ? header.slice(7) : queryToken;
+    const token = bearer ?? (c.req.path === "/v1/events" ? c.req.query("access_token") : undefined);
     if (token !== undefined) {
-      const actor = tokens.get(token);
-      if (!actor) throw new ApiError(401, "bad_token", "Unknown token");
+      // A bad token is refused. It never falls back to acting without one.
+      const known = tokens.get(token);
+      const actor: Verified | undefined = known ?? (await verifyToken?.(token).catch(() => undefined));
+      if (!actor || (!known && taken.has(`${actor.role}:${actor.name}`))) throw new ApiError(401, "bad_token", "Unknown token");
       c.set("actor", actor);
-    } else if (openAccess) {
-      c.set("actor", { role: "planner", name: "local" });
+      // A static token is told apart by its hash, and a person by their subject.
+      const credential = known ? `token:${createHash("sha256").update(token).digest("hex")}` : `person:${actor.subject ?? `${actor.role}:${actor.name}`}`;
+      c.set("principal", credential);
+    } else if (anonymous) {
+      c.set("actor", anonymous);
+      c.set("principal", "anonymous");
+      c.set("anonymous", true);
     } else {
       throw new ApiError(401, "token_required", "A token is required");
     }
     await next();
   });
 
+  const tooLarge = (): never => {
+    throw new ApiError(413, "too_large", "The request body is too large");
+  };
+  const limit = bodyLimit({ maxSize: BODY_LIMIT, onError: tooLarge });
+  const contextLimit = bodyLimit({ maxSize: CONTEXT_LIMIT, onError: tooLarge });
+  app.use("/v1/*", (c, next) => {
+    const contributor = c.req.path === "/v1/context" && contributors.includes(c.get("actor")?.role);
+    return (contributor ? contextLimit : limit)(c, next);
+  });
+
   // A client that retries after a timeout can send the same Idempotency-Key, and
-  // gets the first response back instead of writing twice.
+  // gets the first response back instead of writing twice. Records are kept per
+  // credential, in the actor column, since two credentials can share a name.
   service.log.db.exec(`
     CREATE TABLE IF NOT EXISTS idempotency (
       actor TEXT NOT NULL,
@@ -144,17 +217,19 @@ export function createApp(options: AppOptions) {
   app.use("/v1/*", async (c, next) => {
     const key = c.req.header("idempotency-key");
     // Not on /v1/mcp: a client sends its headers with every message there, so one
-    // key would answer each later message with the first one's reply.
-    if (!key || c.req.method === "GET" || c.req.path === "/v1/mcp") return next();
-    const actor = actorName(c);
-    const seen = service.log.db.prepare("SELECT status, body FROM idempotency WHERE actor = ? AND key = ?").get(actor, key) as
+    // key would answer each later message with the first one's reply. A viewer can
+    // only preview, which writes nothing, so it keeps no record either. Otherwise
+    // anyone reading a public demo could fill this table.
+    if (!key || c.req.method === "GET" || c.req.path === "/v1/mcp" || c.get("actor").role === "viewer") return next();
+    const principal = c.get("principal");
+    const seen = service.log.db.prepare("SELECT status, body FROM idempotency WHERE actor = ? AND key = ?").get(principal, key) as
       | { status: number; body: string }
       | undefined;
     if (seen) return c.body(seen.body, seen.status as 200, { "content-type": "application/json", "idempotent-replay": "true" });
     await next();
     if (c.res.ok) {
       const body = await c.res.clone().text();
-      service.log.db.prepare("INSERT OR IGNORE INTO idempotency (actor, key, status, body) VALUES (?, ?, ?, ?)").run(actor, key, c.res.status, body);
+      service.log.db.prepare("INSERT OR IGNORE INTO idempotency (actor, key, status, body) VALUES (?, ?, ?, ?)").run(principal, key, c.res.status, body);
     }
   });
 
@@ -163,11 +238,31 @@ export function createApp(options: AppOptions) {
     path: string;
     summary: string;
     roles: Role[];
+    // Needs no token, in any mode.
+    public?: boolean;
     body?: z.ZodType;
     handler: (c: HonoContext<Env>) => Response | Promise<Response>;
   };
 
   const routes: Route[] = [
+    {
+      method: "get",
+      path: "/v1/config",
+      summary: "How to sign in, and what a request without a token may do. Needs no token",
+      roles: anyone,
+      public: true,
+      handler: (c) => c.json({ auth: access, signIn } satisfies ServiceConfig),
+    },
+    {
+      method: "get",
+      path: "/v1/me",
+      summary: "Who you are: your role and name",
+      roles: anyone,
+      handler: (c) => {
+        const { role, name } = c.get("actor");
+        return c.json({ role, name } satisfies Me);
+      },
+    },
     {
       method: "post",
       path: "/v1/context",
@@ -397,7 +492,7 @@ export function createApp(options: AppOptions) {
       handler: async (c) => {
         const input = await bodyOf(c, NewSubscription);
         const host = new URL(input.url).hostname;
-        if (!openAccess && !webhookHosts.includes(host)) {
+        if (access !== "open" && !webhookHosts.includes(host)) {
           throw new ApiError(403, "host_not_allowed", `Webhooks to ${host} are not allowed. Add it to WEBHOOK_HOSTS`);
         }
         return c.json(webhooks.add(actorName(c), input), 201);
@@ -413,8 +508,11 @@ export function createApp(options: AppOptions) {
   ];
 
   for (const route of routes) {
+    if (route.public) publicRoutes.add(`${route.method.toUpperCase()} ${route.path}`);
     app[route.method](route.path, async (c) => {
-      if (!route.roles.includes(c.get("actor").role)) {
+      if (!route.public && !route.roles.includes(c.get("actor").role)) {
+        // Without a token, anything beyond reading needs one, as in token mode.
+        if (c.get("anonymous")) throw new ApiError(401, "token_required", "A token is required");
         throw new ApiError(403, "forbidden", `This needs a ${route.roles.join(" or ")} token, not ${c.get("actor").role}`);
       }
       return route.handler(c);
@@ -468,6 +566,7 @@ export function createApp(options: AppOptions) {
       (paths[path] as Record<string, unknown>)[route.method] = {
         summary: route.summary,
         "x-roles": route.roles,
+        ...(route.public ? { security: [] } : {}),
         ...(route.body
           ? { requestBody: { content: { "application/json": { schema: z.toJSONSchema(route.body, { io: "input", unrepresentable: "any" }) } } } }
           : {}),
@@ -475,7 +574,13 @@ export function createApp(options: AppOptions) {
       };
     }
     paths["/v1/events"] = { get: { summary: "Stream the log as server-sent events", "x-roles": anyone, responses: { default: { description: "Event stream" } } } };
-    return c.json({ openapi: "3.1.0", info: { title: "Transit Agents", version: "0.1.0" }, paths });
+    return c.json({
+      openapi: "3.1.0",
+      info: { title: "Transit Agents", version: "0.1.0" },
+      components: { securitySchemes: { token: { type: "http", scheme: "bearer" } } },
+      security: [{ token: [] }],
+      paths,
+    });
   });
 
   app.get("/health", (c) => c.json({ ok: true, head: service.log.head() }));

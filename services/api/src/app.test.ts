@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync, existsSync, readdirSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { createApp, type Actor } from "./app.ts";
+import type { AccessMode, SignIn } from "@transit-agents/contracts";
+import { createApp, type Actor, type Verified } from "./app.ts";
 import { watchInbox } from "./inbox.ts";
 import { Service } from "./service.ts";
 import { describe as describeEntry, format, sign, Webhooks } from "./webhooks.ts";
@@ -15,10 +16,18 @@ const TOKENS = new Map<string, Actor>([
   ["viewer-token", { role: "viewer", name: "auditor" }],
 ]);
 
-function setup({ openAccess = false, post, webhookHosts = ["hook.test"] }: { openAccess?: boolean; post?: typeof fetch; webhookHosts?: string[] } = {}) {
+type Setup = {
+  access?: AccessMode;
+  signIn?: SignIn;
+  verifyToken?: (token: string) => Promise<Actor | undefined>;
+  post?: typeof fetch;
+  webhookHosts?: string[];
+};
+
+function setup({ access = "token", signIn, verifyToken, post, webhookHosts = ["hook.test"] }: Setup = {}) {
   const service = new Service(":memory:");
   const webhooks = new Webhooks(service, "https://example.test", post ?? (async () => new Response("ok")));
-  const app = createApp({ service, webhooks, tokens: TOKENS, openAccess, webhookHosts });
+  const app = createApp({ service, webhooks, tokens: TOKENS, verifyToken, access, signIn, webhookHosts });
   const call = (method: string, path: string, token?: string, body?: unknown) =>
     app.request(path, {
       method,
@@ -30,6 +39,7 @@ function setup({ openAccess = false, post, webhookHosts = ["hook.test"] }: { ope
 
 const STUDY = { id: "lawrence", title: "Lawrence–Sunnybrook" };
 const DECISION = { outcome: "adopt", reason: "Passes the tests", decidedBy: "Ana Ruiz" };
+const SIGN_IN: SignIn = { provider: "auth0", domain: "tenant.auth0.test", clientId: "display-client", audience: "https://api.transit.test" };
 
 describe("roles", () => {
   it("refuses a decision from an agent", async () => {
@@ -62,7 +72,7 @@ describe("roles", () => {
 
   it("turns away a caller with no token, unless open access was chosen", async () => {
     assert.equal((await setup().call("GET", "/v1/studies")).status, 401);
-    assert.equal((await setup({ openAccess: true }).call("GET", "/v1/studies")).status, 200);
+    assert.equal((await setup({ access: "open" }).call("GET", "/v1/studies")).status, 200);
   });
 
   it("lets a viewer read and nothing else", async () => {
@@ -88,15 +98,208 @@ describe("roles", () => {
   });
 
   it("rejects an unknown token", async () => {
-    const { call } = setup({ openAccess: true });
+    const { call } = setup({ access: "open" });
     assert.equal((await call("GET", "/v1/studies", "wrong")).status, 401);
   });
 
+  it("rejects a token its verifier can't check, such as when the keys can't be fetched", async () => {
+    const { call } = setup({ access: "demo", verifyToken: () => Promise.reject(new TypeError("fetch failed")) });
+    assert.equal((await call("GET", "/v1/studies", "a-person")).status, 401);
+    assert.equal((await call("GET", "/v1/studies", "agent-token")).status, 200);
+  });
+
   it("keeps an agent an agent, even when local access is open", async () => {
-    const { call } = setup({ openAccess: true });
+    const { call } = setup({ access: "open" });
     await call("POST", "/v1/studies", undefined, STUDY);
     assert.equal((await call("POST", "/v1/studies/lawrence/decisions", "agent-token", DECISION)).status, 403);
     assert.equal((await call("POST", "/v1/studies/lawrence/decisions", undefined, DECISION)).status, 201);
+  });
+
+  it("reads the scheme in any case, and refuses any other Authorization header instead of acting without it", async () => {
+    for (const access of ["token", "demo", "open"] as const) {
+      const { app } = setup({ access });
+      const me = (authorization: string) => app.request("/v1/me", { headers: { authorization } });
+      assert.deepEqual(await (await me("bearer agent-token")).json(), { role: "agent", name: "lead" }, access);
+      for (const authorization of ["bearer wrong", "Bearer", "Bearer agent-token extra", "Basic YWdlbnQ6dG9rZW4="]) {
+        const response = await me(authorization);
+        assert.equal(response.status, 401, `${access}: ${authorization}`);
+        assert.equal((await response.json()).error.code, "bad_token", `${access}: ${authorization}`);
+      }
+    }
+  });
+});
+
+describe("demo mode", () => {
+  const PLAN = { id: "plan", title: "2026 Plan", pages: [{ page: 1, text: "a weekly system ridership increase of 1,680 customers" }] };
+  const FIGURE = { id: "riders", label: "Riders", value: 1680, basis: { kind: "cited", citation: { contextId: "plan", page: 1, quote: "ridership increase of 1,680 customers" } } };
+
+  // A study with a source and an agent's message, so each write has a real target.
+  async function demo() {
+    const app = setup({ access: "demo" });
+    assert.equal((await app.call("POST", "/v1/context", "integration-token", PLAN)).status, 201);
+    assert.equal((await app.call("POST", "/v1/studies", "agent-token", STUDY)).status, 201);
+    assert.equal((await app.call("POST", "/v1/studies/lawrence/activity", "agent-token", { kind: "message", text: "Reading the plan" })).status, 201);
+    return app;
+  }
+
+  it("lets anyone read, preview and follow events without a token", async () => {
+    const { app, call } = await demo();
+    for (const path of ["/v1/studies", "/v1/studies/lawrence", "/v1/context", "/v1/context/plan/pages/1", "/v1/log", "/v1/usage"]) {
+      assert.equal((await call("GET", path)).status, 200, path);
+    }
+    assert.equal((await call("POST", "/v1/studies/lawrence/preview", undefined, { assumptions: {} })).status, 200);
+    const controller = new AbortController();
+    const events = await app.request("/v1/events?types=study.opened", { signal: controller.signal });
+    assert.equal(events.headers.get("content-type"), "text/event-stream");
+    const reader = (events.body as ReadableStream<Uint8Array>).getReader();
+    assert.match(new TextDecoder().decode((await reader.read()).value), /event: study\.opened/);
+    await reader.cancel();
+    controller.abort();
+  });
+
+  it("needs a token for a figure, decision, upload, rule change, webhook or content removal", async () => {
+    const { app, call, service } = await demo();
+    const head = service.log.head().seq;
+    const upload = new FormData();
+    upload.set("file", new File(["route,trips\n52,300\n"], "hastus-export.csv"));
+    const writes = {
+      figure: await call("POST", "/v1/studies/lawrence/figures", undefined, FIGURE),
+      decision: await call("POST", "/v1/studies/lawrence/decisions", undefined, DECISION),
+      upload: await app.request("/v1/context", { method: "POST", body: upload }),
+      rule: await call("PUT", "/v1/assumptions/min-riders-per-100", undefined, { value: 1, reason: "Lower the bar" }),
+      webhook: await call("POST", "/v1/subscriptions", undefined, { url: "https://hook.test/x" }),
+      removal: await call("POST", `/v1/log/${head}/remove-content`, undefined, { reason: "Privacy request" }),
+    };
+    for (const [write, response] of Object.entries(writes)) {
+      assert.equal(response.status, 401, write);
+      assert.equal((await response.json()).error.code, "token_required", write);
+    }
+    assert.equal(service.log.head().seq, head);
+  });
+
+  it("refuses every route a viewer can't call, as token mode does", async () => {
+    const { app, call } = setup({ access: "demo" });
+    const spec = await (await app.request("/openapi.json")).json();
+    for (const [path, operations] of Object.entries(spec.paths as Record<string, Record<string, { "x-roles": string[] }>>)) {
+      for (const [method, operation] of Object.entries(operations)) {
+        if (operation["x-roles"].includes("viewer")) continue;
+        assert.equal((await call(method.toUpperCase(), path.replace(/\{\w+\}/g, "x"), undefined, {})).status, 401, `${method} ${path}`);
+      }
+    }
+  });
+
+  it("keeps no idempotency record for a preview", async () => {
+    const { app, service } = await demo();
+    const preview = () =>
+      app.request("/v1/studies/lawrence/preview", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": "k1" }, body: "{}" });
+    assert.equal((await preview()).status, 200);
+    assert.equal((await preview()).headers.get("idempotent-replay"), null);
+    assert.equal((service.log.db.prepare("SELECT count(*) AS n FROM idempotency").get() as { n: number }).n, 0);
+  });
+
+  it("still takes tokens, and refuses a bad one instead of reading as the demo viewer", async () => {
+    const { app, call, service } = setup({ access: "demo" });
+    assert.equal((await call("POST", "/v1/studies", "agent-token", STUDY)).status, 201);
+    assert.equal((await call("POST", "/v1/studies/lawrence/decisions", "viewer-token", DECISION)).status, 403);
+    assert.equal((await call("POST", "/v1/studies/lawrence/decisions", "planner-token", DECISION)).status, 201);
+    assert.equal(service.log.since(0).at(-1)?.actor, "planner:ana");
+    assert.equal((await call("GET", "/v1/studies", "wrong")).status, 401);
+    assert.equal((await app.request("/v1/events?access_token=wrong")).status, 401);
+  });
+
+  it("sends webhooks only to approved hosts, as token mode does", async () => {
+    const { call } = setup({ access: "demo" });
+    assert.equal((await call("POST", "/v1/subscriptions", "integration-token", { url: "https://attacker.test/x" })).status, 403);
+    assert.equal((await call("POST", "/v1/subscriptions", "integration-token", { url: "https://hook.test/x" })).status, 201);
+  });
+});
+
+describe("config", () => {
+  it("tells anyone how to sign in, even in token mode", async () => {
+    const response = await setup({ signIn: SIGN_IN }).call("GET", "/v1/config");
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      auth: "token",
+      signIn: { provider: "auth0", domain: "tenant.auth0.test", clientId: "display-client", audience: "https://api.transit.test" },
+    });
+  });
+
+  it("names the mode, and has no sign-in when Auth0 isn't set up", async () => {
+    for (const access of ["token", "open", "demo"] as const) {
+      assert.deepEqual(await (await setup({ access }).call("GET", "/v1/config")).json(), { auth: access, signIn: null });
+    }
+  });
+
+  it("reads no token, so a stale one can't hide how to sign in", async () => {
+    assert.equal((await setup().call("GET", "/v1/config", "stale-token")).status, 200);
+    assert.equal((await setup().call("POST", "/v1/config")).status, 401);
+  });
+});
+
+describe("me", () => {
+  const me = async (options: Setup, token?: string) => (await setup(options).call("GET", "/v1/me", token)).json();
+
+  it("says who the caller is", async () => {
+    assert.deepEqual(await me({}, "planner-token"), { role: "planner", name: "ana" });
+    assert.deepEqual(await me({}, "viewer-token"), { role: "viewer", name: "auditor" });
+    assert.deepEqual(await me({ access: "demo" }, "agent-token"), { role: "agent", name: "lead" });
+  });
+
+  it("names whoever a request without a token acts as", async () => {
+    assert.deepEqual(await me({ access: "demo" }), { role: "viewer", name: "demo" });
+    assert.deepEqual(await me({ access: "open" }), { role: "planner", name: "local" });
+    assert.equal((await setup().call("GET", "/v1/me")).status, 401);
+  });
+});
+
+describe("security headers", () => {
+  const policy = async (signIn?: SignIn) => {
+    const header = (await setup({ signIn }).app.request("/health")).headers.get("content-security-policy") ?? "";
+    return new Map(header.split("; ").map((directive) => [directive.split(" ")[0], directive.split(" ").slice(1).join(" ")]));
+  };
+
+  it("keeps the page to its own origin", async () => {
+    const response = await setup().app.request("/health");
+    assert.equal(
+      response.headers.get("content-security-policy"),
+      "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'",
+    );
+  });
+
+  it("lets the page reach and frame the Auth0 tenant once people can sign in, and changes nothing else", async () => {
+    const without = await policy();
+    const signIn = await policy(SIGN_IN);
+    assert.equal(signIn.get("connect-src"), "'self' https://tenant.auth0.test");
+    assert.equal(signIn.get("frame-src"), "'self' https://tenant.auth0.test");
+    for (const name of ["connect-src", "frame-src"]) {
+      signIn.delete(name);
+      without.delete(name);
+    }
+    assert.deepEqual(signIn, without);
+  });
+});
+
+describe("request bodies", () => {
+  it("refuses a body over 1 MB from anyone, whether or not it gives its length", async () => {
+    const { app, call } = setup({ access: "demo" });
+    await call("POST", "/v1/studies", "agent-token", STUDY);
+    const body = JSON.stringify({ assumptions: {}, pad: "a".repeat(1024 * 1024) });
+    const preview = (init: RequestInit) => app.request("/v1/studies/lawrence/preview", { method: "POST", ...init });
+    const responses = [
+      await preview({ headers: { "content-type": "application/json", "content-length": String(body.length) }, body }),
+      await preview({ headers: { "content-type": "application/json" }, body: new Blob([body]).stream(), duplex: "half" } as RequestInit),
+    ];
+    for (const response of responses) {
+      assert.equal(response.status, 413);
+      assert.equal((await response.json()).error.code, "too_large");
+    }
+    assert.equal((await call("POST", "/v1/studies/lawrence/preview", undefined, { assumptions: {} })).status, 200);
+  });
+
+  it("gives a contributor room to add a whole document as context", async () => {
+    const { call } = setup();
+    const pages = [{ page: 1, text: "a".repeat(4 * 1024 * 1024) }];
+    assert.equal((await call("POST", "/v1/context", "integration-token", { id: "plan", title: "2026 Plan", pages })).status, 201);
   });
 });
 
@@ -115,6 +318,24 @@ describe("idempotency", () => {
     assert.equal(second.status, 201);
     assert.equal(second.headers.get("idempotent-replay"), "true");
     assert.equal(service.log.since(0).filter((e) => e.type === "study.opened").length, 1);
+  });
+
+  it("keeps records per credential, so two people who share a name never get each other's response", async () => {
+    const people: Record<string, Verified> = {
+      "kim-1": { role: "agent", name: "kim", subject: "auth0|1" },
+      "kim-2": { role: "agent", name: "kim", subject: "auth0|2" },
+    };
+    const { app, service } = setup({ verifyToken: async (token) => people[token] });
+    for (const token of ["kim-1", "kim-2"]) {
+      const response = await app.request("/v1/studies", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": "k1" },
+        body: JSON.stringify({ id: token, title: token }),
+      });
+      assert.equal(response.status, 201, token);
+      assert.equal(response.headers.get("idempotent-replay"), null, token);
+    }
+    assert.deepEqual([...service.state.studies.keys()], ["kim-1", "kim-2"]);
   });
 });
 
@@ -140,6 +361,16 @@ describe("openapi", () => {
     assert.deepEqual(decisions["x-roles"], ["planner"]);
     assert.ok(decisions.requestBody);
     assert.ok(spec.paths["/v1/events"]);
+  });
+
+  it("lists config as needing no token, and me as open to any role", async () => {
+    const { app } = setup();
+    const spec = await (await app.request("/openapi.json")).json();
+    assert.deepEqual(spec.security, [{ token: [] }]);
+    assert.deepEqual(spec.paths["/v1/config"].get.security, []);
+    assert.deepEqual(spec.paths["/v1/config"].get["x-roles"], ["viewer", "integration", "agent", "planner"]);
+    assert.deepEqual(spec.paths["/v1/me"].get["x-roles"], ["viewer", "integration", "agent", "planner"]);
+    assert.equal(spec.paths["/v1/me"].get.security, undefined);
   });
 });
 
@@ -198,6 +429,18 @@ describe("webhooks", () => {
     const { call, service } = setup();
     await call("POST", "/v1/subscriptions", "integration-token", { url: "https://hook.test/x", secret: "a-long-shared-secret" });
     assert.doesNotMatch(JSON.stringify(service.log.since(0)), /a-long-shared-secret/);
+  });
+
+  it("logs only the host of a webhook, since a Slack or Teams address is itself the secret", async () => {
+    const { app, call, service } = setup({ access: "demo", webhookHosts: ["hooks.slack.com"] });
+    const url = "https://hooks.slack.com/services/T0000000/B0000000/SECRETSECRETSECRETSECRET";
+    assert.equal((await call("POST", "/v1/subscriptions", "integration-token", { url, format: "slack" })).status, 201);
+    assert.equal((service.log.since(0).at(-1)?.data as { host?: string }).host, "hooks.slack.com");
+    const controller = new AbortController();
+    const events = await app.request("/v1/events?types=subscription.added", { signal: controller.signal });
+    const streamed = new TextDecoder().decode((await (events.body as ReadableStream<Uint8Array>).getReader().read()).value);
+    controller.abort();
+    for (const read of [await (await call("GET", "/v1/log")).text(), streamed]) assert.doesNotMatch(read, /SECRET/);
   });
 
   it("only sends subscribed types", async () => {

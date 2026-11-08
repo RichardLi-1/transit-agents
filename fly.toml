@@ -9,6 +9,10 @@ primary_region = "yyz"
   # Public demo: visitors can look without signing in, and writes need a token.
   AUTH = "demo"
   PUBLIC_URL = "https://transit-agents.fly.dev"
+  # Planner sign-in. These are public values: the display sends them to every visitor.
+  AUTH0_DOMAIN = "dev-oxmtfoynmgqlbppe.us.auth0.com"
+  AUTH0_AUDIENCE = "https://transit-agents"
+  AUTH0_CLIENT_ID = "n1DeOx1fxiljrXS7gBLehSLVMQGYSA3l"
 
 [[mounts]]
   source = "transit_data"

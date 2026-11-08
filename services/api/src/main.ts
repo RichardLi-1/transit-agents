@@ -1,8 +1,9 @@
 import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
-import { Role } from "@transit-agents/contracts";
+import { AccessMode, Role } from "@transit-agents/contracts";
 import { mkdirSync } from "node:fs";
 import { createApp, type Actor } from "./app.ts";
+import { auth0Settings } from "./auth0.ts";
 import { loadSchedule, Measurements, openMeasurements } from "./collector.ts";
 import { watchInbox } from "./inbox.ts";
 import { Service } from "./service.ts";
@@ -25,6 +26,17 @@ function parseTokens(value = ""): Map<string, Actor> {
   return tokens;
 }
 
+// AUTH=token, the default, needs a token for every /v1 request. AUTH=demo lets
+// anyone read. AUTH=open lets anyone act as a planner.
+function parseAccess(value = "token"): AccessMode {
+  const mode = AccessMode.safeParse(value);
+  if (!mode.success) throw new Error(`Unknown AUTH "${value}". Use token, demo or open`);
+  return mode.data;
+}
+
+const access = parseAccess(process.env.AUTH || undefined);
+const { verifyToken, signIn } = auth0Settings(process.env);
+
 mkdirSync(dataDir, { recursive: true });
 
 const service = new Service(join(dataDir, "log.db"));
@@ -41,7 +53,9 @@ const app = createApp({
   service,
   webhooks,
   tokens: parseTokens(process.env.TRANSIT_TOKENS),
-  openAccess: process.env.AUTH === "open",
+  verifyToken,
+  access,
+  signIn,
   webhookHosts: (process.env.WEBHOOK_HOSTS ?? "").split(",").filter(Boolean),
   staticDir: join(root, "apps/display/dist"),
   live: measurements,
@@ -51,9 +65,10 @@ const app = createApp({
 
 const server = serve({ fetch: app.fetch, port, hostname: host }, () => {
   console.log(`Transit Agents on http://${host}:${port}`);
-  if (process.env.AUTH === "open") {
+  if (access === "open") {
     console.warn("AUTH=open: requests without a token act as a planner. Use only on a machine you control.");
   }
+  if (access === "demo") console.log("AUTH=demo: demo mode is on. Anyone can read without a token; writes need a token.");
 });
 
 const shutdown = () => {

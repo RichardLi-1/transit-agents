@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@auth0/auth0-spa-js": "^2.30.0",
     "@transit-agents/contracts": "*",
     "preact": "^10"
   },

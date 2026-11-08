@@ -9,6 +9,20 @@ const slug = z.string().regex(/^[a-z0-9][a-z0-9.-]{0,62}$/, "Use lowercase lette
 export const Role = z.enum(["viewer", "integration", "agent", "planner"]);
 export type Role = z.infer<typeof Role>;
 
+// What a request without a token may do. "token" refuses it. "demo", for a public
+// demo, lets it read as a viewer. "open" lets it act as a planner.
+export const AccessMode = z.enum(["token", "open", "demo"]);
+export type AccessMode = z.infer<typeof AccessMode>;
+
+// How people sign in. Nothing here is secret.
+export type SignIn = { provider: "auth0"; domain: string; clientId: string; audience: string };
+
+// GET /v1/config, which needs no token. signIn is null when people can't sign in.
+export type ServiceConfig = { auth: AccessMode; signIn: SignIn | null };
+
+// GET /v1/me: who the caller is.
+export type Me = { role: Role; name: string };
+
 // --- Context ---------------------------------------------------------------
 
 export const NewContext = z.object({

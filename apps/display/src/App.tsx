@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { CheckView, FindingView, StudyView, Timeline } from "@transit-agents/contracts";
+import { Account } from "./components/Account.tsx";
 import { Chat } from "./components/Chat.tsx";
 import { MapView } from "./components/MapView.tsx";
 import { QuickLook, type Opened } from "./components/QuickLook.tsx";
@@ -8,6 +9,7 @@ import { StudyCard } from "./components/StudyCard.tsx";
 import { Thread } from "./components/Thread.tsx";
 import { TimeBar } from "./components/TimeBar.tsx";
 import { api } from "./api.ts";
+import { canAdd, canPost, useSession } from "./session.ts";
 import { Simulator } from "./simulator.ts";
 import { useStore } from "./store.ts";
 import { dateToMs } from "./time.ts";
@@ -24,7 +26,10 @@ type TraceNode = {
 const FIRST_REVIEW_DAYS = 365;
 
 export function App() {
-  const store = useStore();
+  const session = useSession();
+  // Reads start once the service takes the display's token, or lets anyone read.
+  const reads = session?.reads ?? false;
+  const store = useStore(reads);
   const [selected, setSelected] = useState<string | null>(() => location.hash.slice(1) || null);
   const [preview, setPreview] = useState<StudyView | null>(null);
   const [opened, setOpened] = useState<Opened | null>(null);
@@ -43,7 +48,7 @@ export function App() {
   }, [simulator, study?.trial?.reviewOn]);
 
   useEffect(() => {
-    if (!studyId) return;
+    if (!studyId || !reads) return;
     let live = true;
     const load = async () => {
       const response = await api(`/v1/studies/${studyId}/timeline`);
@@ -55,7 +60,7 @@ export function App() {
       live = false;
       clearInterval(timer);
     };
-  }, [studyId, store.studies]);
+  }, [studyId, store.studies, reads]);
 
   const select = useCallback((id: string) => {
     setSelected(id);
@@ -106,12 +111,18 @@ export function App() {
     <>
       <header>
         <h1 class="sr-only">Transit Agents</h1>
+        <Shelf
+          contexts={store.contexts}
+          reading={store.reading}
+          highlight={targetFolder ?? null}
+          canAdd={canAdd(session?.me ?? null)}
+        />
+        <Account session={session} />
       </header>
       <section aria-label="Map">
         <MapView study={shown} simulator={simulator} />
         <div class="fade" aria-hidden="true" />
       </section>
-      <Shelf contexts={store.contexts} reading={store.reading} highlight={targetFolder ?? null} />
       <main class="stage">
         {shown && (
           <StudyCard
@@ -126,7 +137,7 @@ export function App() {
         )}
         <TimeBar simulator={simulator} timeline={timeline} trialStart={study?.trial?.startedOn ?? null} visible={Boolean(study)} />
       </main>
-      <Chat store={store} studyId={studyId} />
+      <Chat store={store} studyId={studyId} canPost={canPost(session?.me ?? null)} />
       <QuickLook opened={opened} onClose={closeQuickLook} />
       <Thread from={from} folder={targetFolder ?? null} />
     </>

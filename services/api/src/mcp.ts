@@ -64,6 +64,10 @@ export const TOOLS: Record<string, Spec> = {
     name: "add_source",
     description: "Add a source document: a title, and its pages or a single text. A source an agent adds can't back a figure.",
   },
+  "GET /v1/me": {
+    name: "whoami",
+    description: "Who you are to the service: your role and name. Your role decides which tools you have.",
+  },
   "GET /v1/studies": {
     name: "list_studies",
     description: "List studies, each with its figures, checks, findings, analysis and decision.",
@@ -176,6 +180,7 @@ export const NOT_TOOLS: Record<string, string> = {
   "GET /v1/events": "A stream that never ends. read_log reads the same entries",
   "POST /v1/subscriptions": "Webhooks are for integrations",
   "ALL /v1/mcp": "This endpoint",
+  "GET /v1/config": "Sign-in settings for the display. An agent has no use for them",
 };
 
 // Path parameters become arguments. ":id" is named for what it identifies; the
