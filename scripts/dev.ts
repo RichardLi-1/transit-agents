@@ -26,6 +26,24 @@ const slackTokens = (() => {
   );
 })();
 
+// The service's Slack settings, from the environment or else agents/.env, so one
+// file holds every setting for the demo: the webhook it posts notices to, the
+// executive a planner can ping, and the address its links open.
+const serviceSettings = (() => {
+  let file = "";
+  try {
+    file = readFileSync(join(root, "agents/.env"), "utf8");
+  } catch {}
+  const found: Record<string, string> = {};
+  for (const name of ["SLACK_WEBHOOK_URL", "SLACK_EXECUTIVE", "PUBLIC_URL"]) {
+    if (process.env[name]?.trim()) continue;
+    const match = new RegExp(`^[ \\t]*(?:export[ \\t]+)?${name}[ \\t]*=[ \\t]*(.*)$`, "m").exec(file);
+    const value = match?.[1]?.trim().replace(/^(['"])(.*)\1$/, "$2");
+    if (value) found[name] = value;
+  }
+  return found;
+})();
+
 // Each process's lines, with its name in front, so one terminal reads clearly.
 const run = (name: string, command: string, args: string[], env: NodeJS.ProcessEnv = {}) => {
   const child = spawn(command, args, { cwd: root, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
@@ -59,7 +77,7 @@ if (spawnSync("npx", ["vite", "build", "apps/display", "--logLevel", "warn"], { 
   process.exit(1);
 }
 
-run("service", process.execPath, ["--disable-warning=ExperimentalWarning", join(root, "scripts/demo.ts"), ...process.argv.slice(2)], { DEV_ALL: "1" });
+run("service", process.execPath, ["--disable-warning=ExperimentalWarning", join(root, "scripts/demo.ts"), ...process.argv.slice(2)], { DEV_ALL: "1", ...serviceSettings });
 
 // The agents start once the service answers.
 let up = false;
