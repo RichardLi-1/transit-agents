@@ -261,8 +261,8 @@ class Screen:
         return Screenshot(base64.b64decode(reply["png"]), reply["url"])
 
     async def caption(self, who: str, text: str, meta: str = "") -> None:
-        """Show a caption under the screen, if it's being recorded with captions."""
-        if self.options["record"] and self.options["captions"]:
+        """Show a caption: under a recorded screen, or in a watched window's transcript."""
+        if (self.options["record"] or self.options["headed"]) and self.options["captions"]:
             with contextlib.suppress(ScreenError):
                 await self.send("caption", who=who, text=text, meta=meta)
 
