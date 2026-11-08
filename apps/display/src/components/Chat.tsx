@@ -213,9 +213,11 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
     if (!trimmed || !studyId || sending) return;
     if (!local && wantsSimulator(trimmed)) {
       // Opened before any wait, so the browser counts it as the viewer's own click.
-      window.open("/simulator/", "simulator", "popup,width=1440,height=860");
+      window.open("/simulator/#thinking", "simulator", "popup,width=1440,height=860");
       if (typed) setText("");
       setAsked((now) => keepAsked(withAsked(now, studyId, trimmed)));
+      setNotice("The simulator: thinking…");
+      await new Promise((resolve) => setTimeout(resolve, 1800));
       return setNotice("The simulator opened in a new window, for you to try. On a planner's own computer, Gemini drives it by sight.");
     }
     setSending(true);
@@ -330,7 +332,7 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
         </div>
       )}
       {/* Between the log and the form, so its arrival moves nothing but the log's foot. */}
-      <p class={notice?.startsWith("The simulator opened") ? "refusal ok" : "refusal"} role="status">
+      <p class={notice?.startsWith("The simulator") ? "refusal ok" : "refusal"} role="status">
         {notice}
       </p>
       {usage.calls > 0 && (
