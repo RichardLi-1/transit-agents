@@ -67,7 +67,8 @@ const settings = [url !== "http://127.0.0.1:4100" && `TRANSIT_URL=${url}`, proce
 const run = (script: string) => [...settings, "npm run", script].join(" ");
 // Nothing is made for an engagement need until the media agent runs.
 const media = [...settings, "agents/.venv/bin/python agents/media.py listen"].join(" ");
-console.log(
+// npm run dev starts the agents itself, so it skips these hints.
+if (!process.env.DEV_ALL) console.log(
   `\nDisplay: ${url}\nNext: ${run("replay")}, then ${run("decide")}\nFor Gemini to answer the chat: ${run("agent")}\n` +
     `Engagement media, with GEMINI_API_KEY in agents/.env: ${media}\n`,
 );
