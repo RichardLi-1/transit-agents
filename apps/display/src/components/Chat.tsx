@@ -6,7 +6,7 @@ import { spentUsd } from "../money.ts";
 import { withCites } from "../cites.ts";
 import { echoesDocument } from "../echo.ts";
 import { refusal, setNotice, unsaid, useNotice } from "../notice.ts";
-import { plain } from "../plain.ts";
+import { plain, plainBold } from "../plain.ts";
 import { EMPTY_USAGE, type Store } from "../store.ts";
 import { unasked, withAsked, type Asked } from "../suggestions.ts";
 import { foldAt, waiting } from "../typing.ts";
@@ -53,13 +53,17 @@ type Props = {
   onPage: (contextId: string, page: number, element: Element) => void;
 };
 
+// A piece of an answer with its **bold** parts drawn bold.
+const bolded = (piece: string, at: number) =>
+  piece.split(/\*\*(?=\S)([^*]*?\S)\*\*/g).map((part, i) => (i % 2 ? <strong key={`${at}-${i}`}>{part}</strong> : part));
+
 // A message's text, with each cited page a button that opens it.
 function Text({ text, ids, onPage }: { text: string; ids: string[]; onPage: Props["onPage"] }) {
   return (
     <>
-      {withCites(plain(text), ids).map((piece, i) =>
+      {withCites(plainBold(text), ids).map((piece, i) =>
         typeof piece === "string" ? (
-          piece
+          bolded(piece, i)
         ) : (
           <button key={i} type="button" class="cite" onClick={(event) => onPage(piece.contextId, piece.page, event.currentTarget)}>
             {piece.text}

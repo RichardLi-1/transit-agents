@@ -182,6 +182,25 @@ export function App() {
     setFrom(null);
   }, []);
 
+  // The folder bar shows drafts made since this tab first loaded the log, so a new tab
+  // starts clean; a reload keeps them. The chat still has every document.
+  const [draftsSince, setDraftsSince] = useState<number | null>(() => {
+    try {
+      const kept = sessionStorage.getItem("drafts.since");
+      return kept === null ? null : Number(kept);
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    if (draftsSince !== null || store.since === null) return;
+    setDraftsSince(store.since);
+    try {
+      sessionStorage.setItem("drafts.since", String(store.since));
+    } catch {
+      // Kept for the page only.
+    }
+  }, [store.since, draftsSince]);
   const target = opened?.sources[0]?.contextId;
   const targetFolder = store.contexts.find((c) => c.id === target)?.folder;
 
@@ -192,7 +211,7 @@ export function App() {
         {TEST_BUILD && <p class="tag build">Test build</p>}
         <Shelf
           contexts={store.contexts}
-          drafts={store.documents.filter((document) => document.studyId === studyId)}
+          drafts={store.documents.filter((document) => document.studyId === studyId && draftsSince !== null && document.seq > draftsSince)}
           reading={store.reading}
           highlight={targetFolder ?? null}
           canAdd={canAdd(session?.me ?? null)}

@@ -86,7 +86,7 @@ class LeadTest(unittest.IsolatedAsyncioTestCase):
         system = fake.requests[0].system
         self.assertIn("Only planners decide.", system)  # the service's rules
         self.assertIn(f"You lead the first pass on study {study}.", system)
-        self.assertIn("write no Markdown", system)  # the chat shows plain text
+        self.assertIn("write no other Markdown", system)  # the chat shows plain text, and bold
 
     async def test_the_lead_ends_every_first_pass_with_what_isnt_known_yet(self):
         # As the handover skill sets out: the cited answer first, then each gap with its
@@ -103,7 +103,7 @@ class LeadTest(unittest.IsolatedAsyncioTestCase):
         self.assertRegex(gap, r"^- <what's missing>\. Next: <[^>]+>\. Contact: <[^>]+> \(<source-id> p\. <N>\)\.$")
         handover = skills.load_skill("handover").body.splitlines()
         self.assertEqual(gap, handover[handover.index("Not known yet:") + 1])  # the skill's own form
-        self.assertLess(system.index("First the answer"), system.index("Not known yet:"))
+        self.assertLess(system.index("Be brief: the answer"), system.index("Not known yet:"))
         self.assertIn("end every answer with what isn't known yet", system)
         self.assertIn("Where no page shows it, ask it as a question for the planner, and claim nothing.", system)
         self.assertIn("Name an organisation or team, never a person.", system)
