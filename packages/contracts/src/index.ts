@@ -286,6 +286,9 @@ export type Usage = {
   costUsd: number;
   computeSeconds: number;
   calls: number;
+  // Calls reported without a cost, which costUsd leaves out. The service counts
+  // them; a display that adds up usage from the log itself may not.
+  unpricedCalls?: number;
 };
 
 // --- Log and subscriptions -------------------------------------------------

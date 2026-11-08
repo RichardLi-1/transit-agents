@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import GtfsRealtime from "gtfs-realtime-bindings";
 import { NewFigure, NewStudy, NewContext } from "@transit-agents/contracts";
-import { Collector, Measurements, openMeasurements } from "./collector.ts";
+import { Collector, inTransaction, Measurements, openMeasurements } from "./collector.ts";
 import { Service } from "./service.ts";
 import { buildTimeline } from "./timeline.ts";
 
@@ -75,5 +75,28 @@ describe("buildTimeline", () => {
     assert.equal(timeline.reviewOn, "2027-11-01");
     assert.equal(timeline.measured.days[0]?.departures, 10);
     assert.deepEqual(timeline.forecast, [{ figure: "riders", label: "Riders", unit: "riders/week", perWeek: 1680 }]);
+  });
+});
+
+describe("inTransaction", () => {
+  it("commits the work", () => {
+    const db = openMeasurements(":memory:");
+    inTransaction(db, () => db.prepare("INSERT INTO polls (at) VALUES (?)").run(1));
+    assert.equal((db.prepare("SELECT count(*) AS n FROM polls").get() as { n: number }).n, 1);
+  });
+
+  it("keeps the real error when SQLite has already rolled back", () => {
+    const db = openMeasurements(":memory:");
+    assert.throws(
+      () =>
+        inTransaction(db, () => {
+          db.prepare("INSERT INTO polls (at) VALUES (?)").run(1);
+          db.exec("ROLLBACK"); // as SQLite does by itself when the disk is full
+          throw new Error("database or disk is full");
+        }),
+      /database or disk is full/,
+    );
+    assert.equal(db.isTransaction, false);
+    assert.equal((db.prepare("SELECT count(*) AS n FROM polls").get() as { n: number }).n, 0);
   });
 });

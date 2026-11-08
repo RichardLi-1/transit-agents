@@ -43,7 +43,7 @@ export type State = {
   usageByStudy: Map<string, Usage>;
 };
 
-const noUsage = (): Usage => ({ inputTokens: 0, outputTokens: 0, costUsd: 0, computeSeconds: 0, calls: 0 });
+const noUsage = (): Usage => ({ inputTokens: 0, outputTokens: 0, costUsd: 0, computeSeconds: 0, calls: 0, unpricedCalls: 0 });
 
 export const emptyState = (): State => ({
   contexts: new Map(),
@@ -220,6 +220,7 @@ function addUsage(total: Usage, data: { inputTokens: number; outputTokens: numbe
   total.costUsd += data.costUsd ?? 0;
   total.computeSeconds += data.computeSeconds ?? 0;
   total.calls += 1;
+  if (data.costUsd === undefined) total.unpricedCalls = (total.unpricedCalls ?? 0) + 1;
 }
 
 const get = <T>(map: Map<string, T>, key: string | null): T => {

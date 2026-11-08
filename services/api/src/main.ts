@@ -1,3 +1,4 @@
+import type { Server } from "node:http";
 import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { AccessMode, Role } from "@transit-agents/contracts";
@@ -63,18 +64,28 @@ const app = createApp({
   publicUrl: process.env.PUBLIC_URL,
 });
 
-const server = serve({ fetch: app.fetch, port, hostname: host }, () => {
-  console.log(`Transit Agents on http://${host}:${port}`);
+// HTTP/1.1, so it can close every connection. PORT=0 takes any free port.
+const server = serve({ fetch: app.fetch, port, hostname: host }, (info) => {
+  console.log(`Transit Agents on http://${host}:${info.port}`);
   if (access === "open") {
     console.warn("AUTH=open: requests without a token act as a planner. Use only on a machine you control.");
   }
   if (access === "demo") console.log("AUTH=demo: demo mode is on. Anyone can read without a token; writes need a token.");
-});
+}) as Server;
 
+// Stops once, though it can be told twice: Ctrl-C in `npm run demo` sends
+// SIGINT here, and the demo script sends SIGTERM as well.
+let stopping = false;
 const shutdown = () => {
+  if (stopping) return;
+  stopping = true;
   stopInbox();
   webhooks.stop();
   server.close(() => service.close());
+  // An open event stream never ends by itself, and would keep the service
+  // running and a display listening to it. Ending it lets the display
+  // reconnect to the next service.
+  server.closeAllConnections();
 };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

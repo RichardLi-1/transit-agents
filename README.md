@@ -38,7 +38,10 @@ Space plays time; the speed button steps from real time to a week a second.
 Vehicles are live at the present moment, and scheduled otherwise until the
 published timetable ends.
 
-Checks: `npm test` (211 tests) and `npm run typecheck`.
+For a second screen, http://127.0.0.1:4100/spend shows what the agents have
+spent: dollars, tokens and model calls. Use the browser's full screen.
+
+Checks: `npm test` (233 tests) and `npm run typecheck`.
 
 ## Plug in your agents
 

@@ -5,11 +5,12 @@ import { join } from "node:path";
 
 export type ClientRole = "integration" | "agent" | "planner" | "viewer";
 
-// Tokens come from TRANSIT_TOKEN_<ROLE>, or from the file the demo script writes.
+// Tokens come from TRANSIT_TOKEN_<ROLE>, or from the file the demo script writes
+// in the data folder.
 function tokenFor(role: ClientRole): string | undefined {
   const fromEnv = process.env[`TRANSIT_TOKEN_${role.toUpperCase()}`];
   if (fromEnv) return fromEnv;
-  const file = join(import.meta.dirname, "../data/demo-tokens.json");
+  const file = join(process.env.DATA_DIR ?? join(import.meta.dirname, "../data"), "demo-tokens.json");
   if (!existsSync(file)) return undefined;
   return (JSON.parse(readFileSync(file, "utf8")) as Record<string, string>)[role];
 }

@@ -2,15 +2,16 @@
 // access is switched on explicitly, so the display on this machine acts as a
 // planner. Each client still uses its own token, so the log names every actor.
 //
-// Usage: node scripts/demo.ts [--fresh]
+// Usage: node scripts/demo.ts [--fresh]. DATA_DIR and PORT work as for the service.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 const root = join(import.meta.dirname, "..");
-const data = join(root, "data");
+const data = resolve(process.env.DATA_DIR ?? join(root, "data"));
 const port = process.env.PORT ?? "4100";
+const url = `http://127.0.0.1:${port}`;
 
 if (process.argv.includes("--fresh")) {
   for (const file of ["log.db", "log.db-shm", "log.db-wal"]) rmSync(join(data, file), { force: true });
@@ -29,6 +30,7 @@ const clients = [
   { key: "planner", role: "planner", name: "demo" },
 ];
 const tokens: Record<string, string> = Object.fromEntries(clients.map(({ key }) => [key, randomBytes(18).toString("base64url")]));
+mkdirSync(data, { recursive: true });
 writeFileSync(join(data, "demo-tokens.json"), JSON.stringify(tokens, null, 2), { mode: 0o600 });
 
 const api = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(root, "services/api/src/main.ts")], {
@@ -46,14 +48,20 @@ process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
 
 for (let i = 0; i < 50; i++) {
-  const ok = await fetch(`http://127.0.0.1:${port}/health`).then((r) => r.ok).catch(() => false);
+  const ok = await fetch(`${url}/health`).then((r) => r.ok).catch(() => false);
   if (ok) break;
   await new Promise((resolve) => setTimeout(resolve, 200));
 }
 
-const head = (await (await fetch(`http://127.0.0.1:${port}/health`)).json()) as { head: { seq: number } };
+const head = (await (await fetch(`${url}/health`)).json()) as { head: { seq: number } };
 if (head.head.seq === 0) {
-  const seed = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(root, "clients/seed.ts")], { stdio: "inherit" });
+  const seed = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(root, "clients/seed.ts")], {
+    stdio: "inherit",
+    env: { ...process.env, DATA_DIR: data, TRANSIT_URL: url },
+  });
   await new Promise((resolve) => seed.on("exit", resolve));
 }
-console.log(`\nDisplay: http://127.0.0.1:${port}\nNext: npm run replay, then npm run decide\n`);
+// Replay and decide find this service, and the tokens in the same folder.
+const settings = [url !== "http://127.0.0.1:4100" && `TRANSIT_URL=${url}`, process.env.DATA_DIR && `DATA_DIR=${data}`].filter(Boolean);
+const run = (script: string) => [...settings, "npm run", script].join(" ");
+console.log(`\nDisplay: ${url}\nNext: ${run("replay")}, then ${run("decide")}\n`);

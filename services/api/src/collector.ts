@@ -51,6 +51,21 @@ export function openMeasurements(path: string): DatabaseSync {
   return db;
 }
 
+// Runs work in one transaction. SQLite rolls back on its own after some errors,
+// such as a full disk, and a second ROLLBACK would hide the real error behind
+// "cannot rollback - no transaction is active".
+export function inTransaction<T>(db: DatabaseSync, work: () => T): T {
+  db.exec("BEGIN");
+  try {
+    const result = work();
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    if (db.isTransaction) db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export function loadSchedule(path: string): Map<string, ScheduledTrip> {
   const records = JSON.parse(gunzipSync(readFileSync(path)).toString()) as [string, string, string, number, number, number][];
   return new Map(records.map(([id, route, pattern, firstSequence, departure, days]) => [id, { route, pattern, firstSequence, departure, days }]));
@@ -92,8 +107,7 @@ export class Collector {
     const insertVehicle = this.db.prepare("INSERT INTO vehicles_now (id, route, pattern, lat, lon, at) VALUES (?, ?, ?, ?, ?, ?)");
     const archived: string[] = [];
 
-    this.db.exec("BEGIN");
-    try {
+    inTransaction(this.db, () => {
       this.db.exec("DELETE FROM vehicles_now");
       for (const entity of feed.entity) {
         const v = entity.vehicle;
@@ -115,11 +129,7 @@ export class Collector {
         }
       }
       this.db.prepare("INSERT INTO polls (at) VALUES (?)").run(feedAt);
-      this.db.exec("COMMIT");
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
+    });
     if (this.archive && archived.length) {
       appendFileSync(join(this.archive.dir, `${localClock(feedAt).date}.jsonl`), `${archived.join("\n")}\n`);
     }

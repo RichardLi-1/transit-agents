@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -22,12 +22,13 @@ type Setup = {
   verifyToken?: (token: string) => Promise<Actor | undefined>;
   post?: typeof fetch;
   webhookHosts?: string[];
+  staticDir?: string;
 };
 
-function setup({ access = "token", signIn, verifyToken, post, webhookHosts = ["hook.test"] }: Setup = {}) {
+function setup({ access = "token", signIn, verifyToken, post, webhookHosts = ["hook.test"], staticDir }: Setup = {}) {
   const service = new Service(":memory:");
   const webhooks = new Webhooks(service, "https://example.test", post ?? (async () => new Response("ok")));
-  const app = createApp({ service, webhooks, tokens: TOKENS, verifyToken, access, signIn, webhookHosts });
+  const app = createApp({ service, webhooks, tokens: TOKENS, verifyToken, access, signIn, webhookHosts, staticDir });
   const call = (method: string, path: string, token?: string, body?: unknown) =>
     app.request(path, {
       method,
@@ -526,5 +527,42 @@ describe("inbox", () => {
     assert.equal(context?.pageCount, 1);
     assert.equal(existsSync(join(dir, "hastus-export.csv")), false);
     assert.equal(readdirSync(join(dir, "processed")).length, 1);
+  });
+});
+
+describe("static files", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "transit-static-"));
+    mkdirSync(join(dir, "site/spend"), { recursive: true });
+    mkdirSync(join(dir, "site/assets"));
+    mkdirSync(join(dir, "private"));
+    writeFileSync(join(dir, "site/index.html"), "main page");
+    writeFileSync(join(dir, "site/spend/index.html"), "spend page");
+    writeFileSync(join(dir, "site/assets/app.js"), "script");
+    writeFileSync(join(dir, "private/index.html"), "private page");
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("serves a folder's own index.html, and the main page for anything else", async () => {
+    const { app } = setup({ staticDir: join(dir, "site") });
+    const body = async (path: string) => (await app.request(path)).text();
+    assert.equal(await body("/"), "main page");
+    assert.equal(await body("/spend"), "spend page");
+    assert.equal(await body("/spend/"), "spend page");
+    assert.equal((await app.request("/spend")).headers.get("content-type"), "text/html; charset=utf-8");
+    assert.equal(await body("/assets/app.js"), "script");
+    assert.equal(await body("/assets"), "main page");
+    assert.equal(await body("/spend/elsewhere"), "main page");
+    assert.equal(await body("/..%2Fprivate"), "main page");
+  });
+
+  it("serves the main page for an address it can't decode", async () => {
+    const { app } = setup({ staticDir: join(dir, "site") });
+    for (const path of ["/%zz", "/spend/%zz", "/%E0%A4%A"]) {
+      const response = await app.request(path);
+      assert.equal(response.status, 200, path);
+      assert.equal(await response.text(), "main page");
+    }
   });
 });

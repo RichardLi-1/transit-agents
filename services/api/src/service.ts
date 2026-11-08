@@ -116,6 +116,7 @@ export class Service {
   // Derived from the contexts in state and their pages, like state is from the
   // log, and never written to the log.
   private readonly index = new SearchIndex();
+  private closed = false;
 
   constructor(database: string, clock?: () => Date) {
     this.log = new Log(database, clock);
@@ -623,7 +624,10 @@ export class Service {
     return { from, to, figures, checks };
   }
 
+  // Safe to call twice: a second call does nothing.
   close() {
+    if (this.closed) return;
+    this.closed = true;
     this.index.close();
     this.log.close();
   }

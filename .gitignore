@@ -5,7 +5,7 @@ dist/
 .env
 .env.*
 !.env.example
-/data/
+/data
 coverage/
 .lighthouse/
 .venv/

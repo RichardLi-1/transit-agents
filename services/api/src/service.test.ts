@@ -270,6 +270,17 @@ describe("Service", () => {
       assert.equal(total.inputTokens, 1500);
       assert.equal(total.costUsd, 0.75);
       assert.equal(byStudy.lawrence?.calls, 2);
+      assert.equal(total.unpricedCalls, 0);
+    });
+
+    it("counts calls reported without a cost, which the cost leaves out", () => {
+      service.recordActivity("agent:a", "lawrence", { kind: "usage", model: "m", inputTokens: 1000, outputTokens: 200, costUsd: 0.5 });
+      service.recordActivity("agent:a", "lawrence", { kind: "usage", model: "unpriced", inputTokens: 500, outputTokens: 100 });
+      const { total, byStudy } = service.usage();
+      assert.equal(total.costUsd, 0.5);
+      assert.equal(total.calls, 2);
+      assert.equal(total.unpricedCalls, 1);
+      assert.equal(byStudy.lawrence?.unpricedCalls, 1);
     });
   });
 
@@ -310,6 +321,17 @@ describe("restart", () => {
       assert.deepEqual(second.viewStudy("lawrence"), before);
       assert.equal(second.log.verify().ok, true);
       second.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("closes twice without an error, as a service told to stop twice does", () => {
+    const dir = mkdtempSync(join(tmpdir(), "transit-agents-"));
+    try {
+      const service = new Service(join(dir, "log.db"));
+      service.close();
+      assert.doesNotThrow(() => service.close());
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

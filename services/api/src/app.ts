@@ -558,10 +558,14 @@ export function createApp(options: AppOptions) {
       while (!stream.aborted) {
         const entry = queue.shift();
         if (!entry) {
+          // A comment every 20 s keeps a quiet stream open. Its timer ends with
+          // the wait, so a stream that has ended doesn't keep the service running.
+          let timer: ReturnType<typeof setTimeout> | undefined;
           await Promise.race([
             new Promise<void>((resolve) => (wake = resolve)),
-            stream.sleep(20_000).then(() => stream.write(": keep-alive\n\n")),
+            new Promise<void>((resolve) => (timer = setTimeout(resolve, 20_000))).then(() => stream.write(": keep-alive\n\n")),
           ]);
+          clearTimeout(timer);
           continue;
         }
         if (entry.seq > sent && matches(entry)) {
@@ -602,8 +606,15 @@ export function createApp(options: AppOptions) {
     const root = resolve(staticDir);
     app.use("*", compress());
     app.get("*", (c) => {
-      const requested = normalize(decodeURIComponent(new URL(c.req.url).pathname));
-      const candidate = join(root, requested === "/" ? "index.html" : requested);
+      let requested = "/";
+      try {
+        requested = normalize(decodeURIComponent(new URL(c.req.url).pathname));
+      } catch {
+        // An address that can't be decoded, such as /%zz, names no file.
+      }
+      // A folder that holds an index.html serves it, so / and /spend are each a page.
+      const page = join(root, requested, "index.html");
+      const candidate = existsSync(page) ? page : join(root, requested);
       const file = candidate.startsWith(root) && existsSync(candidate) && extname(candidate) ? candidate : join(root, "index.html");
       const hashed = file.includes(`${join(root, "assets")}`);
       const data = file.includes(`${join(root, "data")}`) || file.includes(`${join(root, "sources")}`);
