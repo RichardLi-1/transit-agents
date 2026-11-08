@@ -426,6 +426,80 @@ button {
   cursor: progress;
 }
 
+/* A draft alignment option: its words open its actions under them. */
+.need.option {
+  max-width: min(300px, calc(100vw - 16px));
+  padding: 6px 10px;
+}
+
+/* Wider while comparing, so each option gets a column. */
+.need.option:has(.compare) {
+  max-width: min(560px, calc(100vw - 16px));
+}
+
+.need.option .body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.need .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.need .action {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.need .action:hover,
+.need .action[aria-pressed="true"] {
+  border-color: var(--accent);
+}
+
+.need .action[aria-disabled="true"] {
+  color: var(--muted);
+}
+
+.need .compare {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.need .compare th,
+.need .compare td {
+  padding: 2px 4px;
+  text-align: left;
+  font-weight: 400;
+}
+
+.need .compare thead th {
+  font-weight: 600;
+}
+
+.need .compare tbody th {
+  color: var(--muted);
+}
+
+/* What isn't known yet, where it applies: compact, and opens its page. */
+.need.gap {
+  max-width: min(240px, calc(100vw - 16px));
+  padding: 5px 10px;
+}
+
+.need.gap .place {
+  font-size: 11px;
+}
+
 /* Context folders ------------------------------------------------------- */
 
 /* Comes before the map in the page, so Tab reaches the folders before the account

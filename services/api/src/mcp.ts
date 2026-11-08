@@ -105,6 +105,11 @@ export const TOOLS: Record<string, Spec> = {
     description:
       "Add a finding the service can't compute, such as public feedback, with a citation. Its tone is only a proposal until a planner rates it.",
   },
+  "POST /v1/studies/:id/alignments": {
+    name: "propose_alignment",
+    description:
+      "Propose a draft alignment for the study's line, from Don Valley station (Science Centre) to a terminus: Don Mills station, Leslie station, Lawrence and Don Mills, Fairview Mall, or Sheppard and Victoria Park. corridor lists the streets to follow in order, each one a TTC route runs along: Don Mills Road, Leslie Street, Eglinton Avenue East, Lawrence Avenue East, Sheppard Avenue East, Victoria Park Avenue. The service builds the line only along those routes' shapes and refuses a corridor it can't snap, with why. It returns the option with its length in km, its stations at the planner-set spacing, and its cost from the study's cost per km, optimism bias and contingency. note is one line on why this terminus, such as an interchange or the riders on its routes. Planners decide between options.",
+  },
   "POST /v1/studies/:id/needs": {
     name: "add_engagement_need",
     description:
@@ -221,6 +226,8 @@ export const NOT_TOOLS: Record<string, string> = {
   "POST /v1/studies/:id/needs/:need/media": "A video is larger than an MCP message may be (4 MiB), so an agent posts the file here with its token",
   "GET /v1/media/:id": "Image and video bytes, for people to see. Each study's needs list their media",
   "POST /v1/guests": "Guest passes are for the display",
+  "POST /v1/studies/:id/findings/:finding/review": "A person's button on an option's card. An agent proposes options, and only people hand one over for review",
+  "POST /v1/studies/:id/findings/:finding/renders": "A person's button on an option's card. An agent proposes needs itself with add_engagement_need",
 };
 
 // Path parameters become arguments. ":id" is named for what it identifies; the

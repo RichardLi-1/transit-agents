@@ -52,6 +52,25 @@ describe("seed data", () => {
     for (const gap of ["cost-precedent", "riders-model", "east-don-crossing", "don-mills-road"]) assert.ok(gaps.includes(gap), gap);
   });
 
+  it("proposes two draft alignments, traced from TTC shapes and costed by the study's formula", () => {
+    const options = service.viewStudy(ONTARIO.study.id).findings.flatMap((f) => (f.option ? [f.option] : []));
+    assert.deepEqual(
+      options.map((o) => [o.letter, o.follows, o.lengthKm, o.costM]),
+      [
+        ["A", "Don Mills Road", 6, Math.round((613 * 6 * 1.64) / 1.3)],
+        ["B", "Leslie Street", 7.3, Math.round((613 * 7.3 * 1.64) / 1.3)],
+      ],
+    );
+    const id = ONTARIO.study.id;
+    const review = service.requestReview("planner:demo", id, "option-leslie");
+    assert.match(review.text, /^Option B, along Leslie Street, needs a consultant's review\. Next: .+ Contact: an engineering consultancy\.$/);
+    assert.equal(service.requestReview("planner:demo", id, "option-leslie").id, review.id);
+    const need = service.proposeRenders("planner:demo", id, "option-leslie");
+    assert.deepEqual([need.kinds, need.place, need.status], [["image", "video"], "Leslie station, option B", "needed"]);
+    assert.equal(service.proposeRenders("planner:demo", id, "option-leslie").id, need.id);
+    assert.throws(() => service.proposeRenders("planner:demo", id, "east-don-crossing"), /not an alignment option/);
+  });
+
   it("puts optimism bias in place of the contingency, as Table 5.6 does without a cost-risk analysis", () => {
     const view = service.viewStudy(ONTARIO.study.id);
     const value = (id: string) => view.figures.find((f) => f.id === id)?.value ?? NaN;

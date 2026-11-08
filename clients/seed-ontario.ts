@@ -4,6 +4,7 @@
 // them and values a planner sets.
 import type { NewAssumption, NewFigure } from "@transit-agents/contracts";
 import { ONTARIO_NEEDS } from "./ontario-needs.ts";
+import { ONTARIO_OPTIONS } from "./ontario-options.ts";
 import type { Source, StudySeed } from "./seed-data.ts";
 
 const IBC = "ontario-line-ibc-2019";
@@ -238,6 +239,8 @@ export const ONTARIO: StudySeed = {
       label: "East Don crossing",
       text: "Crossing the East Don is unstudied. Next: a geotechnical investigation and a valley works permit. Contact: Toronto and Region Conservation Authority.",
       tone: "neutral",
+      // Where Don Mills Road crosses the East Don, north of York Mills Road.
+      at: { lon: -79.347178, lat: 43.7605 },
       citation: cite(
         IBC,
         83,
@@ -249,6 +252,8 @@ export const ONTARIO: StudySeed = {
       label: "Don Mills Road",
       text: "What's under Don Mills Road is unsurveyed. Next: utility and road surveys. Contact: City of Toronto Engineering & Construction Services.",
       tone: "neutral",
+      // Don Mills Road between Eglinton and Lawrence.
+      at: { lon: -79.341, lat: 43.7285 },
       citation: cite(
         PDBC,
         134,
@@ -276,6 +281,8 @@ export const ONTARIO: StudySeed = {
       tone: "neutral",
       citation: cite(MANUAL, 179, "Dollar Value Real, year of evaluation"),
     },
+    // Two draft alignments north, each pinned to its line on the map.
+    ...ONTARIO_OPTIONS,
   ],
   // Renders of the line's viaduct over the Don Valley Parkway, and of a station
   // entrance on the extension, each pinned to a point on the line.

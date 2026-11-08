@@ -22,6 +22,7 @@ import {
   NewContext,
   NewDecision,
   NewFigure,
+  NewAlignment,
   NewFinding,
   NewMedia,
   NewNeed,
@@ -605,6 +606,28 @@ export function createApp(options: AppOptions) {
         const { tone } = await bodyOf(c, FindingRating);
         return c.json(view(c).rateFinding(actorName(c), c.req.param("id") as string, c.req.param("finding") as string, tone));
       },
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/alignments",
+      summary: "Propose a draft alignment to a real station or interchange, built only along route shapes the service holds. Refused if it can't be snapped",
+      roles: authors,
+      body: NewAlignment,
+      handler: async (c) => c.json(view(c).proposeAlignment(actorName(c), c.req.param("id") as string, await bodyOf(c, NewAlignment)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/findings/:finding/review",
+      summary: "Hand an alignment option over for a consultant's review, as a gap for a planner. Planners, or a visitor in their own sandbox",
+      roles: people,
+      handler: (c) => c.json(view(c).requestReview(actorName(c), c.req.param("id") as string, c.req.param("finding") as string), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/findings/:finding/renders",
+      summary: "Propose renders of an alignment option's main station, an image and a video. Planners, or a visitor in their own sandbox",
+      roles: people,
+      handler: (c) => c.json(view(c).proposeRenders(actorName(c), c.req.param("id") as string, c.req.param("finding") as string), 201),
     },
     {
       method: "post",

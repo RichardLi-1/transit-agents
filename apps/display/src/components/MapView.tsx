@@ -15,6 +15,10 @@ import { clockAt, dateToMs, DAY_MS } from "../time.ts";
 import { Needs } from "./Needs.tsx";
 import type { Opened } from "./QuickLook.tsx";
 
+// Each draft alignment option's line, in the map's metres.
+const optionLines = (study: StudyView | null) =>
+  (study?.findings ?? []).flatMap((finding) => (finding.option ? [finding.option.line.map(([lon, lat]) => toPoint(lat, lon))] : []));
+
 const LIVE_REFRESH_MS = 15_000;
 const LINE_DRAW_MS = 1800;
 const CAMERA_MS = 1400;
@@ -92,7 +96,9 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
   // Puts the current study on whichever renderer is active.
   const showStudy = (map: Renderer, animate: boolean) => {
     const line = lineKey ? lines.current[lineKey] : undefined;
-    map.setStudyLines(line?.lines ?? [], line?.proposed ?? [], studyColor(lineKey));
+    // Draft alignment options, when the study has them, stand in for its proposed part.
+    const options = optionLines(study);
+    map.setStudyLines(line?.lines ?? [], line && options.length ? options : (line?.proposed ?? []), studyColor(lineKey));
     map.setStudyFailing(failing);
     scheduled.current = line ? new ScheduledVehicles(line) : null;
     if (!isFlat(map)) {
@@ -162,6 +168,14 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
   useEffect(() => {
     renderer.current?.setStudyFailing(failing);
   }, [failing, ready, flat]);
+
+  // Options proposed while the study shows replace its proposed part where it is.
+  const optionCount = optionLines(study).length;
+  useEffect(() => {
+    const line = lineKey ? lines.current[lineKey] : undefined;
+    if (!ready || !line || !optionCount) return;
+    renderer.current?.setStudyLines(line.lines, optionLines(study));
+  }, [optionCount, ready, flat]);
 
   // Every frame of the clock: brighten the network with the timetable and move
   // scheduled vehicles. After the timetable ends, nothing is scheduled, so nothing

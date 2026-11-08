@@ -34,6 +34,7 @@ import type {
   NewContext as NewContextSchema,
   NewDecision as NewDecisionSchema,
   NewFigure as NewFigureSchema,
+  NewAlignment as NewAlignmentSchema,
   NewFinding as NewFindingSchema,
   NeedClaim as NeedClaimSchema,
   NeedFailure as NeedFailureSchema,
@@ -42,6 +43,7 @@ import type {
   NewNeed as NewNeedSchema,
   NewStudy as NewStudySchema,
 } from "@transit-agents/contracts";
+import { type Alignment, ALIGNMENT_COST, AlignmentError, along, cachedNetwork, slugOf, snapAlignment } from "./alignment.ts";
 import { checkValue, findQuote } from "./citations.ts";
 import type { Page } from "./extract.ts";
 import type { VisitorBudget } from "./budget.ts";
@@ -463,9 +465,113 @@ export class Service {
   addFinding(actor: string, studyId: string, input: z.output<typeof NewFindingSchema>): FindingView {
     const study = this.study(studyId);
     this.verifyCitation(input.citation);
+    for (const citation of input.option?.costCitations ?? []) this.verifyCitation(citation);
     this.commit({ actor, type: "finding.recorded", studyId, data: input });
     const { seq: _seq, ...finding } = study.findings.get(input.id) as FindingView & { seq: number };
     return finding;
+  }
+
+  // A draft alignment option, as a finding that carries one.
+  private option(studyId: string, findingId: string) {
+    const finding = this.study(studyId).findings.get(findingId);
+    if (!finding) throw notFound("finding", findingId);
+    if (!finding.option) throw new ApiError(422, "not_an_option", `Finding "${findingId}" is not an alignment option`);
+    return { finding, option: finding.option };
+  }
+
+  // Proposes a draft alignment, built only along route shapes the service holds,
+  // from Don Valley station to a real station or interchange. Its length feeds the
+  // study's cost per km, optimism bias and contingency, so its cost traces to them,
+  // and its stations follow the planner-set spacing. Proposing one to the same
+  // terminus again replaces it.
+  proposeAlignment(actor: string, studyId: string, input: z.output<typeof NewAlignmentSchema>): FindingView {
+    this.study(studyId);
+    let alignment: Alignment;
+    try {
+      alignment = snapAlignment(cachedNetwork(), input.corridor, input.terminus);
+    } catch (error) {
+      if (error instanceof AlignmentError) throw new ApiError(422, "cannot_snap", error.message);
+      throw error;
+    }
+    const view = this.viewStudy(studyId);
+    const figure = (id: string) => view.figures.find((f) => f.id === id);
+    const perKm = figure(ALIGNMENT_COST.perKm);
+    const contingency = figure(ALIGNMENT_COST.contingency);
+    const bias = this.state.assumptions.get(ALIGNMENT_COST.optimismBias);
+    const length = this.state.assumptions.get(ALIGNMENT_COST.length);
+    const stations = this.state.assumptions.get(ALIGNMENT_COST.stations);
+    if (!perKm || !contingency || !bias?.citation || perKm.basis.kind !== "cited") {
+      throw new ApiError(422, "no_cost_basis", "The study needs a cited cost per km, contingency and optimism bias to cost an alignment");
+    }
+    const km = alignment.lengthKm;
+    const costM = Math.round((perKm.value * km * (1 + bias.value / 100)) / (1 + contingency.value / 100));
+    const spacing = length && stations?.value ? length.value / stations.value : 2;
+    const id = `option-${slugOf(alignment.terminus.name)}`.slice(0, 63);
+    const others = view.findings.filter((f) => f.option && f.id !== id);
+    const existing = view.findings.find((f) => f.id === id)?.option;
+    const letter = existing?.letter ?? String.fromCharCode(65 + Math.min(25, others.length));
+    const street = alignment.follows.split(", ")[0] as string;
+    const short = street.replace(/ Road$/, " Rd").replace(/ Street$/, " St").replace(/ Avenue( East)?$/, " Ave");
+    const [lon, lat] = along(alignment.line, 0.6);
+    const text = `Alignment option ${letter} · ${short} to ${alignment.terminus.name} · ${km.toFixed(1)} km · about $${(costM / 1000).toFixed(1)} B (draft). Draft options for planners. ${input.note}`;
+    return this.addFinding(actor, studyId, {
+      id,
+      label: input.label ?? `Alignment option ${letter}`,
+      text: text.slice(0, 400),
+      tone: "neutral",
+      citation: perKm.basis.citation,
+      at: { lon, lat },
+      option: {
+        letter,
+        follows: alignment.follows,
+        line: alignment.line,
+        lengthKm: km,
+        stations: Math.max(1, Math.round(km / spacing)),
+        costM,
+        costCitations: [perKm.basis.citation, bias.citation],
+        station: { name: alignment.terminus.name, lon: alignment.terminus.at[0], lat: alignment.terminus.at[1] },
+      },
+    });
+  }
+
+  // Hands an option over for a consultant's review: a gap that asks a planner to
+  // request one from an engineering consultancy. Asking again changes nothing.
+  requestReview(actor: string, studyId: string, findingId: string): FindingView {
+    const { finding, option } = this.option(studyId, findingId);
+    const id = `${findingId}-review`;
+    const study = this.study(studyId);
+    const existing = study.findings.get(id);
+    if (existing) {
+      const { seq: _seq, ...review } = existing as FindingView & { seq: number };
+      return review;
+    }
+    return this.addFinding(actor, studyId, {
+      id,
+      label: `Option ${option.letter} review`,
+      text: `Option ${option.letter}, along ${option.follows}, needs a consultant's review. Next: a planner requests an engineering review of the alignment. Contact: an engineering consultancy.`,
+      tone: "neutral",
+      citation: finding.citation,
+    });
+  }
+
+  // Proposes renders of an option's main station, an image and a video, for the
+  // usual Create flow. Asking again changes nothing.
+  proposeRenders(actor: string, studyId: string, findingId: string): NeedView {
+    const { finding, option } = this.option(studyId, findingId);
+    const id = `${findingId}-station`;
+    const study = this.study(studyId);
+    if (study.needs.has(id)) return viewNeed(this.need(study, id));
+    return this.addNeed(actor, studyId, {
+      id,
+      title: "Station rendering missing",
+      place: `${option.station.name}, option ${option.letter}`,
+      lon: option.station.lon,
+      lat: option.station.lat,
+      kinds: ["image", "video"],
+      subject: "station-entrance",
+      reason: `Option ${option.letter}'s main station, along ${option.follows}. People here need to see what its entrance could look like. A draft option for planners.`,
+      citations: [finding.citation],
+    });
   }
 
   // How consultation reads is a judgement, so a planner sets it, or a visitor in

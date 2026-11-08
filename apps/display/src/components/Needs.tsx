@@ -9,6 +9,7 @@ import { refusal, setNotice } from "../notice.ts";
 import { projector, toPoint, type ViewFeed } from "../map/projection.ts";
 import { stillOf, type Still } from "../still.ts";
 import { AlertIcon, ImageIcon, PlayIcon, VideoIcon } from "./icons.tsx";
+import { Insight, pinnedOf } from "./Insights.tsx";
 import type { Opened as Details, OpenedSource } from "./QuickLook.tsx";
 
 // The models' names as people know them.
@@ -98,7 +99,7 @@ const MAP_WAIT_MS = 3000;
 // map or under a panel, one with no clear side of its place, or every card while the
 // map hasn't drawn, is listed at the map's top left instead, so it's never hidden.
 // Cards move only by transform, so nothing on the page shifts.
-function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, needs: NeedView[]) {
+function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, needs: NeedView[], pinned: string) {
   useLayoutEffect(() => {
     const element = list.current;
     if (!element) return;
@@ -153,17 +154,30 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
         card.style.transform = `translate(${placed.left - x}px, ${placed.top - y}px)`;
         pinned.push(placed);
       }
-      // Listed down from the top, past any pinned card in the way, so a listed card
-      // never hides a pinned one.
-      let listed = top;
+      // Listed in the first clear spot from the map's top left, reading across then
+      // down: clear of the panels and of every card already placed, so a listed card
+      // never hides another. With no clear spot, where it covers the least of the
+      // other cards, and never a panel.
+      const area = (a: DOMRect, b: DOMRect) =>
+        Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
       for (const { pin, card, size } of unpinned) {
         const [cardWidth, cardHeight] = size;
-        let under: DOMRect | undefined;
-        while ((under = pinned.find((rect) => overlap(new DOMRect(EDGE * 3, listed, cardWidth, cardHeight), rect)))) listed = under.bottom + EDGE;
+        let spot: DOMRect | undefined;
+        let least = Infinity;
+        for (let y = top; least > 0 && y + cardHeight <= height - EDGE; y += 12) {
+          for (let x = EDGE * 3; x + cardWidth <= right; x += 16) {
+            const rect = new DOMRect(x, y, cardWidth, cardHeight);
+            if (over.some((other) => overlap(rect, other))) continue;
+            const covered = pinned.reduce((sum, other) => sum + area(rect, other), 0);
+            if (covered < least) [spot, least] = [rect, covered];
+            if (!covered) break;
+          }
+        }
+        spot ??= new DOMRect(EDGE * 3, top, cardWidth, cardHeight);
+        pinned.push(spot);
         pin.dataset.side = "listed";
-        pin.style.transform = `translate(${EDGE * 3}px, ${listed}px)`;
+        pin.style.transform = `translate(${spot.left}px, ${spot.top}px)`;
         card.style.transform = "translate(0, 0)";
-        listed += cardHeight + EDGE;
       }
     };
     const later = () => {
@@ -183,13 +197,24 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
     // When a card or a panel changes size, such as when a Create button goes.
     const resized = new ResizeObserver(later);
     for (const watched of document.querySelectorAll(`.needs .need, ${PANELS}`)) resized.observe(watched);
+    // And when a panel comes or goes, such as the study card, watching the new one.
+    const stage = new MutationObserver(() => {
+      for (const watched of document.querySelectorAll(PANELS)) resized.observe(watched);
+      later();
+    });
+    for (const parent of new Set([...document.querySelectorAll(PANELS)].map((panel) => panel.parentElement))) {
+      if (parent) stage.observe(parent, { childList: true });
+    }
+    const main = document.querySelector(".stage");
+    if (main) stage.observe(main, { childList: true });
     return () => {
       stop();
+      stage.disconnect();
       resized.disconnect();
       cancelAnimationFrame(frame);
       window.clearTimeout(timer);
     };
-  }, [feed, list, needs]);
+  }, [feed, list, needs, pinned]);
 }
 
 function useStill(media: MediaView): Still | null {
@@ -432,7 +457,9 @@ export function Needs({ study, feed, canCreate, onDetails, onViewer }: Props) {
   const viewing = opened !== null;
   useEffect(() => onViewer(viewing), [viewing]);
   const needs = study?.needs ?? [];
-  useFollow(feed, list, needs);
+  // Findings pinned beside them: draft options and what isn't known yet.
+  const insights = pinnedOf(study);
+  useFollow(feed, list, needs, insights.map((finding) => finding.id).join(","));
 
   const create = async (need: NeedView) => {
     if (!study) return false;
@@ -465,10 +492,13 @@ export function Needs({ study, feed, canCreate, onDetails, onViewer }: Props) {
 
   return (
     <>
-      {needs.length > 0 && (
-        <ul ref={list} class="needs" aria-label="Engagement">
+      {study && needs.length + insights.length > 0 && (
+        <ul ref={list} class="needs" aria-label="On the map">
           {needs.map((need) => (
             <Pin key={need.id} need={need} status={statusOf(need)} canCreate={canCreate} onCreate={create} onOpen={setOpened} onDetails={details} />
+          ))}
+          {insights.map((finding) => (
+            <Insight key={finding.id} study={study} finding={finding} canAct={canCreate} onDetails={onDetails} />
           ))}
         </ul>
       )}

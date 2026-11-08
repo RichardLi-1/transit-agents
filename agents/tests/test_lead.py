@@ -274,6 +274,14 @@ def keeps_asking(questions):
     return respond
 
 
+class AlignmentTest(unittest.TestCase):
+    def test_the_lead_proposes_other_termini_itself_and_writes_only_to_its_study(self):
+        self.assertIn("propose_alignment", lead.TOOLS)
+        self.assertEqual(core.WRITES["propose_alignment"], "studyId")
+        self.assertIn("call propose_alignment yourself, once for each realistic terminus", lead.INSTRUCTIONS)
+        self.assertIn("Never draw or describe a line the tool didn't build", lead.INSTRUCTIONS)
+
+
 class RunBudgetTest(unittest.IsolatedAsyncioTestCase):
     """MAX_RUN_CALLS: one budget for a run, the lead's calls and its specialists' together."""
 

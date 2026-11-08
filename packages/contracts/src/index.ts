@@ -157,12 +157,48 @@ export type NewCheck = z.input<typeof NewCheck>;
 // Something the service can't compute, such as public feedback. Consultation is
 // one of the TTC's own tests, so a negative or mixed finding counts in the analysis.
 // A neutral finding, such as a noted risk, does not.
+const Lon = z.number().min(-180).max(180);
+const Lat = z.number().min(-90).max(90);
+export const MapPlace = z.object({ lon: Lon, lat: Lat });
+
+// A draft route for a line, which an agent proposes and planners choose between:
+// the street it follows, its line on the map as longitude and latitude, its length
+// measured along that line, its new stations, and its main station, where it meets
+// the network. Its cost is the study's own formula over its length, citing the
+// pages the formula's inputs come from.
+export const AlignmentOption = z.object({
+  letter: z.string().regex(/^[A-Z]$/),
+  follows: z.string().min(1).max(60),
+  line: z.array(z.tuple([Lon, Lat])).min(2).max(200),
+  lengthKm: z.number().positive().max(100),
+  stations: z.number().int().nonnegative().max(50),
+  costM: z.number().nonnegative(),
+  costCitations: z.array(Citation).max(3).default([]),
+  station: MapPlace.extend({ name: z.string().min(1).max(60) }),
+});
+export type AlignmentOption = z.infer<typeof AlignmentOption>;
+
+// What an agent asks for when it proposes an alignment: a terminus, the streets to
+// follow there in order, and one line on why. The service builds the line itself,
+// only along route shapes it holds, and refuses one it can't snap.
+export const NewAlignment = z.object({
+  label: z.string().min(1).max(60).optional(),
+  terminus: z.string().min(1).max(80),
+  corridor: z.array(z.string().min(1).max(60)).min(1).max(4),
+  note: z.string().min(3).max(200),
+});
+export type NewAlignment = z.input<typeof NewAlignment>;
+
 export const NewFinding = z.object({
   id: slug,
   label: z.string().min(1).max(120),
   text: z.string().min(1).max(400),
   tone: z.enum(["positive", "mixed", "negative", "neutral"]),
   citation: Citation,
+  // Where on the map it applies, if anywhere: the display pins it there.
+  at: MapPlace.optional(),
+  // A draft alignment for planners to choose between.
+  option: AlignmentOption.optional(),
 });
 export type NewFinding = z.input<typeof NewFinding>;
 
