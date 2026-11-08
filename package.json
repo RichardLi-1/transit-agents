@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "dev": "node --disable-warning=ExperimentalWarning scripts/dev.ts",
-    "build": "vite build apps/display",
+    "build": "node --disable-warning=ExperimentalWarning scripts/build-simulator.ts && vite build apps/display",
     "demo": "node --disable-warning=ExperimentalWarning scripts/demo.ts",
     "slack:demo": "node --disable-warning=ExperimentalWarning scripts/slack-demo.ts",
     "replay": "node --disable-warning=ExperimentalWarning clients/replay.ts",

@@ -49,9 +49,17 @@ header p { margin: 4px 0 0; color: var(--soft); font-size: 18px; }
 .logo.slack { fill: var(--slack); }
 .by { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--soft); border-top: 1.5px solid var(--rule); padding-top: 12px; }
 .people { border: 2px solid var(--ink); }
+/* The loop: what comes out goes back in as context. A U under the funnel, from the
+   finished work back up into what's thrown in. */
+.loop { position: relative; margin: 4px 11% 0; height: 64px; border: 3px solid var(--accent); border-top: none; border-radius: 0 0 32px 32px; }
+.loop::before { content: ""; position: absolute; left: -10px; top: -14px; border: 9px solid transparent; border-bottom: 14px solid var(--accent); border-top: none; }
+.loop p { position: absolute; left: 50%; bottom: -15px; transform: translateX(-50%); margin: 0; padding: 4px 14px; background: var(--bg); color: var(--ink); font-weight: 600; white-space: nowrap; }
+.loop p span { font-weight: 400; color: var(--soft); }
 footer { display: flex; flex-wrap: wrap; gap: 10px 32px; color: var(--soft); font-size: 15px; border-top: 1.5px solid var(--rule); padding-top: 16px; }
 footer strong { color: var(--ink); font-weight: 650; }
 @media (max-width: 980px) {
+  .loop { margin-inline: 8%; }
+  .loop p { white-space: normal; width: 90%; text-align: center; }
   .flow { grid-template-columns: minmax(0,1fr); gap: 12px; }
   .funnel { height: 60px; width: 60px; justify-self: center; transform: rotate(90deg); }
 }
@@ -63,7 +71,7 @@ footer strong { color: var(--ink); font-weight: 650; }
     <img src="/icons/icon-192.png" alt="">
     <div>
       <h1>How Transit Agents works</h1>
-      <p>Throw everything at it. It works out what to do, and people decide.</p>
+      <p>Throw everything at it. It works out what to do, people decide, and it all feeds back in.</p>
     </div>
   </header>
 
@@ -109,6 +117,10 @@ footer strong { color: var(--ink); font-weight: 650; }
       <div class="chip"><svg class="logo slack" viewBox="0 0 24 24" aria-hidden="true"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg> In Slack <small>answers and pings</small></div>
       <div class="chip people">Decisions <small>made by people, on the record</small></div>
     </section>
+  </div>
+
+  <div class="loop" role="img" aria-label="A loop: everything it makes goes back in as context">
+    <p>It all goes back in. <span>Answers, drafts, renders and decisions become context for the next question.</span></p>
   </div>
 
   <footer>

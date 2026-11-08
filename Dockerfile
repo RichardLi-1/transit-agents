@@ -10,6 +10,9 @@ COPY apps/display/package.json apps/display/
 RUN npm ci --no-audit --no-fund
 COPY packages packages
 COPY apps/display apps/display
+# The mock simulator, which the build copies to /simulator.
+COPY apps/microsim-mock apps/microsim-mock
+COPY scripts/build-simulator.ts scripts/
 RUN npm run build
 
 FROM node:24-slim

@@ -14,3 +14,6 @@ __pycache__/
 
 # Downloaded reference files (licences in references/manifest.json)
 /references/files/
+
+# Made by npm run build from apps/microsim-mock
+apps/display/public/simulator/
