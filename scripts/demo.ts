@@ -20,9 +20,16 @@ if (!existsSync(join(root, "apps/display/dist/index.html"))) {
   process.exit(1);
 }
 
-const tokens = Object.fromEntries(["integration", "agent", "planner"].map((role) => [role, randomBytes(18).toString("base64url")]));
+// One token per client. "lead" is for your own agents, so the display never
+// mistakes their work for the scripted replay.
+const clients = [
+  { key: "integration", role: "integration", name: "seed" },
+  { key: "agent", role: "agent", name: "replay" },
+  { key: "lead", role: "agent", name: "lead" },
+  { key: "planner", role: "planner", name: "demo" },
+];
+const tokens: Record<string, string> = Object.fromEntries(clients.map(({ key }) => [key, randomBytes(18).toString("base64url")]));
 writeFileSync(join(data, "demo-tokens.json"), JSON.stringify(tokens, null, 2), { mode: 0o600 });
-const names: Record<string, string> = { integration: "seed", agent: "replay", planner: "demo" };
 
 const api = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(root, "services/api/src/main.ts")], {
   stdio: "inherit",
@@ -31,9 +38,7 @@ const api = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", jo
     PORT: port,
     AUTH: "open",
     DATA_DIR: data,
-    TRANSIT_TOKENS: Object.entries(tokens)
-      .map(([role, token]) => `${role}:${names[role]}:${token}`)
-      .join(","),
+    TRANSIT_TOKENS: clients.map(({ key, role, name }) => `${role}:${name}:${tokens[key]}`).join(","),
   },
 });
 const stop = () => api.kill("SIGTERM");
