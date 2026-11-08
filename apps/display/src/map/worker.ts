@@ -16,6 +16,8 @@ self.onmessage = (event: MessageEvent<Call>) => {
     });
     try {
       engine = new MapEngine(canvas);
+      // Only when the camera moves or the canvas resizes, so a few small messages.
+      engine.onView = (view) => self.postMessage({ view });
     } catch {
       self.postMessage("lost");
     }

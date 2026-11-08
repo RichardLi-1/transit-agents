@@ -13,6 +13,10 @@ export type Camera = {
   bearing: number;
 };
 
+// What the page needs to put things on the map: the camera, and the canvas size in
+// CSS pixels.
+export type TiltedView = { camera: Camera; width: number; height: number };
+
 export type NetworkRoute = { id: string; type: number; color: string; service: number[][] };
 export type Polyline = { route: number; start: number; count: number };
 export type NetworkData = { coordinates: Int16Array; polylines: Polyline[]; routes: NetworkRoute[]; unitMetres: number };
@@ -28,6 +32,17 @@ const SLATE: Vec3 = [0.42, 0.45, 0.5];
 const GREY: Vec3 = [0.58, 0.6, 0.63];
 const FAILING: Vec3 = [0.3, 0.32, 0.36];
 const FIELD_OF_VIEW = (32 * Math.PI) / 180;
+
+// While a study is shown, the other rail lines fade this far toward grey, so none
+// reads as part of it. A line whose colour is near the study's magenta, such as
+// Line 4's purple, goes all the way: muted part way, it still reads as the study.
+const RAIL_MUTE = 0.65;
+
+// A proposed segment is dashed in the line's colour, so it reads as unbuilt: dash
+// and gap, in metres.
+const DASH_METRES = 260;
+const GAP_METRES = 140;
+const NO_DASH: Vec3 = [2, 1, 1];
 
 function perspective(fovy: number, aspect: number, near: number, far: number): Float32Array {
   const f = 1 / Math.tan(fovy / 2);
@@ -73,6 +88,17 @@ function multiply(a: Float32Array, b: Float32Array): Float32Array {
   return out;
 }
 
+// The eye, and the matrix from the ground to the screen. Anything the page pins to
+// the map uses this too, so the two can't drift apart.
+export function cameraView(camera: Camera, aspect: number): { eye: Vec3; viewProjection: Float32Array } {
+  const forward: Vec3 = [Math.sin(camera.bearing), Math.cos(camera.bearing), 0];
+  const back = camera.distance * Math.sin(camera.pitch);
+  const eye: Vec3 = [camera.x - forward[0] * back, camera.y - forward[1] * back, camera.distance * Math.cos(camera.pitch)];
+  const view = lookAt(eye, [camera.x, camera.y, 0], [0, 0, 1]);
+  const projection = perspective(FIELD_OF_VIEW, aspect, 50, camera.distance * 12);
+  return { eye, viewProjection: multiply(projection, view) };
+}
+
 const HEADER = `#version 300 es
 precision highp float;
 uniform mat4 uViewProjection;
@@ -109,23 +135,29 @@ in float aAlong;
 in vec3 aColor;
 uniform float uProgress;
 uniform float uFogged;
+uniform float uMute;
 out vec4 vColor;
 out float vAlong;
 void main() {
   vAlong = aAlong;
   // The network fades into the distance. The study line doesn't: it is the subject.
-  vColor = vec4(aColor, mix(1.0, fade(aPosition), uFogged));
+  float near = 1.0 - smoothstep(0.3, 0.4, distance(aColor, vec3(${MAGENTA.join(", ")})));
+  float mute = uMute > 0.0 ? max(uMute, near) : 0.0;
+  vColor = vec4(mix(aColor, vec3(0.58, 0.6, 0.63), mute), mix(1.0, fade(aPosition), uFogged));
   gl_Position = uViewProjection * vec4(aPosition, 0.0, 1.0);
 }`;
 
+// uDash: where along the line the dashes start, their period, and the dash's share of it.
 const RIBBON_FRAGMENT = `#version 300 es
 precision highp float;
 in vec4 vColor;
 in float vAlong;
 uniform float uProgress;
+uniform vec3 uDash;
 out vec4 color;
 void main() {
   if (vAlong > uProgress) discard;
+  if (vAlong > uDash.x && fract((vAlong - uDash.x) / uDash.y) > uDash.z) discard;
   color = vec4(vColor.rgb * vColor.a, vColor.a);
 }`;
 
@@ -186,16 +218,23 @@ const hexToRgb = (hex: string): Vec3 => [
 
 const isRail = (route: NetworkRoute) => /^[1-6]$/.test(route.id);
 
-// A flat strip of triangles along a line, joined with mitres.
-function ribbon(points: Point[], width: number, color: Vec3, out: number[], along = true) {
-  let total = 0;
+function cumulative(points: Point[]): number[] {
   const lengths = [0];
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1] as Point;
     const b = points[i] as Point;
-    total += Math.hypot(b[0] - a[0], b[1] - a[1]);
-    lengths.push(total);
+    lengths.push((lengths[i - 1] as number) + Math.hypot(b[0] - a[0], b[1] - a[1]));
   }
+  return lengths;
+}
+
+const longest = (lines: Point[][]) => Math.max(0, ...lines.map((line) => cumulative(line).at(-1) ?? 0));
+
+// A flat strip of triangles along a line, joined with mitres. `along` is the share
+// of the draw-in animation the line spans, or null for a line that doesn't animate.
+function ribbon(points: Point[], width: number, color: Vec3, out: number[], along: [number, number] | null = [0, 1]) {
+  const lengths = cumulative(points);
+  const total = lengths.at(-1) ?? 0;
   const side = (i: number): Point => {
     const a = points[Math.max(i - 1, 0)] as Point;
     const b = points[Math.min(i + 1, points.length - 1)] as Point;
@@ -207,7 +246,7 @@ function ribbon(points: Point[], width: number, color: Vec3, out: number[], alon
   const vertex = (i: number, sign: number) => {
     const p = points[i] as Point;
     const n = side(i);
-    const t = along ? (lengths[i] as number) / (total || 1) : 0;
+    const t = along ? along[0] + ((along[1] - along[0]) * (lengths[i] as number)) / (total || 1) : 0;
     out.push(p[0] + n[0] * sign * width, p[1] + n[1] * sign * width, t, color[0], color[1], color[2]);
   };
   for (let i = 0; i + 1 < points.length; i++) {
@@ -244,6 +283,13 @@ export class MapEngine {
 
   camera: Camera = { x: 0, y: 0, distance: 16000, pitch: 1.1, bearing: 0 };
   private frame = 0;
+  private size: [number, number] = [0, 0];
+
+  // Told when the camera moves or the canvas resizes, so the page can keep things
+  // pinned to the map. It is told a frame before the draw, about the time a message
+  // from the worker takes to reach the page. Never while the camera holds still.
+  onView: ((view: TiltedView) => void) | null = null;
+  private reported = "";
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     const gl = canvas.getContext("webgl2", { antialias: true, alpha: true, premultipliedAlpha: true }) as WebGL2RenderingContext | null;
@@ -274,7 +320,7 @@ export class MapEngine {
         for (let i = line.start; i < line.start + line.count; i++) {
           points.push([(data.coordinates[i * 2] as number) * this.unit, (data.coordinates[i * 2 + 1] as number) * this.unit]);
         }
-        ribbon(points, 20, hexToRgb(route.color), rail, false);
+        ribbon(points, 20, hexToRgb(route.color), rail, null);
       } else {
         for (let i = line.start; i + 1 < line.start + line.count; i++) indices.push(i, i + 1);
       }
@@ -359,10 +405,13 @@ export class MapEngine {
   }
 
   private studyLines: Point[][] = [];
+  private proposedLines: Point[][] = [];
   private studyFailing = false;
+  private studyDash: Vec3 = NO_DASH;
 
-  setStudyLines(lines: Point[][]) {
+  setStudyLines(lines: Point[][], proposed: Point[][] = []) {
     this.studyLines = lines;
+    this.proposedLines = proposed;
     this.rebuildStudy();
   }
 
@@ -376,7 +425,14 @@ export class MapEngine {
   private rebuildStudy() {
     const color = this.studyFailing ? FAILING : MAGENTA;
     const data: number[] = [];
-    for (const line of this.studyLines) ribbon(line, 34, color, data);
+    // A proposed extension draws on once the line it extends is drawn, at one speed.
+    const built = longest(this.studyLines);
+    const total = built + longest(this.proposedLines) || 1;
+    const split = this.proposedLines.length ? built / total : 1;
+    for (const line of this.studyLines) ribbon(line, 34, color, data, [0, split]);
+    for (const line of this.proposedLines) ribbon(line, 34, color, data, [split, 1]);
+    const period = DASH_METRES + GAP_METRES;
+    this.studyDash = this.proposedLines.length ? [split, period / total, DASH_METRES / period] : NO_DASH;
     this.studyVao = this.ribbonVao(new Float32Array(data));
     this.studyCount = data.length / 6;
     this.requestDraw();
@@ -437,6 +493,7 @@ export class MapEngine {
   // Sizes come from the page, because a canvas in a worker can't measure itself.
   resize(cssWidth: number, cssHeight: number, devicePixelRatio: number) {
     const ratio = Math.min(devicePixelRatio || 1, 2);
+    this.size = [cssWidth, cssHeight];
     const width = Math.round(cssWidth * ratio);
     const height = Math.round(cssHeight * ratio);
     if (this.canvas.width !== width || this.canvas.height !== height) {
@@ -447,6 +504,7 @@ export class MapEngine {
   }
 
   requestDraw() {
+    this.report();
     if (!this.frame) {
       this.frame = nextFrame(() => {
         this.frame = 0;
@@ -462,16 +520,7 @@ export class MapEngine {
     gl.clear(gl.COLOR_BUFFER_BIT);
     if (!this.networkVao) return;
 
-    const forward: Vec3 = [Math.sin(camera.bearing), Math.cos(camera.bearing), 0];
-    const back = camera.distance * Math.sin(camera.pitch);
-    const eye: Vec3 = [
-      camera.x - forward[0] * back,
-      camera.y - forward[1] * back,
-      camera.distance * Math.cos(camera.pitch),
-    ];
-    const view = lookAt(eye, [camera.x, camera.y, 0], [0, 0, 1]);
-    const projection = perspective(FIELD_OF_VIEW, canvas.width / canvas.height, 50, camera.distance * 12);
-    const viewProjection = multiply(projection, view);
+    const { eye, viewProjection } = cameraView(camera, canvas.width / canvas.height);
     const fog: Point = [camera.distance * 1.05, camera.distance * 2.6];
 
     const shared = (program: WebGLProgram) => {
@@ -492,10 +541,14 @@ export class MapEngine {
     shared(this.ribbons);
     gl.uniform1f(gl.getUniformLocation(this.ribbons, "uProgress"), 2);
     gl.uniform1f(gl.getUniformLocation(this.ribbons, "uFogged"), 1);
+    gl.uniform1f(gl.getUniformLocation(this.ribbons, "uMute"), this.studyCount ? RAIL_MUTE : 0);
+    gl.uniform3fv(gl.getUniformLocation(this.ribbons, "uDash"), NO_DASH);
     gl.bindVertexArray(this.railVao);
     gl.drawArrays(gl.TRIANGLES, 0, this.railCount);
     if (this.studyVao) {
       gl.uniform1f(gl.getUniformLocation(this.ribbons, "uFogged"), 0);
+      gl.uniform1f(gl.getUniformLocation(this.ribbons, "uMute"), 0);
+      gl.uniform3fv(gl.getUniformLocation(this.ribbons, "uDash"), this.studyDash);
       gl.uniform1f(gl.getUniformLocation(this.ribbons, "uProgress"), this.studyProgress);
       gl.bindVertexArray(this.studyVao);
       gl.drawArrays(gl.TRIANGLES, 0, this.studyCount);
@@ -509,5 +562,13 @@ export class MapEngine {
       gl.drawArrays(gl.POINTS, 0, this.vehicleCount);
     }
     gl.bindVertexArray(null);
+  }
+
+  private report() {
+    const { camera, size, onView } = this;
+    const key = `${camera.x} ${camera.y} ${camera.distance} ${camera.pitch} ${camera.bearing} ${size[0]} ${size[1]}`;
+    if (!onView || !this.networkVao || key === this.reported || !size[0] || !size[1]) return;
+    this.reported = key;
+    onView({ camera: { ...camera }, width: size[0], height: size[1] });
   }
 }

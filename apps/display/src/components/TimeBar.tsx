@@ -39,9 +39,10 @@ function Measured({ timeline, first, last, start }: { timeline: Timeline | null;
   );
 }
 
-type Props = { simulator: Simulator; timeline: Timeline | null; trialStart: string | null; visible: boolean };
+type Props = { simulator: Simulator; timeline: Timeline | null; trialStart: string | null };
 
-export function TimeBar({ simulator, timeline, trialStart, visible }: Props) {
+// Shown only for a study with a trial. Unmounting it also drops the Space shortcut.
+export function TimeBar({ simulator, timeline, trialStart }: Props) {
   const [, setTick] = useState(0);
   const [ms, setMs] = useState(simulator.now);
 
@@ -70,8 +71,6 @@ export function TimeBar({ simulator, timeline, trialStart, visible }: Props) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [simulator]);
-
-  if (!visible) return null;
 
   const { first, last, playing, speed, live } = simulator;
   const span = last - first || 1;

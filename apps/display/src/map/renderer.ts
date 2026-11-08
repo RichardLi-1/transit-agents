@@ -1,11 +1,11 @@
 // One interface for the map, wherever it runs: in a worker when the browser can
 // hand a canvas to one, otherwise on the main thread.
-import type { Camera, NetworkData, Point } from "./engine.ts";
+import type { Camera, NetworkData, Point, TiltedView } from "./engine.ts";
 import { MapEngine } from "./engine.ts";
 
 export interface MapRenderer {
   setNetwork(data: NetworkData): void;
-  setStudyLines(lines: Point[][]): void;
+  setStudyLines(lines: Point[][], proposed?: Point[][]): void;
   setStudyFailing(failing: boolean): void;
   setVehicles(data: Float32Array): void;
   setClock(dayType: number | null, hour: number): void;
@@ -18,11 +18,12 @@ export interface MapRenderer {
 class WorkerRenderer implements MapRenderer {
   private readonly worker: Worker;
 
-  constructor(canvas: HTMLCanvasElement, onLost: () => void) {
+  constructor(canvas: HTMLCanvasElement, onLost: () => void, onView: (view: TiltedView) => void) {
     const offscreen = canvas.transferControlToOffscreen();
     this.worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-    this.worker.onmessage = (event) => {
+    this.worker.onmessage = (event: MessageEvent<"lost" | { view: TiltedView }>) => {
       if (event.data === "lost") onLost();
+      else onView(event.data.view);
     };
     this.worker.postMessage({ method: "init", args: [offscreen] }, [offscreen]);
   }
@@ -34,8 +35,8 @@ class WorkerRenderer implements MapRenderer {
   setNetwork(data: NetworkData) {
     this.call("setNetwork", data);
   }
-  setStudyLines(lines: Point[][]) {
-    this.call("setStudyLines", lines);
+  setStudyLines(lines: Point[][], proposed: Point[][] = []) {
+    this.call("setStudyLines", lines, proposed);
   }
   setStudyFailing(failing: boolean) {
     this.call("setStudyFailing", failing);
@@ -60,11 +61,14 @@ class WorkerRenderer implements MapRenderer {
   }
 }
 
-export function createRenderer(canvas: HTMLCanvasElement, onLost: () => void): MapRenderer {
+// onView hears where the camera is, whenever it moves.
+export function createRenderer(canvas: HTMLCanvasElement, onLost: () => void, onView: (view: TiltedView) => void): MapRenderer {
   if ("transferControlToOffscreen" in canvas && typeof Worker !== "undefined") {
-    return new WorkerRenderer(canvas, onLost);
+    return new WorkerRenderer(canvas, onLost, onView);
   }
   const engine = new MapEngine(canvas);
+  // Here nothing carries the report across threads, so hold it for the draw.
+  engine.onView = (view) => requestAnimationFrame(() => onView(view));
   canvas.addEventListener("webglcontextlost", (event) => {
     event.preventDefault();
     onLost();

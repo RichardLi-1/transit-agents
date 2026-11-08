@@ -30,7 +30,8 @@ export const NewContext = z.object({
   title: z.string().min(1).max(200),
   folder: z.string().min(1).max(60).default("Inbox"),
   source: z.string().max(200).optional(),
-  url: z.url().optional(),
+  // A web address only: the display links to it.
+  url: z.url({ protocol: /^https?$/ }).optional(),
   publishedOn: z.iso.date().optional(),
   pages: z
     .array(z.object({ page: z.number().int().positive(), text: z.string() }))
@@ -171,6 +172,130 @@ export type Assumption = {
   history: { value: number; owner: string; setAt: string; reason: string }[];
 };
 
+// --- Engagement ------------------------------------------------------------
+
+// Something to make so people in one place hear about a change, such as a poster
+// near a hospital. Agents and planners propose it; only a planner asks for it to
+// be made, and only then is any image or video generated.
+export const MediaKind = z.enum(["image", "video"]);
+export type MediaKind = z.infer<typeof MediaKind>;
+
+// The only files the service keeps, told apart by their first bytes, never by what
+// the upload says they are. SVG is never one: it can carry script.
+export const MEDIA_TYPES = {
+  "image/png": "image",
+  "image/jpeg": "image",
+  "image/webp": "image",
+  "video/mp4": "video",
+} as const satisfies Record<string, MediaKind>;
+export type MediaType = keyof typeof MEDIA_TYPES;
+
+export const MEDIA_MAX_BYTES: Record<MediaKind, number> = { image: 10 * 1024 * 1024, video: 40 * 1024 * 1024 };
+
+// Generated media shows what a change could look like. It is never evidence, so it
+// always carries this label.
+export const MEDIA_LABEL = "Illustrative";
+
+export const NewNeed = z.object({
+  id: slug,
+  title: z.string().min(1).max(60),
+  place: z.string().min(1).max(60),
+  lon: z.number().min(-180).max(180),
+  lat: z.number().min(-90).max(90),
+  kinds: z
+    .array(MediaKind)
+    .min(1)
+    .max(2)
+    .refine((kinds) => new Set(kinds).size === kinds.length, "List each kind once"),
+  reason: z.string().min(3).max(300),
+  citations: z.array(Citation).max(5).default([]),
+});
+export type NewNeed = z.input<typeof NewNeed>;
+
+// What a file drew on: a figure in the same study, or a cited page.
+export const MediaInput = z.union([z.object({ figure: slug }), z.object({ citation: Citation })]);
+export type MediaInput = z.infer<typeof MediaInput>;
+
+// The fields that come with a file to POST /v1/studies/{id}/needs/{need}/media,
+// which takes multipart/form-data, with the need in the path. In the form,
+// `inputs` is a JSON array.
+// An agent takes on a planner's request before it spends anything, so two agents
+// never both pay to make one need. The claim is a secret the agent makes up and
+// sends again with each file and with any failure. The log keeps only its hash.
+export const Claim = z.string().regex(/^[A-Za-z0-9_-]{16,128}$/, "A claim is 16 to 128 letters, digits, - or _");
+export const NeedClaim = z.object({ claim: Claim });
+export type NeedClaim = z.input<typeof NeedClaim>;
+
+export const NewMedia = z.object({
+  needId: slug,
+  claim: Claim,
+  kind: MediaKind,
+  model: z.string().min(1).max(100),
+  prompt: z.string().min(1).max(8000),
+  inputs: z.array(MediaInput).max(20).default([]),
+  // What the file shows, in words, for people who can't see it: any words drawn
+  // into it, and the scene.
+  alt: z.string().min(3).max(400).optional(),
+});
+export type NewMedia = z.input<typeof NewMedia>;
+
+// Why a planner drops a need, or takes a file down.
+export const NeedWithdrawal = z.object({ reason: z.string().min(3).max(300) });
+export type NeedWithdrawal = z.input<typeof NeedWithdrawal>;
+
+// What an agent says when it couldn't make what a planner asked for.
+export const NeedFailure = z.object({ reason: z.string().min(3).max(300), claim: Claim });
+export type NeedFailure = z.input<typeof NeedFailure>;
+
+// "creating" once a planner has asked for it, and "ready" once every kind it asks
+// for is attached. "failed" when an agent couldn't make a kind it still lacks:
+// nothing more is made until a planner asks again, and what was made is kept.
+export type NeedStatus = "needed" | "creating" | "ready" | "failed";
+
+export type MediaView = {
+  // The file's sha256.
+  id: string;
+  // Where to read it. Needs no token.
+  url: string;
+  kind: MediaKind;
+  type: MediaType;
+  size: number;
+  model: string;
+  prompt: string;
+  inputs: MediaInput[];
+  // What it shows, in words. Older files have none.
+  alt?: string;
+  label: typeof MEDIA_LABEL;
+  addedBy: string;
+  addedAt: string;
+};
+
+export type NeedView = {
+  id: string;
+  title: string;
+  place: string;
+  lon: number;
+  lat: number;
+  kinds: MediaKind[];
+  reason: string;
+  citations: Citation[];
+  status: NeedStatus;
+  addedBy: string;
+  addedAt: string;
+  // The latest request.
+  requestedBy?: string;
+  requestedAt?: string;
+  // The agent making it for that request. Until one claims it, nobody is.
+  claimedBy?: string;
+  claimedAt?: string;
+  // Why the latest request failed, when it did. Media made for it is kept.
+  failure?: string;
+  failedBy?: string;
+  failedAt?: string;
+  // Oldest first.
+  media: MediaView[];
+};
+
 // --- Studies ---------------------------------------------------------------
 
 export const NewStudy = z.object({
@@ -258,6 +383,8 @@ export type StudyView = {
   findings: FindingView[];
   analysis: Analysis;
   decision?: Decision;
+  // Oldest first.
+  needs: NeedView[];
 };
 
 // --- Activity --------------------------------------------------------------
@@ -268,7 +395,8 @@ export const Activity = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("message"), text: z.string().min(1).max(4000) }),
   z.object({ kind: z.literal("reading"), contextId: slug, page: z.number().int().positive().optional() }),
   z.object({ kind: z.literal("subagent.started"), id: slug, question: z.string().min(1).max(300) }),
-  z.object({ kind: z.literal("subagent.finished"), id: slug, summary: z.string().min(1).max(1000) }),
+  // ok is false when it stopped before answering, as on an error or a cancel.
+  z.object({ kind: z.literal("subagent.finished"), id: slug, summary: z.string().min(1).max(1000), ok: z.boolean().optional() }),
   z.object({
     kind: z.literal("usage"),
     model: z.string().min(1).max(100),

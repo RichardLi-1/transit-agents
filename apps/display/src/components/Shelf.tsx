@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Context } from "@transit-agents/contracts";
 import { api } from "../api.ts";
+import { webUrl } from "../host.ts";
 import { FileIcon, FolderIcon, PlusIcon } from "./icons.tsx";
 
 async function upload(file: File) {
@@ -64,7 +65,7 @@ export function Shelf({ contexts, reading, highlight, canAdd }: Props) {
           const first = items[0];
           return (
             <li key={name} data-folder={name} class={isReading ? "item reading" : "item"}>
-              <a href={first?.url ?? "#"} target="_blank" rel="noopener noreferrer" aria-label={`${name}, ${items.length} ${items.length === 1 ? "item" : "items"}, opens source`}>
+              <a href={webUrl(first?.url) ?? "#"} target="_blank" rel="noopener noreferrer" aria-label={`${name}, ${items.length} ${items.length === 1 ? "item" : "items"}, opens source`}>
                 <FolderIcon />
                 <span>{name}</span>
               </a>

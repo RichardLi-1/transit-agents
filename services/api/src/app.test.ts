@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccessMode, SignIn } from "@transit-agents/contracts";
 import { createApp, type Actor, type Verified } from "./app.ts";
 import { watchInbox } from "./inbox.ts";
+import { padded, SAMPLE } from "./sample-media.ts";
 import { Service } from "./service.ts";
 import { describe as describeEntry, format, sign, Webhooks } from "./webhooks.ts";
 
@@ -18,17 +19,19 @@ const TOKENS = new Map<string, Actor>([
 
 type Setup = {
   access?: AccessMode;
+  publicUrl?: string;
   signIn?: SignIn;
   verifyToken?: (token: string) => Promise<Actor | undefined>;
   post?: typeof fetch;
   webhookHosts?: string[];
+  mediaDir?: string;
   staticDir?: string;
 };
 
-function setup({ access = "token", signIn, verifyToken, post, webhookHosts = ["hook.test"], staticDir }: Setup = {}) {
-  const service = new Service(":memory:");
+function setup({ access = "token", signIn, verifyToken, post, webhookHosts = ["hook.test"], mediaDir, staticDir, publicUrl }: Setup = {}) {
+  const service = new Service(":memory:", { mediaDir });
   const webhooks = new Webhooks(service, "https://example.test", post ?? (async () => new Response("ok")));
-  const app = createApp({ service, webhooks, tokens: TOKENS, verifyToken, access, signIn, webhookHosts, staticDir });
+  const app = createApp({ service, webhooks, tokens: TOKENS, verifyToken, access, signIn, webhookHosts, staticDir, publicUrl });
   const call = (method: string, path: string, token?: string, body?: unknown) =>
     app.request(path, {
       method,
@@ -263,7 +266,7 @@ describe("security headers", () => {
     const response = await setup().app.request("/health");
     assert.equal(
       response.headers.get("content-security-policy"),
-      "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'",
+      "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'",
     );
   });
 
@@ -297,10 +300,112 @@ describe("request bodies", () => {
     assert.equal((await call("POST", "/v1/studies/lawrence/preview", undefined, { assumptions: {} })).status, 200);
   });
 
+  it("takes a source's address only if it's a web page", async () => {
+    const { call } = setup();
+    for (const url of ["javascript:alert(document.domain)", "data:text/html,<script>1</script>", "file:///etc/passwd"]) {
+      const response = await call("POST", "/v1/context", "integration-token", { title: "Plan", text: "rows", url });
+      assert.equal(response.status, 400, url);
+    }
+    assert.equal((await call("POST", "/v1/context", "integration-token", { title: "Plan", text: "rows", url: "https://cdn.ttc.ca/plan.pdf" })).status, 201);
+  });
+
   it("gives a contributor room to add a whole document as context", async () => {
     const { call } = setup();
     const pages = [{ page: 1, text: "a".repeat(4 * 1024 * 1024) }];
     assert.equal((await call("POST", "/v1/context", "integration-token", { id: "plan", title: "2026 Plan", pages })).status, 201);
+  });
+});
+
+describe("pages on other sites", () => {
+  const send = (app: ReturnType<typeof setup>["app"], headers: Record<string, string>, url = "/v1/studies", id = "x") =>
+    app.request(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ ...STUDY, id }) });
+  const code = async (response: Response | Promise<Response>) => (await (await response).json()).error?.code;
+  const MESSAGE = JSON.stringify({ kind: "message", text: "Run up the bill" });
+
+  it("can't write under open access, though the service's own pages can", async () => {
+    const { app, call, service } = setup({ access: "open" });
+    await call("POST", "/v1/studies", undefined, STUDY);
+    const post = (path: string, headers: Record<string, string>, body = MESSAGE) =>
+      app.request(`http://127.0.0.1:4100${path}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body });
+    const before = service.log.head().seq;
+
+    for (const path of ["/v1/studies/lawrence/activity", "/v1/studies/lawrence/decisions", "/v1/studies"]) {
+      const response = await post(path, { origin: "https://evil.example" }, path.endsWith("decisions") ? JSON.stringify(DECISION) : MESSAGE);
+      assert.equal(response.status, 403, path);
+      assert.equal((await response.json()).error.code, "forbidden_origin");
+    }
+    assert.equal(service.log.head().seq, before);
+
+    assert.equal((await post("/v1/studies/lawrence/activity", { origin: "http://127.0.0.1:4100" })).status, 201);
+    assert.equal((await post("/v1/studies/lawrence/activity", {})).status, 201); // not a browser
+    assert.equal((await app.request("http://127.0.0.1:4100/v1/studies", { headers: { origin: "https://evil.example" } })).status, 200); // reads stay open
+  });
+
+  it("can write from PUBLIC_URL, and a name other than it counts as another site", async () => {
+    const { app, call } = setup({ access: "open", publicUrl: "https://transit.example" });
+    await call("POST", "/v1/studies", undefined, STUDY);
+    const post = (origin: string) =>
+      app.request("https://transit.example/v1/studies/lawrence/activity", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin },
+        body: MESSAGE,
+      });
+    assert.equal((await post("https://transit.example")).status, 201);
+    // After DNS rebinding, the request's own name and origin agree, but it isn't PUBLIC_URL's.
+    const rebound = await app.request("http://rebound.example/v1/studies/lawrence/activity", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://rebound.example" },
+      body: MESSAGE,
+    });
+    assert.equal(rebound.status, 403);
+  });
+
+  it("can't send JSON as plain text, which a page needs no permission to send", async () => {
+    const { app, call, service } = setup({ access: "open" });
+    await call("POST", "/v1/studies", undefined, STUDY);
+    const before = service.log.head().seq;
+    for (const type of ["text/plain;charset=UTF-8", "application/x-www-form-urlencoded", ""]) {
+      const response = await app.request("/v1/studies/lawrence/activity", {
+        method: "POST",
+        headers: type ? { "content-type": type } : {},
+        body: MESSAGE,
+      });
+      assert.equal(response.status, 415, type);
+      assert.equal((await response.json()).error.code, "unsupported_media_type");
+    }
+    assert.equal(service.log.head().seq, before);
+    const charset = await app.request("/v1/studies/lawrence/activity", { method: "POST", headers: { "content-type": "application/json; charset=utf-8" }, body: MESSAGE });
+    assert.equal(charset.status, 201);
+  });
+
+  it("can't write from another port, or as a browser that says cross-site, even with a token", async () => {
+    const { app } = setup({ access: "open", publicUrl: "https://transit.example" });
+    assert.equal(await code(send(app, { origin: "http://localhost:4314" })), "forbidden_origin");
+    assert.equal(await code(send(app, { "sec-fetch-site": "cross-site" })), "forbidden_origin");
+    assert.equal(await code(send(app, { origin: "https://evil.example", authorization: "Bearer planner-token" })), "forbidden_origin");
+    // Its own pages, and a client with no Origin.
+    assert.equal((await send(app, { origin: "http://localhost" }, "/v1/studies", "a")).status, 201);
+    assert.equal((await send(app, { origin: "https://transit.example" }, "/v1/studies", "b")).status, 201);
+    assert.equal((await send(app, { "sec-fetch-site": "same-origin" }, "/v1/studies", "c")).status, 201);
+    assert.equal((await send(app, { authorization: "Bearer planner-token" }, "/v1/studies", "d")).status, 201);
+  });
+
+  it("answers no request without a token in open mode at a name that isn't this service's", async () => {
+    const { app } = setup({ access: "open", publicUrl: "https://transit.example" });
+    // After DNS rebinding, a name that isn't this service's is answered nothing.
+    assert.equal(await code(app.request("http://evil.example/v1/studies")), "forbidden_host");
+    assert.equal(await code(send(app, {}, "http://evil.example/v1/studies")), "forbidden_host");
+    assert.equal((await app.request("https://transit.example/v1/studies")).status, 200);
+    assert.equal((await app.request("http://127.0.0.1:4100/v1/studies")).status, 200);
+    // A token is no browser's to send unasked.
+    assert.equal((await app.request("http://evil.example/v1/studies", { headers: { authorization: "Bearer viewer-token" } })).status, 200);
+  });
+
+  it("in demo mode, can't even preview from another site", async () => {
+    const { app } = setup({ access: "demo" });
+    const preview = (origin: string) =>
+      app.request("/v1/studies/lawrence/preview", { method: "POST", headers: { "content-type": "application/json", origin }, body: "{}" });
+    assert.equal(await code(preview("https://evil.example")), "forbidden_origin");
   });
 });
 
@@ -489,6 +594,337 @@ describe("webhooks", () => {
     assert.match((format(entry, service, "slack", "https://x.test") as { text: string }).text, /<https:\/\/x\.test\|Open>/);
     const teams = format(entry, service, "teams") as { attachments: { contentType: string }[] };
     assert.equal(teams.attachments[0]?.contentType, "application/vnd.microsoft.card.adaptive");
+  });
+});
+
+describe("engagement", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "transit-media-"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const PLAN = { id: "plan", title: "2026 Plan", pages: [{ page: 1, text: "Service on the 52F Lawrence West would be extended to Sunnybrook Hospital." }] };
+  const CITATION = { contextId: "plan", page: 1, quote: "would be extended to Sunnybrook Hospital" };
+  const NEED = {
+    id: "poster",
+    title: "Engagement poster",
+    place: "Sunnybrook Hospital",
+    lon: -79.375262,
+    lat: 43.722663,
+    kinds: ["image", "video"],
+    reason: "Riders can now ride straight to the hospital.",
+    citations: [CITATION],
+  };
+  const ASK = "/v1/studies/lawrence/needs/poster/create";
+  const CLAIM = "/v1/studies/lawrence/needs/poster/claim";
+  const claim = { claim: "claim-of-the-agent-token" };
+
+  // A study with a need in it, and a way to upload a file for the need as a form.
+  async function engagement(access: AccessMode = "token") {
+    const env = setup({ access, mediaDir: join(dir, "media") });
+    assert.equal((await env.call("POST", "/v1/context", "integration-token", PLAN)).status, 201);
+    assert.equal((await env.call("POST", "/v1/studies", "agent-token", STUDY)).status, 201);
+    assert.equal((await env.call("POST", "/v1/studies/lawrence/needs", "agent-token", NEED)).status, 201);
+    const upload = async (file: Uint8Array, { token = "agent-token", type = "", need = "poster", ...fields }: Record<string, string> = {}) => {
+      const form = new FormData();
+      const values = { ...claim, kind: "image", model: "gemini-3.1-flash-image", prompt: "A poster", inputs: JSON.stringify([{ citation: CITATION }]), ...fields };
+      for (const [name, value] of Object.entries(values)) form.set(name, value);
+      form.set("file", new Blob([file.slice()], { type }), "upload");
+      // As a client sends it, with its length.
+      const encoded = new Response(form);
+      const body = new Uint8Array(await encoded.arrayBuffer());
+      const headers: Record<string, string> = {
+        "content-type": encoded.headers.get("content-type") as string,
+        "content-length": String(body.length),
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      };
+      return env.app.request(`/v1/studies/lawrence/needs/${need}/media`, { method: "POST", headers, body });
+    };
+    // A planner asks, and the agent takes the request on.
+    const ask = async () => {
+      assert.equal((await env.call("POST", ASK, "planner-token")).status, 202);
+      assert.equal((await env.call("POST", CLAIM, "agent-token", claim)).status, 200);
+    };
+    return { ...env, upload, ask };
+  }
+
+  it("lets agents and planners propose a need, and only a planner ask for it to be made", async () => {
+    const { call, service } = await engagement();
+    for (const token of ["integration-token", "viewer-token"]) {
+      assert.equal((await call("POST", "/v1/studies/lawrence/needs", token, { ...NEED, id: "other" })).status, 403, token);
+    }
+    assert.equal((await call("POST", "/v1/studies/lawrence/needs", "planner-token", { ...NEED, id: "other" })).status, 201);
+    const refused = await call("POST", ASK, "agent-token");
+    assert.equal(refused.status, 403);
+    assert.equal((await refused.json()).error.code, "forbidden");
+    const asked = await call("POST", ASK, "planner-token");
+    assert.equal(asked.status, 202);
+    assert.equal((await asked.json()).status, "creating");
+    const head = service.log.head().seq;
+    assert.equal((await call("POST", ASK, "planner-token")).status, 202);
+    assert.equal(service.log.head().seq, head);
+    assert.equal((await call("POST", "/v1/studies/lawrence/needs/nope/create", "planner-token")).status, 404);
+  });
+
+  it("lets an agent say why it made nothing, and a planner ask again", async () => {
+    const { call, service } = await engagement();
+    const FAILED = "/v1/studies/lawrence/needs/poster/failed";
+    const failure = { reason: "image: the image model made no image: IMAGE_SAFETY", ...claim };
+    assert.equal((await call("POST", FAILED, "agent-token", failure)).status, 409);
+    await call("POST", ASK, "planner-token");
+    const unclaimed = await call("POST", FAILED, "agent-token", failure);
+    assert.equal((await unclaimed.json()).error.code, "not_claimed");
+    assert.equal((await call("POST", CLAIM, "agent-token", claim)).status, 200);
+    for (const token of ["viewer-token", "integration-token"]) assert.equal((await call("POST", FAILED, token, failure)).status, 403, token);
+    assert.equal((await call("POST", FAILED, "agent-token", { ...claim, reason: "" })).status, 400);
+    const failed = await call("POST", FAILED, "agent-token", failure);
+    assert.equal(failed.status, 200);
+    assert.deepEqual(await failed.json().then((need) => [need.status, need.failure]), ["failed", failure.reason]);
+    const study = await (await call("GET", "/v1/studies/lawrence", "viewer-token")).json();
+    assert.equal(study.needs[0].status, "failed");
+    const head = service.log.head().seq;
+    const asked = await call("POST", ASK, "planner-token");
+    assert.equal((await asked.json()).status, "creating");
+    assert.equal(service.log.head().seq, head + 1);
+  });
+
+  it("takes a file as a form, and serves it to anyone with its type, lasting caching and nosniff", async () => {
+    const { app, call, upload, ask } = await engagement();
+    await ask();
+    const response = await upload(SAMPLE.png, { type: "image/png" });
+    assert.equal(response.status, 201);
+    const media = await response.json();
+    assert.equal(media.type, "image/png");
+    assert.equal(media.label, "Illustrative");
+    assert.deepEqual(media.inputs, [{ citation: CITATION }]);
+    for (const headers of [{}, { authorization: "Bearer stale" }] as Record<string, string>[]) {
+      const served = await app.request(media.url, { headers });
+      assert.equal(served.status, 200);
+      assert.equal(served.headers.get("content-type"), "image/png");
+      assert.equal(served.headers.get("cache-control"), "public, no-cache");
+      assert.equal(served.headers.get("x-content-type-options"), "nosniff");
+      assert.deepEqual(new Uint8Array(await served.arrayBuffer()), SAMPLE.png);
+    }
+    // The need asks for a video too, so it is still being made.
+    const study = await (await call("GET", "/v1/studies/lawrence", "viewer-token")).json();
+    assert.equal(study.needs[0].status, "creating");
+    assert.deepEqual(study.needs[0].media, [media]);
+    // A file can say what it shows, for people who can't see it.
+    assert.equal(media.alt, undefined);
+    const described = await (await upload(SAMPLE.mp4, { kind: "video", alt: "A bus pulls in at a hospital entrance." })).json();
+    assert.equal(described.alt, "A bus pulls in at a hospital entrance.");
+  });
+
+  it("lets a browser keep, play and seek a video", async () => {
+    const { app, upload, ask } = await engagement();
+    await ask();
+    const video = await (await upload(SAMPLE.mp4, { kind: "video", type: "video/mp4" })).json();
+    const get = (headers: Record<string, string>) => app.request(video.url, { headers });
+    const part = await get({ range: "bytes=4-11" });
+    assert.equal(part.status, 206);
+    assert.equal(part.headers.get("content-range"), `bytes 4-11/${SAMPLE.mp4.length}`);
+    assert.equal(part.headers.get("accept-ranges"), "bytes");
+    assert.equal(new TextDecoder().decode(await part.arrayBuffer()), "ftypisom");
+    const past = await get({ range: `bytes=${SAMPLE.mp4.length}-` });
+    assert.equal(past.status, 416);
+    assert.equal(past.headers.get("content-range"), `bytes */${SAMPLE.mp4.length}`);
+    assert.equal((await get({ "if-none-match": `"${video.id}"` })).status, 304);
+    const head = await app.request(video.url, { method: "HEAD", headers: { "idempotency-key": "k1" } });
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get("content-type"), "video/mp4");
+    assert.equal(head.headers.get("content-length"), String(SAMPLE.mp4.length));
+  });
+
+  it("refuses a file that isn't PNG, JPEG, WebP or MP4, whatever the upload says it is", async () => {
+    const { service, upload, ask } = await engagement();
+    await ask();
+    for (const [file, type] of [[SAMPLE.svg, "image/svg+xml"], [SAMPLE.html, "image/png"], [SAMPLE.gif, "image/gif"], [SAMPLE.heic, ""]] as const) {
+      const response = await upload(file, { type });
+      assert.equal(response.status, 415, type);
+      assert.equal((await response.json()).error.code, "unsupported_media", type);
+    }
+    const mislabelled = await upload(SAMPLE.jpeg, { type: "image/png" });
+    assert.equal(mislabelled.status, 415);
+    assert.equal((await mislabelled.json()).error.code, "type_mismatch");
+    assert.equal(service.state.media.size, 0);
+    assert.deepEqual(readdirSync(join(dir, "media")), []);
+  });
+
+  it("refuses a file over its kind's limit, and gives only media uploads more room", async () => {
+    const { call, upload, ask } = await engagement();
+    await ask();
+    const image = await upload(padded(SAMPLE.png, 10 * 1024 * 1024 + 1));
+    assert.equal(image.status, 413);
+    assert.match((await image.json()).error.message, /over 10 MB/);
+    const video = await upload(padded(SAMPLE.mp4, 40 * 1024 * 1024 + 1), { kind: "video" });
+    assert.equal(video.status, 413);
+    assert.match((await video.json()).error.message, /over 40 MB/);
+    assert.equal((await upload(padded(SAMPLE.mp4, 42 * 1024 * 1024), { kind: "video" })).status, 413);
+    assert.equal((await upload(padded(SAMPLE.png, 2 * 1024 * 1024))).status, 201);
+    const need = await call("POST", "/v1/studies/lawrence/needs", "agent-token", { ...NEED, id: "long", reason: "a".repeat(2 * 1024 * 1024) });
+    assert.equal(need.status, 413);
+    assert.equal((await upload(padded(SAMPLE.png, 2 * 1024 * 1024), { token: "viewer-token" })).status, 413);
+  });
+
+  it("lets one agent take on a request, and no planner", async () => {
+    const { call } = await engagement();
+    assert.equal((await call("POST", CLAIM, "agent-token", claim)).status, 409);
+    await call("POST", ASK, "planner-token");
+    for (const token of ["planner-token", "viewer-token", "integration-token"]) assert.equal((await call("POST", CLAIM, token, claim)).status, 403, token);
+    assert.equal((await call("POST", CLAIM, "agent-token", { claim: "short" })).status, 400);
+    const claimed = await call("POST", CLAIM, "agent-token", claim);
+    assert.equal(claimed.status, 200);
+    assert.deepEqual(await claimed.json().then((need) => [need.status, need.claimedBy]), ["creating", "agent:lead"]);
+    const taken = await call("POST", CLAIM, "agent-token", { claim: "claim-of-another-process" });
+    assert.equal(taken.status, 409);
+    assert.equal((await taken.json()).error.code, "claimed");
+  });
+
+  it("lets an agent attach one file of each kind", async () => {
+    const { upload, ask } = await engagement();
+    await ask();
+    assert.equal((await upload(SAMPLE.png)).status, 201);
+    const again = await upload(SAMPLE.jpeg);
+    assert.equal(again.status, 409);
+    assert.equal((await again.json()).error.code, "already_made");
+  });
+
+  it("needs an agent's token to upload", async () => {
+    const { upload, ask } = await engagement("demo");
+    await ask();
+    const anonymous = await upload(SAMPLE.png, { token: "" });
+    assert.equal(anonymous.status, 401);
+    assert.equal((await anonymous.json()).error.code, "token_required");
+    assert.equal((await upload(SAMPLE.png, { token: "viewer-token" })).status, 403);
+    assert.equal((await upload(SAMPLE.png, { token: "integration-token" })).status, 403);
+    assert.equal((await upload(SAMPLE.png, { token: "planner-token" })).status, 403);
+    assert.equal((await upload(SAMPLE.png)).status, 201);
+  });
+
+  it("says what's wrong with an upload it can't use", async () => {
+    const { app, call, upload, ask } = await engagement();
+    const code = async (response: Response | Promise<Response>) => (await (await response).json()).error.code;
+    assert.equal(await code(upload(SAMPLE.png)), "not_requested");
+    await ask();
+    assert.equal(await code(upload(SAMPLE.png, { claim: "claim-of-somebody-else" })), "not_claimed");
+    assert.equal(await code(call("POST", "/v1/studies/lawrence/needs/poster/media", "agent-token", { kind: "image" })), "invalid_body");
+    assert.equal(await code(upload(SAMPLE.png, { inputs: "[{" })), "invalid_body");
+    assert.equal(await code(upload(SAMPLE.png, { kind: "poster" })), "invalid_body");
+    assert.equal(await code(upload(SAMPLE.png, { need: "nope" })), "not_found");
+    assert.equal(await code(upload(SAMPLE.png, { inputs: JSON.stringify([{ figure: "nope" }]) })), "unknown_input");
+    const form = new FormData();
+    form.set("kind", "image");
+    const encoded = new Response(form);
+    const body = new Uint8Array(await encoded.arrayBuffer());
+    const headers = { authorization: "Bearer agent-token", "content-type": encoded.headers.get("content-type") as string, "content-length": String(body.length) };
+    const noFile = await app.request("/v1/studies/lawrence/needs/poster/media", { method: "POST", headers, body });
+    assert.equal(await code(noFile), "invalid_body");
+  });
+
+  it("lets only a planner take a file down or drop a need", async () => {
+    const { app, call, upload, ask } = await engagement();
+    await ask();
+    const image = await (await upload(SAMPLE.png)).json();
+    const reason = { reason: "Shows a route number the plan never gives" };
+    const WITHDRAW = `/v1/studies/lawrence/needs/poster/media/${image.id}/withdraw`;
+    for (const token of ["agent-token", "viewer-token", "integration-token"]) assert.equal((await call("POST", WITHDRAW, token, reason)).status, 403, token);
+    const withdrawn = await call("POST", WITHDRAW, "planner-token", reason);
+    assert.equal(withdrawn.status, 200);
+    assert.deepEqual((await withdrawn.json()).media, []);
+    assert.equal((await app.request(image.url)).status, 404);
+    const DISMISS = "/v1/studies/lawrence/needs/poster/dismiss";
+    assert.equal((await call("POST", DISMISS, "agent-token", reason)).status, 403);
+    assert.deepEqual(await (await call("POST", DISMISS, "planner-token", reason)).json(), { dismissed: "poster" });
+    assert.deepEqual((await (await call("GET", "/v1/studies/lawrence", "viewer-token")).json()).needs, []);
+  });
+
+  it("refuses an upload before reading it, unless it's asked for and claimed", async () => {
+    const { app, call, upload, ask } = await engagement();
+    // A body that never ends: answered at once means it was never read.
+    const endless = (token = "agent-token", need = "poster") =>
+      app.request(`/v1/studies/lawrence/needs/${need}/media`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "multipart/form-data; boundary=x" },
+        body: new ReadableStream({ pull: () => new Promise(() => {}) }),
+        duplex: "half",
+      } as RequestInit);
+    const code = async (response: Response | Promise<Response>) => (await (await response).json()).error.code;
+    assert.equal(await code(endless("agent-token", "nope")), "not_found");
+    assert.equal(await code(endless()), "not_requested");
+    await call("POST", ASK, "planner-token");
+    assert.equal(await code(endless()), "not_claimed");
+    await ask();
+    assert.equal((await upload(SAMPLE.mp4, { kind: "video" })).status, 201);
+    const sized = (bytes: number) =>
+      app.request("/v1/studies/lawrence/needs/poster/media", {
+        method: "POST",
+        headers: { authorization: "Bearer agent-token", "content-type": "multipart/form-data; boundary=x", "content-length": String(bytes) },
+        body: new ReadableStream({ pull: () => new Promise(() => {}) }),
+        duplex: "half",
+      } as RequestInit);
+    // The need lacks only its image now, so it gets an image's room.
+    assert.equal(await code(sized(20 * 1024 * 1024)), "too_large");
+    assert.equal(await code(endless()), "length_required");
+  });
+
+  it("reads only two uploads at once", async () => {
+    const { app, upload, ask } = await engagement();
+    await ask();
+    const held: ReadableStreamDefaultController[] = [];
+    const slow = () =>
+      app.request("/v1/studies/lawrence/needs/poster/media", {
+        method: "POST",
+        headers: { authorization: "Bearer agent-token", "content-type": "multipart/form-data; boundary=x", "content-length": "100" },
+        body: new ReadableStream({ start: (controller) => void held.push(controller) }),
+        duplex: "half",
+      } as RequestInit);
+    const reading = [slow(), slow()];
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const busy = await upload(SAMPLE.png);
+    assert.equal(busy.status, 503);
+    assert.equal((await busy.json()).error.code, "busy");
+    for (const controller of held) controller.close();
+    for (const response of await Promise.all(reading)) assert.equal(response.status, 400);
+    assert.equal((await upload(SAMPLE.png)).status, 201);
+  });
+
+  it("refuses a file with anything after its end, and names a saved file by its hash", async () => {
+    const { app, upload, ask } = await engagement();
+    await ask();
+    const tail = (file: Uint8Array) => new Uint8Array([...file, ...Buffer.from("<html><script>alert(1)</script>")]);
+    for (const [file, kind] of [[SAMPLE.png, "image"], [SAMPLE.jpeg, "image"], [SAMPLE.webp, "image"], [SAMPLE.mp4, "video"]] as const) {
+      const response = await upload(tail(file), { kind });
+      assert.equal(response.status, 422, kind);
+      assert.equal((await response.json()).error.code, "malformed_media");
+    }
+    const media = await (await upload(SAMPLE.jpeg)).json();
+    const served = await app.request(media.url);
+    assert.equal(served.headers.get("content-disposition"), `inline; filename="${media.id}.jpg"`);
+  });
+
+  it("never serves a file the log doesn't name", async () => {
+    const { app } = await engagement();
+    for (const id of ["f".repeat(64), "..%2F..%2Fpackage.json", "log.db"]) {
+      const response = await app.request(`/v1/media/${id}`);
+      assert.equal(response.status, 404, id);
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+    }
+  });
+
+  it("documents the upload as a form, and media as needing no token", async () => {
+    const { app } = await engagement();
+    const spec = await (await app.request("/openapi.json")).json();
+    const upload = spec.paths["/v1/studies/{id}/needs/{need}/media"].post;
+    assert.deepEqual(upload["x-roles"], ["agent"]);
+    const form = upload.requestBody.content["multipart/form-data"];
+    assert.deepEqual(form.schema.properties.file, { type: "string", format: "binary" });
+    assert.deepEqual(form.schema.required, ["claim", "kind", "model", "prompt", "file"]);
+    assert.deepEqual(form.encoding, { inputs: { contentType: "application/json" } });
+    assert.deepEqual(spec.paths["/v1/media/{id}"].get.security, []);
+    assert.deepEqual(spec.paths["/v1/studies/{id}/needs/{need}/create"].post["x-roles"], ["planner"]);
+    assert.deepEqual(spec.paths["/v1/studies/{id}/needs/{need}/claim"].post["x-roles"], ["agent"]);
+    assert.deepEqual(spec.paths["/v1/studies/{id}/needs/{need}/failed"].post["x-roles"], ["agent"]);
   });
 });
 

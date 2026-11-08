@@ -5,43 +5,68 @@ number traces to the page it came from, and planners make every decision.
 
 ## What is real
 
-- **Studies:** two proposals from the TTC's 2026 Annual Network Plan.
-  Lawrence–Sunnybrook passed its tests and was adopted. Sherbourne–Castle Frank
-  passed the travel-time test, but consultation was split, and it was not
-  adopted. Every figure is checked against the plan's text.
+- **Studies:** the lead study, Ontario Line: Don Mills extension, is
+  hypothetical. Its figures come from the Ontario Line's business cases and TTC
+  counts, or from formulas over them, Metrolinx's appraisal rules and values
+  planners set. It waits for planners: no decision. Two more are real proposals
+  from the TTC's 2026 Annual Network Plan. Lawrence–Sunnybrook passed its tests
+  and was adopted. Sherbourne–Castle Frank passed the travel-time test, but
+  consultation was split, and it was not adopted. Every cited figure is checked
+  against its page.
 - **Service** (log, guarantees, API, webhooks, watched folder): built and tested.
 - **Collector:** built, measuring Lawrence–Sunnybrook's reliability live from
   the public TTC feed. The 12-month trial began on November 1, 2026.
 - **Display:** built. Lighthouse, measured locally: performance 98 mobile and 99
   desktop; 100 for accessibility, best practices and SEO. No axe violations.
-- **Agents and skills:** not built here. `npm run replay` stands in for an agent
-  with an agent token, logged as `agent:replay`. It reports no tokens or cost
-  because it spends none.
+- **Agents and skills:** built, in Python on Gemini, working through the
+  service's tools over MCP (`agents/`). A lead agent splits each question among
+  specialists, who read the sources with skills such as the TTC's tests and
+  record figures with their pages; the lead checks the citations and hands any
+  judgement to a planner. Before an answer reaches the chat, any page it cites
+  that the run didn't read, and no recorded figure or rule cites, is marked.
+  The replay's work is scripted, and the display labels it so.
 
 ## Run it
 
-Needs Node 24 or later. Poppler (`pdftotext`) is optional, for uploaded PDFs.
+Needs Node 24 or later, and Python 3.11 or later for the agents. Poppler
+(`pdftotext`) is optional, for uploaded PDFs.
 
 ```sh
 npm install
 npm run build              # build the display
 npm run collect            # in its own terminal: record live vehicles
 npm run demo -- --fresh    # start the service and load the public sources
-npm run replay             # play the scripted agent run
+npm run replay             # play the scripted agent run, which needs no model
 npm run decide             # a planner rates consultation and records decisions
+npm run agent              # in its own terminal: Gemini answers the chat
 ```
+
+For the agents, make `agents/.venv` with `agents/requirements.txt` installed,
+and put `GEMINI_API_KEY` in `agents/.env`. If the demo runs with `DATA_DIR` or
+`PORT` set, give the agent the same `DATA_DIR` and its `TRANSIT_URL`: the demo
+prints the commands. A message sent while no agent runs gets no answer. To have
+Gemini do a study's first pass instead of the replay:
+`npm run agent -- run "<what to find>" --study <id>`. Agent runs stop at 60
+model calls or US$2 each, and a listening agent at US$10 a day and 20 runs an
+hour (see `agents/main.py` for the settings).
 
 Open http://127.0.0.1:4100. The demo switches on open access, so this machine
 acts as a planner. Never use open access on a shared network.
 
-Space plays time; the speed button steps from real time to a week a second.
-Vehicles are live at the present moment, and scheduled otherwise until the
-published timetable ends.
+On studies with a trial, Space plays time; the speed button steps from real time
+to a week a second. Other studies show the present. Vehicles are live at the
+present moment, and scheduled otherwise until the published timetable ends.
+
+Cards on the map are what a neighbourhood needs to hear about a change. A
+planner presses Create, an agent makes the image or video, and the card shows
+it; click it to view it.
 
 For a second screen, http://127.0.0.1:4100/spend shows what the agents have
 spent: dollars, tokens and model calls. Use the browser's full screen.
 
-Checks: `npm test` (233 tests) and `npm run typecheck`.
+Checks: `npm test` (353 tests), `npm run typecheck`, and `npm run agent:test`
+(198 Python tests, which never call Gemini; set `AGENT_TEST_PORT` and
+`EVAL_PORTS` if ports 4171-4174 or 4175-4179 are taken).
 
 ## Plug in your agents
 
@@ -77,8 +102,10 @@ curl -N 'localhost:4100/v1/events?access_token=SECRET1'
 ```
 
 Python agents can connect over MCP instead, at `/v1/mcp`. Every route except
-the event stream, webhook subscriptions and file upload is a tool, and an agent
-sees only the tools its role may call. With `pip install mcp google-genai`
+the event stream, webhook subscriptions, and file uploads and downloads is a
+tool, and an agent sees only the tools its role may call. A video is larger
+than an MCP message may be, so an agent posts media to
+`POST /v1/studies/{id}/needs/{need}/media` as a form, with its token. With `pip install mcp google-genai`
 (mcp 2.3, google-genai 3.0), and `TRANSIT_TOKEN_AGENT` and `GEMINI_API_KEY` set:
 
 ```python
@@ -146,11 +173,28 @@ async def main():
 asyncio.run(main())
 ```
 
+`agents/media.py` is one such agent. Once a planner asks for an engagement need
+to be made, it has Gemini 3.6 Flash write prompts from the study's cited facts,
+makes the image with Nano Banana 2 and the video with Omni Flash, has Gemini read
+each one back, makes it once more if it shows words or numbers beyond its
+headline, and attaches each file to the need. It claims each request before it spends anything, so two
+agents never both pay for one. When it can't make something, it says why, and
+nothing more is made until a planner asks again. It reports every call's tokens and cost, priced from
+one table at the top of the file. At those prices an image costs about $0.07 and
+a 4-second video about $0.28, so a need with both is about $0.35 with its prompts.
+It spends at most $5 a day (`MEDIA_DAILY_LIMIT_USD`).
+
+```sh
+agents/.venv/bin/python agents/media.py listen  # until stopped
+npm run agent:test                              # with a stand-in for Gemini
+```
+
 ## Repo
 
 - `services/api`: the service and the collector (`collect.ts`)
 - `apps/display`: the display, Preact with a WebGL map in a worker
 - `packages/contracts`: types and schemas shared by every client
+- `agents`: the Gemini lead and specialists, their skills, the media agent and the eval runner
 - `clients`: seed, replay and decide, via the public API
 - `evals`: eval cases, inputs and scorer
 - `scripts`: data pipelines from GTFS and the plan PDFs
@@ -164,5 +208,8 @@ asyncio.run(main())
 
 TTC schedules and live positions come from the City of Toronto's
 [Open Data portal](https://open.toronto.ca/), under the Open Government
-Licence – Toronto. Plan and standards pages are from public TTC documents,
-included as text and page images for checking citations.
+Licence – Toronto. Plan, standards and ridership pages are from public TTC
+documents, and business case pages from public Metrolinx documents, included
+as text and page images for checking citations. The Ontario Line and its
+proposed extension are drawn from [OpenStreetMap](https://www.openstreetmap.org/copyright),
+© OpenStreetMap contributors, under the Open Database License.

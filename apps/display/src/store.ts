@@ -1,58 +1,76 @@
 // The display's view of the service. It listens to the event stream and asks for
 // fresh study values when something changes. It holds no truth of its own.
 import { useEffect, useState } from "preact/hooks";
-import type { Activity, Context, LogEntry, StudyView, Usage } from "@transit-agents/contracts";
+import type { Activity, Assumption, Context, LogEntry, StudyView, Usage } from "@transit-agents/contracts";
 import { api, bearer, eventsUrl } from "./api.ts";
 
-export type Message = { seq: number; studyId: string | null; from: "agent" | "planner"; text: string };
+// replay is true for the scripted replay's work, which no model did. It's kept for
+// each message and sub-agent, so a study's chat says so whatever comes after.
+export type Message = { seq: number; studyId: string | null; from: "agent" | "planner"; text: string; replay: boolean };
 
-export type Subagent = { id: string; studyId: string | null; question: string; summary?: string };
+// seq is the log entry that started it, so the chat can show it among the messages.
+// ok is false for one that stopped before answering.
+export type Subagent = { seq: number; id: string; studyId: string | null; question: string; summary?: string; ok?: boolean; replay: boolean };
+
+export const REPLAY = "agent:replay";
 
 export type Store = {
   connected: boolean;
   contexts: Context[];
   studies: StudyView[];
+  // The rules and values planners set, so a figure can say whether it has a page.
+  assumptions: Assumption[];
+  // The log's last entry when the display connected: anything after it is new.
+  since: number | null;
   messages: Message[];
   subagents: Subagent[];
   reading: string | null;
-  usage: Usage;
-  replay: boolean;
+  // Each study's, since the chat shows the open study's spend. Calls reported
+  // without a cost are counted, so no dollar sum shows while one is missing.
+  usage: Record<string, Usage>;
   focus: string | null;
 };
 
-const EMPTY_USAGE: Usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, computeSeconds: 0, calls: 0 };
+export const EMPTY_USAGE: Usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, computeSeconds: 0, calls: 0 };
 
-const initial: Store = {
+export const initial: Store = {
   connected: false,
   contexts: [],
   studies: [],
+  assumptions: [],
+  since: null,
   messages: [],
   subagents: [],
   reading: null,
-  usage: EMPTY_USAGE,
-  replay: false,
+  usage: {},
   focus: null,
 };
 
 // How long a folder stays lit after the agent reads from it.
 const READING_MS = 1600;
 
-function reduce(store: Store, entry: LogEntry): Store {
+// Only new work moves the focus: a study opening, or activity on one. What the log
+// already held when the display opened fills the view, but leaves the camera where
+// it is, and so does a planner's rating or decision.
+export function reduce(store: Store, entry: LogEntry, live = true): Store {
   if (entry.type === "context.added") {
     const context = { ...(entry.data as Context), addedAt: entry.at, addedBy: entry.actor };
     return { ...store, contexts: [...store.contexts.filter((c) => c.id !== context.id), context] };
   }
-  if (entry.type !== "activity") return entry.studyId ? { ...store, focus: entry.studyId } : store;
+  const moves = entry.type === "study.opened" || entry.type === "activity";
+  const focus = live && moves && entry.studyId ? entry.studyId : store.focus;
+  if (entry.type !== "activity") return focus === store.focus ? store : { ...store, focus };
 
   const activity = entry.data as Activity;
-  const next = { ...store, focus: entry.studyId ?? store.focus, replay: entry.actor === "agent:replay" };
+  const next = { ...store, focus };
+  const replay = entry.actor === REPLAY;
   switch (activity.kind) {
     case "message":
       return {
         ...next,
         messages: [
           ...store.messages,
-          { seq: entry.seq, studyId: entry.studyId, from: entry.actor.startsWith("planner") ? "planner" : "agent", text: activity.text },
+          { seq: entry.seq, studyId: entry.studyId, from: entry.actor.startsWith("planner") ? "planner" : "agent", text: activity.text, replay },
         ],
       };
     case "reading":
@@ -62,33 +80,42 @@ function reduce(store: Store, entry: LogEntry): Store {
         ...next,
         subagents: [
           ...store.subagents.filter((s) => !(s.id === activity.id && s.studyId === entry.studyId)),
-          { id: activity.id, studyId: entry.studyId, question: activity.question },
+          { seq: entry.seq, id: activity.id, studyId: entry.studyId, question: activity.question, replay },
         ],
       };
     case "subagent.finished":
       return {
         ...next,
-        subagents: store.subagents.map((s) => (s.id === activity.id && s.studyId === entry.studyId ? { ...s, summary: activity.summary } : s)),
+        subagents: store.subagents.map((s) =>
+          s.id === activity.id && s.studyId === entry.studyId ? { ...s, summary: activity.summary, ok: activity.ok !== false } : s,
+        ),
       };
     case "run.started":
       return { ...next, subagents: store.subagents.filter((s) => s.studyId !== entry.studyId) };
-    case "usage":
+    case "usage": {
+      if (!entry.studyId) return next;
+      const usage = store.usage[entry.studyId] ?? EMPTY_USAGE;
       return {
         ...next,
         usage: {
-          inputTokens: store.usage.inputTokens + activity.inputTokens,
-          outputTokens: store.usage.outputTokens + activity.outputTokens,
-          costUsd: store.usage.costUsd + (activity.costUsd ?? 0),
-          computeSeconds: store.usage.computeSeconds + (activity.computeSeconds ?? 0),
-          calls: store.usage.calls + 1,
+          ...store.usage,
+          [entry.studyId]: {
+            inputTokens: usage.inputTokens + activity.inputTokens,
+            outputTokens: usage.outputTokens + activity.outputTokens,
+            costUsd: usage.costUsd + (activity.costUsd ?? 0),
+            computeSeconds: usage.computeSeconds + (activity.computeSeconds ?? 0),
+            calls: usage.calls + 1,
+            unpricedCalls: (usage.unpricedCalls ?? 0) + (activity.costUsd === undefined ? 1 : 0),
+          },
         },
       };
+    }
     default:
       return next;
   }
 }
 
-const REFRESHES = /^(study|figure|check|finding|assumption|decision)\./;
+const REFRESHES = /^(study|figure|check|finding|assumption|decision|need|media)\./;
 
 const EVENT_TYPES = [
   "context.added",
@@ -99,6 +126,10 @@ const EVENT_TYPES = [
   "finding.recorded",
   "assumption.set",
   "decision.recorded",
+  "need.added",
+  "need.create.requested",
+  "need.create.failed",
+  "media.added",
   "activity",
 ];
 
@@ -111,22 +142,25 @@ export function useStore(ready: boolean): Store {
     let refresh = 0;
     let idle = 0;
     let last = 0;
+    // The log's last entry when the display connected. Anything after it is new.
+    let opened: number | undefined;
     let stopped = false;
     let source: EventSource | undefined;
     const loadStudies = () => {
       clearTimeout(refresh);
       refresh = window.setTimeout(async () => {
-        const response = await api("/v1/studies");
+        const [response, rules] = await Promise.all([api("/v1/studies"), api("/v1/assumptions").catch(() => undefined)]);
         if (!response.ok) return;
         const studies = (await response.json()) as StudyView[];
-        setStore((s) => ({ ...s, studies }));
+        const assumptions = rules?.ok ? ((await rules.json()) as Assumption[]) : undefined;
+        setStore((s) => ({ ...s, studies, assumptions: assumptions ?? s.assumptions }));
       }, 120);
     };
 
     const onEntry = (event: MessageEvent<string>) => {
       const entry = JSON.parse(event.data) as LogEntry;
       last = entry.seq;
-      setStore((s) => reduce(s, entry));
+      setStore((s) => reduce(s, entry, entry.seq > (opened ?? Infinity)));
       if (REFRESHES.test(entry.type)) loadStudies();
       if (entry.type === "activity" && (entry.data as Activity).kind === "reading") {
         clearTimeout(idle);
@@ -136,7 +170,12 @@ export function useStore(ready: boolean): Store {
 
     const connect = async () => {
       const token = await bearer();
+      opened ??= await api("/v1/log/head")
+        .then(async (r) => (r.ok ? ((await r.json()) as { seq: number }).seq : 0))
+        .catch(() => 0);
       if (stopped) return;
+      const since = opened;
+      setStore((s) => (s.since === since ? s : { ...s, since }));
       const stream = new EventSource(eventsUrl(token, last));
       source = stream;
       stream.onopen = () => setStore((s) => ({ ...s, connected: true }));

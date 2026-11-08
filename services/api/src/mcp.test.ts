@@ -9,7 +9,7 @@ import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ErrorCode, McpError, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { StudyView } from "@transit-agents/contracts";
+import type { NeedView, StudyView } from "@transit-agents/contracts";
 import { createApp, type Actor } from "./app.ts";
 import { NOT_TOOLS, TOOLS } from "./mcp.ts";
 import { Service } from "./service.ts";
@@ -29,7 +29,7 @@ const FIGURE = {
   value: 1680,
   basis: { kind: "cited", citation: { contextId: "plan", page: 1, quote: "ridership rose by 1,680 customers" } },
 };
-const PLANNER_ONLY = ["accept_figure", "approve_skill", "rate_finding", "record_decision", "remove_content", "set_rule"];
+const PLANNER_ONLY = ["accept_figure", "approve_skill", "rate_finding", "record_decision", "remove_content", "request_engagement_media", "set_rule"];
 const INITIALIZE = {
   jsonrpc: "2.0",
   id: 1,
@@ -112,6 +112,7 @@ describe("mcp", () => {
     assert.match(instructions, /read_page before citing/);
     assert.match(instructions, /only from list_rules/);
     assert.match(instructions, /Only planners decide/);
+    assert.match(instructions, /add_engagement_need\. Only a planner asks for it to be made/);
     // A model can't see its own token counts, so the agent's code reports them.
     assert.match(instructions, /never report usage numbers you weren't given/);
   });
@@ -121,8 +122,8 @@ describe("mcp", () => {
     const [planner, agent, integration, viewer] = await Promise.all(
       ["planner-token", "agent-token", "integration-token", "viewer-token"].map(names),
     );
-    assert.equal(planner?.length, 28);
-    assert.equal(agent?.length, 22);
+    assert.equal(planner?.length, 32);
+    assert.equal(agent?.length, 23);
     assert.ok(agent?.includes("whoami"));
     assert.deepEqual(agent?.filter((name) => PLANNER_ONLY.includes(name)), []);
     assert.ok(agent?.includes("record_figure") && agent.includes("report_activity"));
@@ -182,6 +183,51 @@ describe("mcp", () => {
     assert.equal(result.isError, true);
     assert.equal(textOf(result), "403 forbidden: This needs a planner token, not agent");
     assert.equal(env.service.state.studies.get("lawrence")?.decisions.length, 0);
+  });
+
+  it("lets an agent propose an engagement need, and only a planner ask for it to be made", async () => {
+    const agent = await env.connect("agent-token");
+    const need = {
+      studyId: "lawrence",
+      id: "poster",
+      title: "Engagement poster",
+      place: "Sunnybrook Hospital",
+      lon: -79.375262,
+      lat: 43.722663,
+      kinds: ["image"],
+      reason: "More riders are on the way.",
+      citations: [FIGURE.basis.citation],
+    };
+    const added = await callTool(agent, "add_engagement_need", need);
+    assert.equal(added.isError, undefined);
+    assert.equal((added.structuredContent as NeedView).status, "needed");
+    const refused = await callTool(agent, "request_engagement_media", { studyId: "lawrence", need: "poster" });
+    assert.equal(textOf(refused), "403 forbidden: This needs a planner token, not agent");
+    const planner = await env.connect("planner-token");
+    const ask = () => callTool(planner, "request_engagement_media", { studyId: "lawrence", need: "poster" });
+    const first = await ask();
+    assert.equal((first.structuredContent as NeedView).status, "creating");
+    assert.deepEqual((await ask()).structuredContent, first.structuredContent);
+    assert.equal(env.service.log.since(0).filter((entry) => entry.type === "need.create.requested").length, 1);
+    const study = (await callTool(agent, "get_study", { studyId: "lawrence" })).structuredContent as StudyView;
+    assert.equal(study.needs[0]?.status, "creating");
+
+    // Only the media agent's own code takes a request on or says it failed, so no
+    // model can close a planner's request. After a failure, a planner asks again.
+    const names = (await agent.listTools()).tools.map((tool) => tool.name);
+    assert.deepEqual(names.filter((name) => /claim|fail/.test(name)), []);
+    const claim = { claim: "claim-of-the-media-agent" };
+    env.service.claimCreation("agent:media", "lawrence", "poster", claim);
+    env.service.failCreation("agent:media", "lawrence", "poster", { reason: "image: the image model made no image", ...claim });
+    assert.equal((await ask()).structuredContent?.status, "creating");
+    assert.equal(env.service.log.since(0).filter((entry) => entry.type === "need.create.requested").length, 2);
+  });
+
+  it("asks a model for where a need is, which kinds it wants and why", async () => {
+    const tools = (await (await env.connect("agent-token")).listTools()).tools;
+    const schema = tools.find((tool) => tool.name === "add_engagement_need")?.inputSchema;
+    assert.deepEqual(schema?.required, ["studyId", "id", "title", "place", "lon", "lat", "kinds", "reason"]);
+    assert.deepEqual((schema?.properties?.kinds as { items: unknown }).items, { type: "string", enum: ["image", "video"] });
   });
 
   it("returns an error for an unknown tool", async () => {
@@ -306,7 +352,7 @@ describe("README's MCP section", () => {
   const python = readme.match(/```python\n([\s\S]*?)```/)?.[1] ?? "";
 
   it("says which routes aren't tools", () => {
-    assert.match(prose, /Every route except the event stream, webhook subscriptions and file upload is a tool/);
+    assert.match(prose, /Every route except the event stream, webhook subscriptions, and file uploads and downloads is a tool/);
   });
 
   it("holds the Gemini client open while it runs", () => {

@@ -1,15 +1,30 @@
-// Plays a scripted run of a study through the public API, with an agent's token.
-// It stands in for a real agent until one is connected, and the log records the
-// actor as agent:replay. It reports no tokens or cost, because it spends none.
+// Plays a scripted run of each study through the public API, with an agent's
+// token: a demo that needs no model. The log records the actor as agent:replay,
+// and the display marks its work as a replay. The Gemini agents in agents/ do the
+// real work. It reports no tokens or cost, because it spends none.
 // Its consultation findings are proposals: a planner rates them in decide.ts.
+// Its engagement needs are proposals too: nothing is made until a planner asks.
 import { ApiClient } from "./api.ts";
+import { handOverOntario, replayOntario } from "./replay-ontario.ts";
 import { LAWRENCE, ROSEDALE, type StudySeed } from "./seed-data.ts";
 
 const api = new ApiClient("agent");
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const gap = Number(process.env.REPLAY_GAP_MS ?? 900);
 
-async function run(seed: StudySeed, script: { sub: string; question: string; figures: string[]; read: string; summary: string }[]) {
+type Step = { sub: string; question: string; read: string; figures?: string[]; needs?: string[]; summary: string };
+
+// Takes each item a step names from what is left, so each is sent once.
+function take<T extends { id: string }>(remaining: Map<string, T>, ids: string[] = []): T[] {
+  return ids.map((id) => {
+    const item = remaining.get(id);
+    if (!item) throw new Error(`Unknown or repeated ${id}`);
+    remaining.delete(id);
+    return item;
+  });
+}
+
+async function run(seed: StudySeed, script: Step[]) {
   const id = seed.study.id;
   const activity = (body: unknown) => api.post(`/v1/studies/${id}/activity`, body);
 
@@ -18,21 +33,24 @@ async function run(seed: StudySeed, script: { sub: string; question: string; fig
   await activity({ kind: "message", text: seed.study.brief });
   await pause(gap);
 
-  const remaining = new Map(seed.figures.map((f) => [f.id, f]));
+  const figures = new Map(seed.figures.map((f) => [f.id, f]));
+  const needs = new Map(seed.needs.map((n) => [n.id, n]));
   for (const step of script) {
     await activity({ kind: "subagent.started", id: step.sub, question: step.question });
     await activity({ kind: "reading", contextId: step.read });
     await pause(gap);
-    for (const figureId of step.figures) {
-      const figure = remaining.get(figureId);
-      if (!figure) throw new Error(`Unknown figure ${figureId}`);
-      remaining.delete(figureId);
+    for (const figure of take(figures, step.figures)) {
       await api.post(`/v1/studies/${id}/figures`, figure);
+      await pause(gap / 3);
+    }
+    for (const need of take(needs, step.needs)) {
+      await api.post(`/v1/studies/${id}/needs`, need);
       await pause(gap / 3);
     }
     await activity({ kind: "subagent.finished", id: step.sub, summary: step.summary });
   }
-  for (const figure of remaining.values()) await api.post(`/v1/studies/${id}/figures`, figure);
+  for (const figure of figures.values()) await api.post(`/v1/studies/${id}/figures`, figure);
+  for (const need of needs.values()) await api.post(`/v1/studies/${id}/needs`, need);
   for (const check of seed.checks) {
     await api.post(`/v1/studies/${id}/checks`, check);
     await pause(gap / 3);
@@ -41,6 +59,8 @@ async function run(seed: StudySeed, script: { sub: string; question: string; fig
   await activity({ kind: "run.finished" });
   await pause(gap);
 }
+
+await replayOntario(api, gap);
 
 await run(LAWRENCE, [
   {
@@ -64,6 +84,13 @@ await run(LAWRENCE, [
     figures: [],
     summary: "Local bus minimum of 20 boardings an hour, and 11 riders per $100.",
   },
+  {
+    sub: "engagement",
+    question: "Who needs to hear about it?",
+    read: "ttc-anp-2026",
+    needs: ["sunnybrook-poster"],
+    summary: "Riders at Sunnybrook Hospital, about the direct service.",
+  },
 ]);
 
 await run(ROSEDALE, [
@@ -81,4 +108,13 @@ await run(ROSEDALE, [
     figures: [],
     summary: "Events were largely negative. The survey was more positive.",
   },
+  {
+    sub: "engagement",
+    question: "Who needs to hear about it?",
+    read: "ttc-anp-2026",
+    needs: ["rosedale-explainer"],
+    summary: "Rosedale residents, where views were split.",
+  },
 ]);
+
+await handOverOntario(api, gap);

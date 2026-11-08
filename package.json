@@ -15,10 +15,14 @@
     "demo": "node --disable-warning=ExperimentalWarning scripts/demo.ts",
     "replay": "node --disable-warning=ExperimentalWarning clients/replay.ts",
     "decide": "node --disable-warning=ExperimentalWarning clients/decide.ts",
+    "agent": "agents/.venv/bin/python agents/main.py",
+    "agent:eval": "agents/.venv/bin/python agents/main.py eval",
+    "agent:score": "node --disable-warning=ExperimentalWarning evals/score-run.ts",
+    "agent:test": "agents/.venv/bin/python -m unittest discover -s agents/tests -t agents",
     "serve": "node --disable-warning=ExperimentalWarning services/api/src/main.ts",
     "collect": "node --disable-warning=ExperimentalWarning services/api/src/collect.ts",
     "dev:display": "vite apps/display",
-    "test": "node --test --test-force-exit --disable-warning=ExperimentalWarning \"evals/**/*.test.ts\" \"packages/**/*.test.ts\" \"services/**/*.test.ts\" \"scripts/**/*.test.ts\" \"apps/**/*.test.ts\"",
+    "test": "node --test --test-force-exit --disable-warning=ExperimentalWarning \"evals/**/*.test.ts\" \"packages/**/*.test.ts\" \"services/**/*.test.ts\" \"scripts/**/*.test.ts\" \"apps/**/*.test.ts\" \"clients/**/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {

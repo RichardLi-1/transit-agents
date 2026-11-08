@@ -20,6 +20,10 @@ All run on public data today.
 - `ttc-service-change`: classifies a change as minor or major, and lists required steps (Standards pp. 21–22).
 - `metrolinx-bca`: runs a benefit-cost analysis by the Metrolinx method (values below).
 - `business-case-template`: lays out the four-part case and its required contents (Business Case Manual Volume 2, stage matrix p. 20).
+
+Built so far for the lead study: `metrolinx-business-case` in `agents/skills`, which
+sets out the four cases, optimism bias and the appraisal rules, and which figures
+are precedents or gaps. It computes no benefit-cost ratio.
 - `tpap-clock`: tracks Transit Project Assessment deadlines under [O. Reg. 231/08](https://www.ontario.ca/laws/regulation/080231).
 - `transit-cost-benchmark`: compares cost per km with other projects, using [Transit Costs data](https://ultraviolet.library.nyu.edu/records/9wnjp-kez15) (CC BY-NC).
 - `edsta-watch`: tracks Bill 194 regulations in Ontario proclamations and e-Laws.

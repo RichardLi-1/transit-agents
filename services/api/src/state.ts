@@ -2,6 +2,7 @@
 // is appended first, then applied.
 import {
   evaluate,
+  MEDIA_LABEL,
   type Analysis,
   type Assumption,
   type Basis,
@@ -11,12 +12,25 @@ import {
   type Figure,
   type FigureView,
   type FindingView,
+  type MediaType,
+  type MediaView,
+  type NeedStatus,
+  type NeedView,
   type NewCheck,
   type Usage,
 } from "@transit-agents/contracts";
 import type { Entry } from "./log.ts";
 
 type Check = NewCheck & { threshold: { assumption: string } };
+
+export type Need = Omit<NeedView, "status" | "requestedBy" | "requestedAt" | "claimedBy" | "claimedAt" | "failure" | "failedBy" | "failedAt"> & {
+  // A planner's latest request to make it.
+  requested?: { by: string; at: string };
+  // The agent making it for that request, and the hash of its claim.
+  claimed?: { by: string; at: string; hash: string };
+  // Set when an agent made nothing for the latest request. A new request clears it.
+  failed?: { by: string; at: string; reason: string };
+};
 
 export type Study = {
   id: string;
@@ -32,6 +46,7 @@ export type Study = {
   findings: Map<string, FindingView & { seq: number }>;
   decisions: Decision[];
   stale: Set<string>;
+  needs: Map<string, Need>;
 };
 
 export type State = {
@@ -41,6 +56,8 @@ export type State = {
   skills: Map<string, Set<string>>;
   usage: Usage;
   usageByStudy: Map<string, Usage>;
+  // Every file a log entry names, by its sha256. Only these are served.
+  media: Map<string, { type: MediaType; size: number }>;
 };
 
 const noUsage = (): Usage => ({ inputTokens: 0, outputTokens: 0, costUsd: 0, computeSeconds: 0, calls: 0, unpricedCalls: 0 });
@@ -52,7 +69,53 @@ export const emptyState = (): State => ({
   skills: new Map(),
   usage: noUsage(),
   usageByStudy: new Map(),
+  media: new Map(),
 });
+
+export const mediaUrl = (sha256: string) => `/v1/media/${sha256}`;
+
+// Whether a planner's request waits on an agent: asked for, and not failed since.
+export const isOpen = (need: Need) => Boolean(need.requested && !need.failed);
+
+// The kinds a need asks for that no file has yet.
+export const missingKinds = (need: Need) => need.kinds.filter((kind) => !need.media.some((media) => media.kind === kind));
+
+// Ready once every kind it asks for is made. Until then: needed until a planner
+// asks, creating while the request is open, and failed when an agent couldn't
+// make what it still lacks. A half-made need keeps the files it has.
+export const statusOf = (need: Need): NeedStatus => {
+  if (!missingKinds(need).length) return "ready";
+  if (need.failed) return "failed";
+  return need.requested ? "creating" : "needed";
+};
+
+export function viewNeed(need: Need): NeedView {
+  return {
+    id: need.id,
+    title: need.title,
+    place: need.place,
+    lon: need.lon,
+    lat: need.lat,
+    kinds: need.kinds,
+    reason: need.reason,
+    citations: need.citations,
+    status: statusOf(need),
+    addedBy: need.addedBy,
+    addedAt: need.addedAt,
+    ...(need.requested ? { requestedBy: need.requested.by, requestedAt: need.requested.at } : {}),
+    ...(need.claimed ? { claimedBy: need.claimed.by, claimedAt: need.claimed.at } : {}),
+    ...(need.failed ? { failure: need.failed.reason, failedBy: need.failed.by, failedAt: need.failed.at } : {}),
+    media: [...need.media],
+  };
+}
+
+// Stops serving a file once no need names it.
+function unname(state: State, sha256: string) {
+  for (const study of state.studies.values()) {
+    for (const need of study.needs.values()) if (need.media.some((media) => media.id === sha256)) return;
+  }
+  state.media.delete(sha256);
+}
 
 type Scope = Map<string, number>;
 
@@ -250,6 +313,7 @@ export function apply(state: State, entry: Entry): void {
         findings: new Map(),
         decisions: [],
         stale: new Set(),
+        needs: new Map(),
       });
       return;
     }
@@ -345,6 +409,93 @@ export function apply(state: State, entry: Entry): void {
         recordedAt: entry.at,
       });
       return;
+
+    case "need.added": {
+      const need = data as unknown as Omit<Need, "addedBy" | "addedAt" | "media">;
+      get(state.studies, entry.studyId).needs.set(need.id, {
+        id: need.id,
+        title: need.title,
+        place: need.place,
+        lon: need.lon,
+        lat: need.lat,
+        kinds: need.kinds,
+        reason: need.reason,
+        citations: need.citations ?? [],
+        addedBy: entry.actor,
+        addedAt: entry.at,
+        media: [],
+      });
+      return;
+    }
+
+    // Asking while a request is open changes nothing. Asking after a failure is a
+    // new request.
+    case "need.create.requested": {
+      const { need: id } = data as unknown as { need: string };
+      const need = get(get(state.studies, entry.studyId).needs, id);
+      if (isOpen(need)) return;
+      need.requested = { by: entry.actor, at: entry.at };
+      delete need.failed;
+      delete need.claimed;
+      return;
+    }
+
+    // A later claim takes over one that has lapsed.
+    case "need.create.claimed": {
+      const { need: id, claim } = data as unknown as { need: string; claim: string };
+      get(get(state.studies, entry.studyId).needs, id).claimed = { by: entry.actor, at: entry.at, hash: claim };
+      return;
+    }
+
+    case "need.create.failed": {
+      const { need: id, reason } = data as unknown as { need: string; reason: string };
+      get(get(state.studies, entry.studyId).needs, id).failed = { by: entry.actor, at: entry.at, reason };
+      return;
+    }
+
+    // A planner dropped a need nobody has to make any more. Its files go with it.
+    case "need.dismissed": {
+      const { need: id } = data as unknown as { need: string };
+      const study = get(state.studies, entry.studyId);
+      const need = get(study.needs, id);
+      study.needs.delete(id);
+      for (const media of need.media) unname(state, media.id);
+      return;
+    }
+
+    // A planner took a file down. The need is needed again, until a planner asks.
+    case "media.withdrawn": {
+      const { need: id, sha256 } = data as unknown as { need: string; sha256: string };
+      const need = get(get(state.studies, entry.studyId).needs, id);
+      need.media = need.media.filter((media) => media.id !== sha256);
+      delete need.requested;
+      delete need.claimed;
+      delete need.failed;
+      unname(state, sha256);
+      return;
+    }
+
+    // The file itself is kept outside the log, by its hash.
+    case "media.added": {
+      const media = data as unknown as Omit<MediaView, "id" | "url" | "addedBy" | "addedAt"> & { need: string; sha256: string };
+      const need = get(get(state.studies, entry.studyId).needs, media.need);
+      need.media.push({
+        id: media.sha256,
+        url: mediaUrl(media.sha256),
+        kind: media.kind,
+        type: media.type,
+        size: media.size,
+        model: media.model,
+        prompt: media.prompt,
+        inputs: media.inputs,
+        ...(media.alt ? { alt: media.alt } : {}),
+        label: MEDIA_LABEL,
+        addedBy: entry.actor,
+        addedAt: entry.at,
+      });
+      state.media.set(media.sha256, { type: media.type, size: media.size });
+      return;
+    }
 
     case "activity": {
       if (data.kind !== "usage") return;

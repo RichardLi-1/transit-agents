@@ -1,7 +1,8 @@
 // The HTTP surface. Every route is declared once in `routes`, which both registers
 // it and generates /openapi.json, so the published API can't drift from the code.
-import { existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
+import { Readable } from "node:stream";
 import { Hono, type Context as HonoContext } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
@@ -12,12 +13,19 @@ import {
   Activity,
   ContentRemoval,
   FindingRating,
+  MEDIA_MAX_BYTES,
+  NeedClaim,
+  NeedFailure,
+  NeedWithdrawal,
   NewAssumption,
   NewCheck,
   NewContext,
   NewDecision,
   NewFigure,
   NewFinding,
+  NewMedia,
+  NewNeed,
+  type MediaType,
   NewSkill,
   NewStudy,
   NewSubscription,
@@ -29,8 +37,9 @@ import {
 } from "@transit-agents/contracts";
 import { extractPages } from "./extract.ts";
 import type { Entry } from "./log.ts";
-import { mcp, rpcError } from "./mcp.ts";
-import { ApiError, type Service } from "./service.ts";
+import { checkOrigin, fixedAddress, mcp, rpcError } from "./mcp.ts";
+import { byteRange, formParts } from "./media.ts";
+import { ApiError, type MediaFile, type Service } from "./service.ts";
 import type { Webhooks } from "./webhooks.ts";
 
 export type Actor = { role: Role; name: string };
@@ -78,20 +87,35 @@ const anyone: Role[] = ["viewer", "integration", "agent", "planner"];
 const contributors: Role[] = ["integration", "agent", "planner"];
 const authors: Role[] = ["agent", "planner"];
 const planners: Role[] = ["planner"];
+// Generated media comes only from agents, while a planner's request is open.
+const agents: Role[] = ["agent"];
 // Agents can't create subscriptions: one could otherwise send the log anywhere.
 const integrators: Role[] = ["integration", "planner"];
 
 // Bodies are read only up to a limit, so nobody can make the service hold a huge
 // one. Context can be a whole document, so a contributor gets more room for it.
+// An agent uploading media gets room for the largest video and its fields.
 const BODY_LIMIT = 1024 * 1024;
 const CONTEXT_LIMIT = 50 * 1024 * 1024;
+// Room for an upload's fields and the form around its file.
+const FORM_ROOM = 64 * 1024;
+const MEDIA_UPLOAD = /^\/v1\/studies\/[^/]+\/needs\/[^/]+\/media$/;
+// Uploads read at once. Each is held in memory while it's checked.
+const UPLOADS_AT_ONCE = 2;
 
 const Preview = z.object({
   assumptions: z.record(z.string(), z.number()).optional(),
   figures: z.record(z.string(), z.number()).optional(),
 });
 
+// JSON bodies must say so. A page on another site can send text/plain without
+// asking the browser's permission, but not application/json.
+const JSON_TYPE = /^application\/(?:[\w.+-]+\+)?json\s*(?:;|$)/i;
+
 async function bodyOf<S extends z.ZodType>(c: HonoContext<Env>, schema: S): Promise<z.output<S>> {
+  if (!JSON_TYPE.test(c.req.header("content-type") ?? "")) {
+    throw new ApiError(415, "unsupported_media_type", "Send the body as JSON, with content-type: application/json");
+  }
   const parsed = schema.safeParse(await c.req.json().catch(() => undefined));
   if (!parsed.success) throw new ApiError(400, "invalid_body", z.prettifyError(parsed.error));
   return parsed.data;
@@ -101,6 +125,50 @@ const actorName = (c: HonoContext<Env>) => {
   const { role, name } = c.get("actor");
   return `${role}:${name}`;
 };
+
+// A multipart body: the form's fields, each JSON when it isn't a string, and the file.
+function multipart(form: z.ZodType) {
+  const schema = z.toJSONSchema(form, { io: "input", unrepresentable: "any" }) as {
+    properties?: Record<string, { type?: string }>;
+    required?: string[];
+  };
+  const json = Object.entries(schema.properties ?? {}).filter(([, field]) => field.type === "array" || field.type === "object");
+  return {
+    schema: {
+      ...schema,
+      properties: { ...schema.properties, file: { type: "string", format: "binary" } },
+      required: [...(schema.required ?? []), "file"],
+    },
+    encoding: Object.fromEntries(json.map(([name]) => [name, { contentType: "application/json" }])),
+  };
+}
+
+const EXTENSIONS: Record<MediaType, string> = { "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "video/mp4": ".mp4" };
+
+// Media is named by its hash, so a copy never goes stale, but a planner can take a
+// file down, so each use checks it is still there: a 304 when it is. Browsers play
+// and seek video by asking for ranges of it.
+function serveMedia(c: HonoContext<Env>, file: MediaFile): Response {
+  const etag = `"${file.id}"`;
+  const headers: Record<string, string> = {
+    "content-type": file.type,
+    "cache-control": "public, no-cache",
+    etag,
+    "accept-ranges": "bytes",
+    // Saved, it keeps its own name, never one an upload chose.
+    "content-disposition": `inline; filename="${file.id}${EXTENSIONS[file.type]}"`,
+  };
+  const cached = c.req.header("if-none-match")?.split(",").map((tag) => tag.trim().replace(/^W\//, ""));
+  if (cached?.includes(etag) || cached?.includes("*")) return c.body(null, 304, headers);
+  const range = byteRange(c.req.header("range"), file.size);
+  if (range === null) return c.body(null, 416, { ...headers, "content-range": `bytes */${file.size}` });
+  const [start, end] = range ?? [0, file.size - 1];
+  headers["content-length"] = String(end - start + 1);
+  if (range) headers["content-range"] = `bytes ${start}-${end}/${file.size}`;
+  const status = range ? 206 : 200;
+  if (c.req.method === "HEAD") return c.body(null, status, headers);
+  return c.body(Readable.toWeb(createReadStream(file.path, { start, end })) as ReadableStream, status, headers);
+}
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -123,6 +191,7 @@ function securityHeaders(signIn: SignIn | null): Record<string, string> {
   const policy = [
     "default-src 'self'",
     "img-src 'self' data:",
+    "media-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     `connect-src 'self'${tenant}`,
     ...(signIn ? [`frame-src 'self'${tenant}`] : []),
@@ -161,11 +230,24 @@ export function createApp(options: AppOptions) {
     return c.json({ error: { code, message } }, status as 400);
   });
 
-  // Public routes need no token and read none, so a client holding a stale token
-  // can still find out how to sign in. Filled in as routes are registered.
-  const publicRoutes = new Set<string>();
+  // Writes come only from this service's own pages, or from clients that aren't
+  // browsers, whatever token they hold. Without this, under open access any page
+  // on any site could act as the local planner: record decisions, or start paid
+  // agent runs from the chat.
+  const publicOrigin = options.publicUrl ? new URL(options.publicUrl).origin : undefined;
   app.use("/v1/*", async (c, next) => {
-    if (publicRoutes.has(`${c.req.method} ${c.req.path}`)) return next();
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") checkOrigin(c.req, publicOrigin);
+    await next();
+  });
+
+  // Public routes need no token and read none, so a client holding a stale token
+  // can still find out how to sign in, and an <img> can show media. Filled in as
+  // routes are registered. A HEAD request is answered as its GET.
+  const publicRoutes: { method: string; path: RegExp }[] = [];
+  const isPublic = (method: string, path: string) =>
+    publicRoutes.some((route) => route.method === (method === "HEAD" ? "GET" : method) && route.path.test(path));
+  app.use("/v1/*", async (c, next) => {
+    if (isPublic(c.req.method, c.req.path)) return next();
     const header = c.req.header("authorization");
     // The scheme is case-insensitive. Any other Authorization header still presents
     // a credential, so it is refused, never read as no token.
@@ -192,14 +274,33 @@ export function createApp(options: AppOptions) {
     await next();
   });
 
+  let uploading = 0;
+  // A request without a token acts for whoever runs this machine in open mode.
+  // After DNS rebinding, an attacker's page reaches this service under the
+  // attacker's own name, and could read what it answers. So in open mode such a
+  // request is answered only at an IP address, localhost or PUBLIC_URL's name.
+  // Writes from other sites are refused above, token or not.
+  const publicHost = options.publicUrl ? new URL(options.publicUrl).host : undefined;
+  app.use("/v1/*", async (c, next) => {
+    const own = new URL(c.req.url);
+    if (access === "open" && c.get("anonymous") && !fixedAddress(own) && own.host !== publicHost) {
+      throw new ApiError(403, "forbidden_host", `Open access answers only at an IP address, localhost or PUBLIC_URL, not ${own.host}`);
+    }
+    await next();
+  });
+
   const tooLarge = (): never => {
     throw new ApiError(413, "too_large", "The request body is too large");
   };
   const limit = bodyLimit({ maxSize: BODY_LIMIT, onError: tooLarge });
   const contextLimit = bodyLimit({ maxSize: CONTEXT_LIMIT, onError: tooLarge });
   app.use("/v1/*", (c, next) => {
-    const contributor = c.req.path === "/v1/context" && contributors.includes(c.get("actor")?.role);
-    return (contributor ? contextLimit : limit)(c, next);
+    const role = c.get("actor")?.role;
+    if (c.req.path === "/v1/context" && contributors.includes(role)) return contextLimit(c, next);
+    // An upload's route checks its length itself, before reading it: this one would
+    // read a body sent without a length before the route could refuse it.
+    if (c.req.method === "POST" && MEDIA_UPLOAD.test(c.req.path) && agents.includes(role)) return next();
+    return limit(c, next);
   });
 
   // A client that retries after a timeout can send the same Idempotency-Key, and
@@ -220,7 +321,7 @@ export function createApp(options: AppOptions) {
     // key would answer each later message with the first one's reply. A viewer can
     // only preview, which writes nothing, so it keeps no record either. Otherwise
     // anyone reading a public demo could fill this table.
-    if (!key || c.req.method === "GET" || c.req.path === "/v1/mcp" || c.get("actor").role === "viewer") return next();
+    if (!key || ["GET", "HEAD"].includes(c.req.method) || c.req.path === "/v1/mcp" || c.get("actor").role === "viewer") return next();
     const principal = c.get("principal");
     const seen = service.log.db.prepare("SELECT status, body FROM idempotency WHERE actor = ? AND key = ?").get(principal, key) as
       | { status: number; body: string }
@@ -241,6 +342,8 @@ export function createApp(options: AppOptions) {
     // Needs no token, in any mode.
     public?: boolean;
     body?: z.ZodType;
+    // The fields of a multipart/form-data body, sent with a file.
+    form?: z.ZodType;
     handler: (c: HonoContext<Env>) => Response | Promise<Response>;
   };
 
@@ -374,6 +477,124 @@ export function createApp(options: AppOptions) {
       summary: "Accept a skill's result so it can pass or fail a check. Planners only",
       roles: planners,
       handler: (c) => c.json(service.acceptFigure(actorName(c), c.req.param("id") as string, c.req.param("figure") as string)),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/needs",
+      summary: "Propose something to make for public engagement in one place, such as a poster or a short video",
+      roles: authors,
+      body: NewNeed,
+      handler: async (c) => c.json(service.addNeed(actorName(c), c.req.param("id") as string, await bodyOf(c, NewNeed)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/needs/:need/create",
+      summary: "Ask for a need's image or video to be made. Asking again changes nothing. Planners only",
+      roles: planners,
+      handler: (c) => c.json(service.requestCreation(actorName(c), c.req.param("id") as string, c.req.param("need") as string), 202),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/needs/:need/claim",
+      summary: "Take on a planner's request to make a need, before spending anything. One agent holds it at a time, for 20 minutes. Agents only",
+      roles: agents,
+      body: NeedClaim,
+      handler: async (c) =>
+        c.json(service.claimCreation(actorName(c), c.req.param("id") as string, c.req.param("need") as string, await bodyOf(c, NeedClaim))),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/needs/:need/failed",
+      summary: "Say why a need's image or video couldn't be made, with the request's claim. Nothing more is made until a planner asks again. Agents only",
+      roles: agents,
+      body: NeedFailure,
+      handler: async (c) =>
+        c.json(service.failCreation(actorName(c), c.req.param("id") as string, c.req.param("need") as string, await bodyOf(c, NeedFailure))),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/needs/:need/dismiss",
+      summary: "Drop a need nobody has to make any more, such as one for a change that won't go ahead, with a reason. Its files stop being served. Planners only",
+      roles: planners,
+      body: NeedWithdrawal,
+      handler: async (c) =>
+        c.json(service.dismissNeed(actorName(c), c.req.param("id") as string, c.req.param("need") as string, await bodyOf(c, NeedWithdrawal))),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/needs/:need/media/:media/withdraw",
+      summary: "Take down a generated image or video that shouldn't be shown, with a reason. The need is needed again. Planners only",
+      roles: planners,
+      body: NeedWithdrawal,
+      handler: async (c) =>
+        c.json(
+          service.withdrawMedia(actorName(c), c.req.param("id") as string, c.req.param("need") as string, c.req.param("media") as string, await bodyOf(c, NeedWithdrawal)),
+        ),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/needs/:need/media",
+      summary: "Attach a generated image or video to a need, as multipart/form-data: the file, with the request's claim, kind, model, prompt and inputs. Agents only",
+      roles: agents,
+      form: NewMedia.omit({ needId: true }),
+      handler: async (c) => {
+        const studyId = c.req.param("id") as string;
+        const needId = c.req.param("need") as string;
+        // Checked before the body is read, so an upload nobody asked for costs nothing,
+        // and one that is asked for gets room for what it still lacks.
+        const kinds = service.uploadable(actorName(c), studyId, needId);
+        const room = Math.max(...kinds.map((kind) => MEDIA_MAX_BYTES[kind])) + FORM_ROOM;
+        const contentType = c.req.header("content-type") ?? "";
+        if (!contentType.startsWith("multipart/form-data")) throw new ApiError(400, "invalid_body", "Send the file and its fields as multipart/form-data");
+        const length = c.req.header("content-length");
+        if (length === undefined || c.req.header("transfer-encoding") !== undefined || !/^\d+$/.test(length)) {
+          throw new ApiError(411, "length_required", "Send the upload with a Content-Length");
+        }
+        if (Number(length) > room) tooLarge();
+        // Each upload is held in memory while it's checked, so only a few are read at once.
+        if (uploading >= UPLOADS_AT_ONCE) throw new ApiError(503, "busy", "Other files are being read. Try again in a few seconds");
+        uploading += 1;
+        try {
+          const body = new Uint8Array(await c.req.arrayBuffer());
+          if (body.length > room) tooLarge();
+          const form = formParts(body, contentType);
+          if (!form) throw new ApiError(400, "invalid_body", "The form can't be read");
+          const field = (name: string) => {
+            const part = form.get(name);
+            return part && part.filename === undefined ? new TextDecoder().decode(part.data) : undefined;
+          };
+          const file = form.get("file");
+          if (file?.filename === undefined) throw new ApiError(400, "invalid_body", "Expected a file field");
+          let inputs: unknown;
+          try {
+            const text = field("inputs");
+            inputs = text === undefined ? undefined : JSON.parse(text);
+          } catch {
+            throw new ApiError(400, "invalid_body", "inputs must be a JSON array");
+          }
+          const parsed = NewMedia.safeParse({
+            needId,
+            claim: field("claim"),
+            kind: field("kind"),
+            model: field("model"),
+            prompt: field("prompt"),
+            inputs,
+            alt: field("alt"),
+          });
+          if (!parsed.success) throw new ApiError(400, "invalid_body", z.prettifyError(parsed.error));
+          return c.json(service.addMedia(actorName(c), studyId, parsed.data, { bytes: file.data, ...(file.type ? { type: file.type } : {}) }), 201);
+        } finally {
+          uploading -= 1;
+        }
+      },
+    },
+    {
+      method: "get",
+      path: "/v1/media/:id",
+      summary: "Read a generated image or video by its sha256. Needs no token",
+      roles: anyone,
+      public: true,
+      handler: (c) => serveMedia(c, service.mediaFile(c.req.param("id") as string)),
     },
     {
       method: "post",
@@ -521,7 +742,7 @@ export function createApp(options: AppOptions) {
   ];
 
   for (const route of routes) {
-    if (route.public) publicRoutes.add(`${route.method.toUpperCase()} ${route.path}`);
+    if (route.public) publicRoutes.push({ method: route.method.toUpperCase(), path: new RegExp(`^${route.path.replace(/:\w+/g, "[^/]+")}$`) });
     app[route.method](route.path, async (c) => {
       if (!route.public && !route.roles.includes(c.get("actor").role)) {
         // Without a token, anything beyond reading needs one, as in token mode.
@@ -587,6 +808,7 @@ export function createApp(options: AppOptions) {
         ...(route.body
           ? { requestBody: { content: { "application/json": { schema: z.toJSONSchema(route.body, { io: "input", unrepresentable: "any" }) } } } }
           : {}),
+        ...(route.form ? { requestBody: { content: { "multipart/form-data": multipart(route.form) } } } : {}),
         responses: { default: { description: "See summary" } },
       };
     }

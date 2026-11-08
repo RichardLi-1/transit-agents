@@ -22,11 +22,12 @@ if (!existsSync(join(root, "apps/display/dist/index.html"))) {
 }
 
 // One token per client. "lead" is for your own agents, so the display never
-// mistakes their work for the scripted replay.
+// mistakes their work for the scripted replay. "media" is agents/media.py's.
 const clients = [
   { key: "integration", role: "integration", name: "seed" },
   { key: "agent", role: "agent", name: "replay" },
   { key: "lead", role: "agent", name: "lead" },
+  { key: "media", role: "agent", name: "media" },
   { key: "planner", role: "planner", name: "demo" },
 ];
 const tokens: Record<string, string> = Object.fromEntries(clients.map(({ key }) => [key, randomBytes(18).toString("base64url")]));
@@ -61,7 +62,12 @@ if (head.head.seq === 0) {
   });
   await new Promise((resolve) => seed.on("exit", resolve));
 }
-// Replay and decide find this service, and the tokens in the same folder.
+// Replay, decide and the agents find this service, and the tokens in the same folder.
 const settings = [url !== "http://127.0.0.1:4100" && `TRANSIT_URL=${url}`, process.env.DATA_DIR && `DATA_DIR=${data}`].filter(Boolean);
 const run = (script: string) => [...settings, "npm run", script].join(" ");
-console.log(`\nDisplay: ${url}\nNext: ${run("replay")}, then ${run("decide")}\n`);
+// Nothing is made for an engagement need until the media agent runs.
+const media = [...settings, "agents/.venv/bin/python agents/media.py listen"].join(" ");
+console.log(
+  `\nDisplay: ${url}\nNext: ${run("replay")}, then ${run("decide")}\nFor Gemini to answer the chat: ${run("agent")}\n` +
+    `Engagement media, with GEMINI_API_KEY in agents/.env: ${media}\n`,
+);

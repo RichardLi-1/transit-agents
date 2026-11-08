@@ -80,3 +80,26 @@ export const StaleIcon = () => (
     <path d="M5 12h14" {...glyph} stroke-width="3" />
   </svg>
 );
+
+export const ImageIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+    <rect x="3" y="4.500" width="18" height="15" rx="2.500" {...glyph} />
+    <path d="M3.500 17l5-5 4 4 2.500-2.500L20.500 19" {...glyph} />
+    <circle cx="15.500" cy="9" r="1.600" fill="currentColor" />
+  </svg>
+);
+
+export const VideoIcon = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+    <rect x="2.500" y="6" width="13" height="12" rx="2.500" {...glyph} />
+    <path d="M15.500 10.500l6-3.500v10l-6-3.500z" {...glyph} />
+  </svg>
+);
+
+export const AlertIcon = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+    <circle cx="12" cy="12" r="9" {...glyph} />
+    <path d="M12 7.500v5.500" {...glyph} />
+    <circle cx="12" cy="16.500" r="1.300" fill="currentColor" />
+  </svg>
+);

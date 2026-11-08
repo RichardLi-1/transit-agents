@@ -9,6 +9,7 @@ import { watchInbox } from "./inbox.ts";
 import { SearchIndex, searchTerms } from "./search.ts";
 import { Service } from "./service.ts";
 import { Webhooks } from "./webhooks.ts";
+import { SOURCES } from "../../../clients/seed-data.ts";
 
 const TOKENS = new Map<string, Actor>([
   ["agent-token", { role: "agent", name: "lead" }],
@@ -260,5 +261,31 @@ describe("gold questions", () => {
 
   it("rank the page a figure is on", () => {
     assert.deepEqual(FIGURES.map(([query, page]) => rank(query, [page])), [1, 1, 1, 1, 1, 1, 1, 2, 5]);
+  });
+});
+
+// The same questions over everything the demo and the eval runner seed: since the
+// Ontario Line study, its business cases, Metrolinx's manual and the TTC's subway
+// ridership too. Their pages outrank some of the plan's for bare figures: "610"
+// and "$1.29" are on Ontario Line pages, and so are riders and dollars. Questions
+// with words still find a page that answers them first or second.
+describe("gold questions over the seeded sources", () => {
+  const index = new SearchIndex();
+  for (const { id, pagesFile } of SOURCES) {
+    if (pagesFile) index.add(id, JSON.parse(readFileSync(join(import.meta.dirname, "../../../clients/fixtures", pagesFile), "utf8")), true);
+  }
+  const rank = (query: string, pages: string[]) => index.find(query, 50).findIndex((hit) => pages.includes(`${hit.contextId}#${hit.page}`)) + 1;
+
+  it("indexes every seeded source with pages", () => {
+    assert.deepEqual(SOURCES.filter((source) => source.pagesFile).length, 6);
+  });
+
+  it("rank the pages that answer the Find questions", () => {
+    assert.deepEqual(FIND.map(([query, page]) => rank(query, [page])), [8, 4, 2, 1, 2, 2]);
+    assert.deepEqual(FIND.map(([query, ...pages]) => rank(query, pages)), [1, 1, 1, 1, 2, 2]);
+  });
+
+  it("rank the page a figure is on", () => {
+    assert.deepEqual(FIGURES.map(([query, page]) => rank(query, [page])), [1, 2, 1, 1, 1, 1, 6, 7, 2]);
   });
 });

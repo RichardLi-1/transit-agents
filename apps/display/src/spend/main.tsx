@@ -4,7 +4,8 @@ import { render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { isTestBuild } from "../host.ts";
 import { calls, dollars, tokens, unitFor } from "./format.ts";
-import { spentUsd, useUsage } from "./usage.ts";
+import { spentUsd } from "../money.ts";
+import { useUsage } from "./usage.ts";
 import "./spend.css";
 
 const COUNT_MS = 600;

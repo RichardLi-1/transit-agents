@@ -15,10 +15,6 @@ export function useUsage(): Usage | null {
   return usage;
 }
 
-// What the agents have spent in US dollars, or null when that isn't known: a
-// model call reported without a cost would make the sum too low.
-export const spentUsd = (usage: Usage | null) => (usage && !usage.unpricedCalls ? usage.costUsd : null);
-
 // Passes each new total to show, or null once the service lets the screen read
 // nothing. Returns a function that stops watching.
 export function watchUsage(show: (usage: Usage | null) => void): () => void {

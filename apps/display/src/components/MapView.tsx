@@ -1,34 +1,26 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { StudyView } from "@transit-agents/contracts";
 import { api } from "../api.ts";
-import type { Camera, NetworkData, Point } from "../map/engine.ts";
+import type { NetworkData } from "../map/engine.ts";
 import { FlatMap } from "../map/flat.ts";
+import { toPoint, ViewFeed } from "../map/projection.ts";
 import { createRenderer, type MapRenderer } from "../map/renderer.ts";
 import { ScheduledVehicles, type StudyLine } from "../map/vehicles.ts";
+import { OVERVIEW, VIEWS } from "../map/views.ts";
 import type { Simulator } from "../simulator.ts";
 import { clockAt, dateToMs, DAY_MS } from "../time.ts";
-
-// Where to stand for each study. The line runs away from the viewer into the fade.
-const VIEWS: Record<string, Camera> = {
-  "lawrence-sunnybrook": { x: -3000, y: 2900, distance: 13000, pitch: 1.2, bearing: -1.5 },
-  "sherbourne-castle-frank": { x: 2300, y: -4300, distance: 6200, pitch: 1.18, bearing: -0.25 },
-};
-const OVERVIEW: Camera = { x: -1500, y: 1500, distance: 26000, pitch: 1.15, bearing: -0.3 };
-
-const ORIGIN = { lat: 43.7, lon: -79.4 };
-const toPoint = (lat: number, lon: number): Point => [
-  (lon - ORIGIN.lon) * 111_320 * Math.cos((ORIGIN.lat * Math.PI) / 180),
-  (lat - ORIGIN.lat) * 110_574,
-];
+import { Needs } from "./Needs.tsx";
+import type { Opened } from "./QuickLook.tsx";
 
 const LIVE_REFRESH_MS = 15_000;
 const LINE_DRAW_MS = 1800;
 const CAMERA_MS = 1400;
 
-const describe = (study: StudyView | null) => {
+const describe = (study: StudyView | null, proposed: boolean) => {
   if (!study) return "Map of the TTC network";
   const passed = study.checks.filter((c) => c.status === "pass").length;
-  return `Map of the TTC network with ${study.title} highlighted. ${passed} of ${study.checks.length} tests pass.`;
+  const tests = study.checks.length ? ` ${passed} of ${study.checks.length} tests pass.` : "";
+  return `Map of the TTC network with ${study.title} highlighted.${proposed ? " Its proposed part is dashed." : ""}${tests}`;
 };
 
 type Live = { pattern: string; lat: number; lon: number };
@@ -37,7 +29,20 @@ const isFlat = (map: Renderer | null): map is FlatMap => map instanceof FlatMap;
 
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-export function MapView({ study, simulator }: { study: StudyView | null; simulator: Simulator }) {
+export type Credit = { text: string; url: string };
+
+type Props = {
+  study: StudyView | null;
+  simulator: Simulator;
+  canCreate: boolean;
+  onCredit: (credit: Credit | null) => void;
+  onNeed: (need: Opened, from: Element) => void;
+};
+
+// The map's credit for the shown study's line, if its data asks for one, goes to
+// onCredit: the page shows it after the card and chat, so it comes last when
+// tabbing, though it sits over the map.
+export function MapView({ study, simulator, canCreate, onCredit, onNeed }: Props) {
   const glCanvas = useRef<HTMLCanvasElement>(null);
   const flatCanvas = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<Renderer | null>(null);
@@ -48,6 +53,8 @@ export function MapView({ study, simulator }: { study: StudyView | null; simulat
   const serviceUntil = useRef(Infinity);
   const [ready, setReady] = useState(false);
   const [flat, setFlat] = useState(false);
+  // Where the camera is, for the cards pinned to the map.
+  const feed = useMemo(() => new ViewFeed(), []);
 
   const lineKey = study?.line ?? null;
   const failing = study?.checks.some((c) => c.status === "fail") ?? false;
@@ -55,7 +62,7 @@ export function MapView({ study, simulator }: { study: StudyView | null; simulat
   // Puts the current study on whichever renderer is active.
   const showStudy = (map: Renderer, animate: boolean) => {
     const line = lineKey ? lines.current[lineKey] : undefined;
-    map.setStudyLines(line?.lines ?? []);
+    map.setStudyLines(line?.lines ?? [], line?.proposed ?? []);
     map.setStudyFailing(failing);
     scheduled.current = line ? new ScheduledVehicles(line) : null;
     if (!isFlat(map)) {
@@ -67,7 +74,7 @@ export function MapView({ study, simulator }: { study: StudyView | null; simulat
   const fallBack = () => {
     const canvas = flatCanvas.current;
     if (!canvas) return;
-    const map = new FlatMap(canvas);
+    const map = new FlatMap(canvas, (view) => feed.set({ kind: "flat", ...view }));
     renderer.current = map;
     setFlat(true);
     if (network.current) map.setNetwork(network.current);
@@ -77,7 +84,9 @@ export function MapView({ study, simulator }: { study: StudyView | null; simulat
   useEffect(() => {
     const element = glCanvas.current as HTMLCanvasElement;
     try {
-      renderer.current = createRenderer(element, fallBack);
+      renderer.current = createRenderer(element, fallBack, (view) => {
+        if (!isFlat(renderer.current)) feed.set({ kind: "tilted", ...view });
+      });
     } catch {
       fallBack();
     }
@@ -170,11 +179,16 @@ export function MapView({ study, simulator }: { study: StudyView | null; simulat
     };
   }, [routes, watched, simulator]);
 
-  const label = describe(study);
+  const shownLine = ready && lineKey ? lines.current[lineKey] : undefined;
+  const label = describe(study, Boolean(shownLine?.proposed?.length));
+  const credit = shownLine?.credit;
+  useEffect(() => onCredit(credit ?? null), [credit?.text, credit?.url]);
   return (
     <>
       <canvas ref={glCanvas} class={flat ? "map hidden" : "map"} role="img" aria-label={label} aria-hidden={flat} />
       <canvas ref={flatCanvas} class={flat ? "map" : "map hidden"} role="img" aria-label={label} aria-hidden={!flat} />
+      <div class="fade" aria-hidden="true" />
+      <Needs study={study} feed={feed} canCreate={canCreate} onDetails={onNeed} />
     </>
   );
 }

@@ -8,6 +8,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { rows as readRows } from "./csv.ts";
+import { ONTARIO_LINE, ontarioStudyLine } from "./ontario-study-line.ts";
 
 const GTFS = process.argv[2];
 if (!GTFS) throw new Error("Usage: build-transit-data.ts <gtfs-dir> [out-dir]");
@@ -247,6 +248,7 @@ async function main() {
     for (const list of Object.values(schedule)) list.sort((a, b) => a[1] - b[1]);
     studies[study] = { lines, schedule };
   }
+  studies[ONTARIO_LINE] = ontarioStudyLine();
   writeFileSync(join(OUT, "studies.json"), JSON.stringify(studies));
 
   const feedInfo = readFileSync(join(GTFS as string, "calendar.txt"), "utf8").split("\n")[1];

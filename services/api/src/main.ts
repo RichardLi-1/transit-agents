@@ -40,7 +40,7 @@ const { verifyToken, signIn } = auth0Settings(process.env);
 
 mkdirSync(dataDir, { recursive: true });
 
-const service = new Service(join(dataDir, "log.db"));
+const service = new Service(join(dataDir, "log.db"), { mediaDir: join(dataDir, "media") });
 const webhooks = new Webhooks(service, process.env.PUBLIC_URL);
 const stopInbox = watchInbox(service, join(dataDir, "inbox"));
 // Measurements live apart from the log, so a demo can reset one without losing

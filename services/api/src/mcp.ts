@@ -47,6 +47,7 @@ export const INSTRUCTIONS = [
   "Every figure needs a basis: a quote that is on the cited page and contains the value, a formula over other figures and planner-set rules, or a planner-approved skill.",
   "Rule thresholds come only from list_rules.",
   "Only planners decide. They set rules, rate findings, accept skill results and record decisions.",
+  "When people in a neighbourhood need to hear about a change, propose what to make with add_engagement_need. Only a planner asks for it to be made.",
   "The agent's own code reports each model call's tokens and cost; never report usage numbers you weren't given.",
 ].join("\n");
 
@@ -103,6 +104,25 @@ export const TOOLS: Record<string, Spec> = {
     name: "record_finding",
     description:
       "Add a finding the service can't compute, such as public feedback, with a citation. Its tone is only a proposal until a planner rates it.",
+  },
+  "POST /v1/studies/:id/needs": {
+    name: "add_engagement_need",
+    description:
+      "Propose something to make so people in one neighbourhood hear about a change: an image such as a poster, a short video, or both. Pin it to a point on the study's route with lon and lat, name the place, give one sentence on why, and cite the pages it rests on. Nothing is made until a planner asks.",
+  },
+  "POST /v1/studies/:id/needs/:need/create": {
+    name: "request_engagement_media",
+    description:
+      "Ask for an engagement need's image or video to be made. Asking again changes nothing while a request is open. After a failure, it asks again. Planners only.",
+  },
+  "POST /v1/studies/:id/needs/:need/dismiss": {
+    name: "dismiss_engagement_need",
+    description:
+      "Drop an engagement need nobody has to make any more, such as one for a change that won't go ahead, with a reason. Its images and videos stop being shown. Planners only.",
+  },
+  "POST /v1/studies/:id/needs/:need/media/:media/withdraw": {
+    name: "withdraw_engagement_media",
+    description: "Take down one generated image or video that shouldn't be shown, with a reason. The need is needed again. Planners only.",
   },
   "POST /v1/studies/:id/activity": {
     name: "report_activity",
@@ -191,6 +211,10 @@ export const NOT_TOOLS: Record<string, string> = {
   "POST /v1/subscriptions": "Webhooks are for integrations",
   "ALL /v1/mcp": "This endpoint",
   "GET /v1/config": "Sign-in settings for the display. An agent has no use for them",
+  "POST /v1/studies/:id/needs/:need/claim": "Only the media agent's own code claims a request, so no model can take one on, or close one, by mistake",
+  "POST /v1/studies/:id/needs/:need/failed": "Only the agent holding the request's claim says it failed, from its own code",
+  "POST /v1/studies/:id/needs/:need/media": "A video is larger than an MCP message may be (4 MiB), so an agent posts the file here with its token",
+  "GET /v1/media/:id": "Image and video bytes, for people to see. Each study's needs list their media",
 };
 
 // Path parameters become arguments. ":id" is named for what it identifies; the
@@ -202,6 +226,8 @@ const PATH_ARGUMENTS: Record<string, JsonSchema> = {
   page: { type: "integer", minimum: 1, description: "Page number" },
   figure: { type: "string", description: "Figure id" },
   finding: { type: "string", description: "Finding id" },
+  need: { type: "string", description: "Engagement need id, from the study's needs" },
+  media: { type: "string", description: "Media id, its sha256, from the need's media" },
   key: { type: "string", description: "Rule key, from list_rules" },
   name: { type: "string", description: "Skill name" },
   seq: { type: "integer", minimum: 1, description: "Log position of the entry" },
@@ -339,7 +365,23 @@ async function call(app: Requester, tool: McpTool, args: Record<string, unknown>
 }
 
 // An IP address or localhost: a name no other site can point at this service.
-const fixedAddress = (url: URL) => url.hostname === "localhost" || isIP(url.hostname.replace(/^\[(.*)\]$/, "$1")) !== 0;
+export const fixedAddress = (url: URL) => url.hostname === "localhost" || isIP(url.hostname.replace(/^\[(.*)\]$/, "$1")) !== 0;
+
+// Refuses a browser request from a page on another site, or another port. Browsers
+// send Origin with every POST and PUT, and say when a request is cross-site, so a
+// page elsewhere can't write here, even to a local service with open access.
+// Server-side clients send neither. After DNS rebinding, an attacker's page reaches
+// this service under the attacker's own name, and its Host and Origin agree. So the
+// request's own origin counts only at an IP address or localhost. Any other name
+// must be PUBLIC_URL's.
+export function checkOrigin(request: { url: string; header(name: string): string | undefined }, publicOrigin: string | undefined) {
+  const origin = request.header("origin");
+  const own = new URL(request.url);
+  const allowed = [publicOrigin, fixedAddress(own) ? own.origin : undefined];
+  if (request.header("sec-fetch-site") === "cross-site" || (origin !== undefined && !allowed.includes(origin))) {
+    throw new ApiError(403, "forbidden_origin", `Requests from ${origin ?? "another site"} are not allowed`);
+  }
+}
 
 // The handler for /v1/mcp. `app` is the app it is mounted on, and `routes` that
 // app's route table.
@@ -348,18 +390,9 @@ export function mcp(app: Requester, routes: readonly ApiRoute[], { publicUrl }: 
   const publicOrigin = publicUrl ? new URL(publicUrl).origin : undefined;
 
   return async (c: Context<{ Variables: { actor: Actor } }>) => {
-    // Browsers send Origin with every POST, so a page on another site can't use
-    // this endpoint, even on a local service with open access. Server-side
-    // clients send none. After DNS rebinding, an attacker's page reaches this
-    // service under the attacker's own name, and its Host and Origin agree. So
-    // the request's own origin counts only at an IP address or localhost. Any
-    // other name must be PUBLIC_URL's.
-    const origin = c.req.header("origin");
+    // A page on another site can't use this endpoint, even with GET.
+    checkOrigin(c.req, publicOrigin);
     const own = new URL(c.req.url);
-    const allowed = [publicOrigin, fixedAddress(own) ? own.origin : undefined];
-    if (origin !== undefined && !allowed.includes(origin)) {
-      throw new ApiError(403, "forbidden_origin", `Requests from ${origin} are not allowed`);
-    }
     // Stateless: there is no session to end and no stream to open.
     if (c.req.method !== "POST") {
       return c.json(rpcError(405, "method_not_allowed", "Send MCP messages with POST"), 405, { allow: "POST" });

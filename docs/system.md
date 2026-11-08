@@ -77,6 +77,11 @@ flowchart LR
 7. **Content can be removed; history can't.** Entry content sits outside the
    hash chain, so it can be removed for retention or privacy while the chain
    still verifies and shows that something was there.
+8. **Generated media is illustrative, and made only when a planner asks.**
+   Agents propose what a neighbourhood needs to hear about a change. Images and
+   videos are kept by their hash outside the log, which records the hash, the
+   model, the prompt and what it drew on, and they are always labelled
+   Illustrative.
 
 ## API
 
@@ -95,6 +100,16 @@ Full schema at `GET /openapi.json`.
 - Set or change a rule or assumption: `PUT /v1/assumptions/{key}`
 - Try a change without recording it: `POST /v1/studies/{id}/preview`
 - Record a decision: `POST /v1/studies/{id}/decisions`
+- Propose something to make for public engagement: `POST /v1/studies/{id}/needs`
+- Ask for it to be made: `POST /v1/studies/{id}/needs/{need}/create`
+- Take a request on before spending anything (agents only): `POST /v1/studies/{id}/needs/{need}/claim`
+- Say why it couldn't be made, with the claim: `POST /v1/studies/{id}/needs/{need}/failed`
+- Attach a generated image or video, as a form (agents only): `POST /v1/studies/{id}/needs/{need}/media`
+- Take a file down: `POST /v1/studies/{id}/needs/{need}/media/{media}/withdraw`
+- Drop a need nobody has to make any more: `POST /v1/studies/{id}/needs/{need}/dismiss`
+- Read an image or video, with no token, in every mode, since an image tag can't
+  send one: `GET /v1/media/{id}`. Anyone who has a file's URL can see it, so
+  treat generated media as public. A planner can take one down.
 - Read a study: `GET /v1/studies/{id}`
 - Trace a figure to its source: `GET /v1/studies/{id}/figures/{figure}/trace`
 - What changed between versions: `GET /v1/studies/{id}/compare`
@@ -110,11 +125,25 @@ Full schema at `GET /openapi.json`.
 ## Who may do what
 
 Every request needs a token, unless open access is switched on for a local demo.
+Then a request without a token acts as a planner, but is answered only at an IP
+address, localhost or `PUBLIC_URL`'s name: a page that reaches the service under
+another name, after DNS rebinding, gets nothing. Writes come only from the
+service's own pages (see below). Bodies are JSON, sent as JSON.
 
 - **Viewer:** reads.
 - **Integration:** reads, adds citable context, subscribes webhooks.
-- **Agent:** reads, adds context that can't be cited, adds figures and findings.
-- **Planner:** everything, with citable context. Only planners set rules, rate,
-  accept and decide.
+- **Agent:** reads, adds context that can't be cited, adds figures and findings,
+  and proposes engagement needs. An agent that claims a planner's request
+  attaches the media made for it, or says why it couldn't.
+- **Planner:** everything else, with citable context. Only planners set rules,
+  rate, accept, decide, ask for engagement media to be made, take a file down
+  and drop a need.
 
 Webhooks can only go to hosts listed in `WEBHOOK_HOSTS`.
+
+Writes from a browser page on another site or port are refused (403), token or
+not, as on `/v1/mcp`: a write's `Origin`, when it has one, must be the service's
+own address at an IP or localhost, or `PUBLIC_URL`, and a browser that says the
+request is cross-site is refused. JSON bodies need `content-type:
+application/json` (415 otherwise). Without these, under open access any page could
+act as the local planner.

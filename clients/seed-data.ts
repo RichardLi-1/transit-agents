@@ -1,13 +1,16 @@
 // The two real studies from the TTC 2026 Annual Network Plan. Every figure carries
 // the exact words it came from, and the service checks them against the page.
-import type { NewAssumption, NewCheck, NewContext, NewDecision, NewFigure, NewFinding, NewStudy } from "@transit-agents/contracts";
+import type { NewAssumption, NewCheck, NewContext, NewDecision, NewFigure, NewFinding, NewNeed, NewStudy } from "@transit-agents/contracts";
+import { METROLINX_RULES, ONTARIO, ONTARIO_SOURCES } from "./seed-ontario.ts";
 
 const PLAN = "ttc-anp-2026";
 const STANDARDS = "ttc-standards-2024";
 
 export type Source = NewContext & { id: string; pagesFile?: string };
 
+// The lead study's sources come first, so its folders do too.
 export const SOURCES: Source[] = [
+  ...ONTARIO_SOURCES,
   {
     id: STANDARDS,
     title: "Service Standards",
@@ -67,6 +70,7 @@ export const RULES: (NewAssumption & { key: string })[] = [
     reason: "Published standard",
     citation: cite(115, "Peak Periods 95 50 75 20"),
   },
+  ...METROLINX_RULES,
 ];
 
 export type StudySeed = {
@@ -75,7 +79,14 @@ export type StudySeed = {
   figures: NewFigure[];
   checks: NewCheck[];
   findings: NewFinding[];
-  decision: NewDecision;
+  // What people near the line need to hear about. Each is pinned to a point on the
+  // study's line, as apps/display/public/data/studies.json draws it.
+  needs: (NewNeed & { id: string })[];
+  decision?: NewDecision;
+  // What a planner does with the needs once the decision is in. A change that won't
+  // go ahead leaves nothing to consult on, but the people who took part need to
+  // hear how it ended.
+  outcome?: { dismiss: string[]; reason: string; needs: (NewNeed & { id: string })[] };
 };
 
 const figure = (id: string, label: string, unit: string, value: number, page: number, quote: string): NewFigure => ({
@@ -161,6 +172,23 @@ export const LAWRENCE: StudySeed = {
       citation: cite(117, "service reliability issues on the 52 Lawrence West could be expanded to affect customers travelling to Sunnybrook Hospital"),
     },
   ],
+  needs: [
+    {
+      id: "sunnybrook-poster",
+      title: "Engagement poster",
+      place: "Sunnybrook Hospital",
+      // The loop at the hospital, where the 52F and 11B now stop.
+      lon: -79.375262,
+      lat: 43.722663,
+      kinds: ["image"],
+      reason: "Riders who had to change to the 124 can now ride the 52F or 11B straight to the hospital.",
+      citations: [
+        cite(116, "service on the 52F Lawrence West (Lawrence Station-Royal York) would be extended to Sunnybrook Hospital"),
+        cite(116, "a new 11B Bayview branch would provide new continuous service between Davisville Station and Lawrence Station, via Bayview Ave and Sunnybrook Hospital"),
+        cite(116, "customers following these travel patterns would be saved a transfer"),
+      ],
+    },
+  ],
   decision: {
     outcome: "adopt",
     reason: "Passes the tests, and feedback was positive.",
@@ -202,12 +230,45 @@ export const ROSEDALE: StudySeed = {
       citation: cite(128, "nearly half of respondents being supportive of the change, and less than quarter being opposed"),
     },
   ],
+  needs: [
+    {
+      id: "rosedale-explainer",
+      title: "Consultation explainer",
+      place: "Rosedale",
+      // Sherbourne Station, at the foot of Rosedale, where the 75 ends for now.
+      lon: -79.376758,
+      lat: 43.672114,
+      kinds: ["image", "video"],
+      reason: "Feedback at the events was largely negative but the survey was more positive, so residents need a clear picture of what would change.",
+      citations: [
+        cite(126, "service on the 75 Sherbourne would be removed from the Rosedale neighbourhood north of Bloor St East"),
+        cite(127, "Feedback received at the events was largely negative"),
+        cite(128, "Survey feedback was significantly more positive"),
+      ],
+    },
+  ],
   decision: {
     outcome: "reject",
     reason: "Public engagement results.",
     decidedBy: "TTC staff recommendation, 2026 Annual Network Plan",
     citation: cite(128, "public engagement results has led to the conclusion that this service change should not move forward"),
   },
+  outcome: {
+    dismiss: ["rosedale-explainer"],
+    reason: "The change won't go ahead.",
+    needs: [
+      {
+        id: "rosedale-outcome",
+        title: "Outcome explainer",
+        place: "Rosedale",
+        lon: -79.376758,
+        lat: 43.672114,
+        kinds: ["image", "video"],
+        reason: "The change won't go ahead, so residents who gave feedback need to hear how it ended.",
+        citations: [cite(128, "public engagement results has led to the conclusion that this service change should not move forward")],
+      },
+    ],
+  },
 };
 
-export const STUDIES = [LAWRENCE, ROSEDALE];
+export const STUDIES = [ONTARIO, LAWRENCE, ROSEDALE];

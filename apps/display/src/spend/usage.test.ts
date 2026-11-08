@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import type { Usage } from "@transit-agents/contracts";
 import { forgetTokens, hasToken, setPersonalToken } from "../api.ts";
-import { spentUsd, watchUsage } from "./usage.ts";
+import { spentUsd } from "../money.ts";
+import { watchUsage } from "./usage.ts";
 
 // Just enough of the browser for the spend screen's requests.
 class FakeEventSource {

@@ -5,7 +5,11 @@ export type Trip = [pattern: number, start: number, end: number];
 
 export type StudyLine = {
   lines: Point[][];
+  // Proposed segments, drawn dashed. Nothing is scheduled on them.
+  proposed?: Point[][];
   schedule: Record<"weekday" | "saturday" | "sunday", Trip[]>;
+  // Who to credit for the geometry, shown whenever the line is.
+  credit?: { text: string; url: string };
 };
 
 const DAY_KEYS = ["weekday", "saturday", "sunday"] as const;

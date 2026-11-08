@@ -1,0 +1,6 @@
+{"type":"FeatureCollection","name":"Ontario Line extension to Sheppard","status":"hypothetical","follows":"Don Mills Road","source":{"osmBase":"2026-11-08T02:08:34Z"},"license":"ODbL-1.0","attribution":"© OpenStreetMap contributors","licenseUrl":"https://www.openstreetmap.org/copyright","features":[
+{"type":"Feature","properties":{"kind":"line","name":"Don Mills extension","from":"Don Valley","to":"Don Mills","lengthMetres":6020},"geometry":{"type":"LineString","coordinates":[[-79.338694,43.721443],[-79.33976,43.723698],[-79.347358,43.751613],[-79.346979,43.75362],[-79.347177,43.762672],[-79.346297,43.771963],[-79.346461,43.773505],[-79.347039,43.775094]]}},
+{"type":"Feature","properties":{"kind":"station","name":"Lawrence","crossing":"Lawrence Avenue East","alongMetres":1780},"geometry":{"type":"Point","coordinates":[-79.343429,43.737178]}},
+{"type":"Feature","properties":{"kind":"station","name":"York Mills","crossing":"York Mills Road","alongMetres":3880},"geometry":{"type":"Point","coordinates":[-79.347027,43.75581]}},
+{"type":"Feature","properties":{"kind":"station","name":"Don Mills","crossing":"Sheppard Avenue East","interchange":"Line 4 Sheppard","alongMetres":6020},"geometry":{"type":"Point","coordinates":[-79.347039,43.775094]}}
+]}

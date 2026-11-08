@@ -1,17 +1,52 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api.ts";
-import type { Store } from "../store.ts";
-import { CheckIcon, SendIcon } from "./icons.tsx";
+import { spentUsd } from "../money.ts";
+import { withCites } from "../cites.ts";
+import { plain } from "../plain.ts";
+import { EMPTY_USAGE, type Store } from "../store.ts";
+import { CheckIcon, SendIcon, StaleIcon } from "./icons.tsx";
 
 const number = new Intl.NumberFormat("en-CA");
 const money = new Intl.NumberFormat("en-CA", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 
-export function Chat({ store, studyId, canPost }: { store: Store; studyId: string | null; canPost: boolean }) {
+type Props = {
+  store: Store;
+  studyId: string | null;
+  canPost: boolean;
+  // Opens a cited page, as a figure's source opens.
+  onPage: (contextId: string, page: number, element: Element) => void;
+};
+
+// A message's text, with each cited page a button that opens it.
+function Text({ text, ids, onPage }: { text: string; ids: string[]; onPage: Props["onPage"] }) {
+  return (
+    <>
+      {withCites(plain(text), ids).map((piece, i) =>
+        typeof piece === "string" ? (
+          piece
+        ) : (
+          <button key={i} type="button" class="cite" onClick={(event) => onPage(piece.contextId, piece.page, event.currentTarget)}>
+            {piece.text}
+          </button>
+        ),
+      )}
+    </>
+  );
+}
+
+export function Chat({ store, studyId, canPost, onPage }: Props) {
+  const ids = store.contexts.map((context) => context.id);
   const [text, setText] = useState("");
   const log = useRef<HTMLDivElement>(null);
   const messages = store.messages.filter((m) => m.studyId === studyId);
   const subagents = store.subagents.filter((s) => s.studyId === studyId);
-  const { usage, replay } = store;
+  // Messages and sub-agents in the order the log has them.
+  const items = [...messages, ...subagents].sort((a, b) => a.seq - b.seq);
+  // Whether any of this study's chat is the scripted replay's, whatever came after.
+  const replay = items.some((item) => item.replay);
+  // The open study's spend, not every study's.
+  const usage = (studyId && store.usage[studyId]) || EMPTY_USAGE;
+  const spent = spentUsd(usage);
 
   useEffect(() => {
     const element = log.current;
@@ -34,26 +69,32 @@ export function Chat({ store, studyId, canPost }: { store: Store; studyId: strin
     <aside class="chat" aria-label="Agent">
       {replay && <p class="tag">Replay</p>}
       <div class="log" ref={log} role="log" aria-live="polite" tabIndex={0} aria-label="Agent activity">
-        {messages.map((message) => (
-          <p key={message.seq} class={`bubble ${message.from}`}>
-            {message.text}
-          </p>
-        ))}
-        {subagents.map((sub) => (
-          <div key={sub.id} class={sub.summary ? "sub done" : "sub"}>
-            <span class="mark" aria-hidden="true">
-              {sub.summary ? <CheckIcon /> : null}
-            </span>
-            <div>
-              <p class="question">{sub.question}</p>
-              {sub.summary && <p>{sub.summary}</p>}
+        {items.map((item) =>
+          "text" in item ? (
+            <p key={`m${item.seq}`} class={`bubble ${item.from}`}>
+              {item.replay && <span class="sr-only">Replay: </span>}
+              <Text text={item.text} ids={ids} onPage={onPage} />
+            </p>
+          ) : (
+            <div key={`s${item.id}`} class={`sub${item.summary ? (item.ok ? " done" : " stopped") : ""}`}>
+              <span class="mark" aria-hidden="true">
+                {item.summary && (item.ok ? <CheckIcon /> : <StaleIcon />)}
+              </span>
+              <div>
+                <p class="question">{item.question}</p>
+                {item.summary && (
+                  <p>
+                    <Text text={item.summary} ids={ids} onPage={onPage} />
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          ),
+        )}
       </div>
       {usage.calls > 0 && (
         <p class="usage">
-          {number.format(usage.inputTokens + usage.outputTokens)} tokens · {money.format(usage.costUsd)}
+          {number.format(usage.inputTokens + usage.outputTokens)} tokens{spent !== null && ` · ${money.format(spent)}`}
         </p>
       )}
       {canPost && (

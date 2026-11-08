@@ -17,11 +17,12 @@ export type Session = {
 };
 
 // What the service lets the display's role do, so the display offers nothing else:
-// adding context, and posting to a study's chat.
+// adding context, posting to a study's chat, and asking for engagement media.
 const ADDS: Role[] = ["integration", "agent", "planner"];
 const POSTS: Role[] = ["agent", "planner"];
 export const canAdd = (me: Me | null) => Boolean(me && ADDS.includes(me.role));
 export const canPost = (me: Me | null) => Boolean(me && POSTS.includes(me.role));
+export const canCreate = (me: Me | null) => me?.role === "planner";
 
 type AppState = { hash?: string };
 
