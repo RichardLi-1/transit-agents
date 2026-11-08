@@ -3159,3 +3159,16 @@ input[type="range"] {
 .refusal.ok {
   color: var(--muted);
 }
+
+/* The simulator the lead opens, under its answer: a name and a button. */
+.sim-card {
+  grid-template-columns: 1fr auto;
+}
+
+.sim-card .doc-open {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}

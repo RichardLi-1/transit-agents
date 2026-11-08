@@ -8,7 +8,7 @@ import { echoesDocument } from "../echo.ts";
 import { refusal, setNotice, unsaid, useNotice } from "../notice.ts";
 import { plain, plainBold } from "../plain.ts";
 import { EMPTY_USAGE, type Store } from "../store.ts";
-import { local, unasked, wantsSimulator, withAsked, type Asked } from "../suggestions.ts";
+import { unasked, withAsked, type Asked } from "../suggestions.ts";
 import { foldAt, waiting } from "../typing.ts";
 import { DocumentCard } from "./DocumentCard.tsx";
 import { ExecutiveCard, withoutExecutive, type Ping } from "./ExecutiveCard.tsx";
@@ -76,6 +76,12 @@ function Text({ text, ids, onPage }: { text: string; ids: string[]; onPage: Prop
 
 // An agent's answer that ends asking for an executive's decision.
 const executive = (message: { from: string; text: string }) => message.from === "agent" && EXECUTIVE.test(message.text);
+
+// The lead's answer to an ask for the simulator, where no machine can drive it for
+// the viewer: the display opens it from that line, for the viewer to try.
+const SIMULATOR_LINE = /^Opening the intersection simulator:/;
+const simulator = (message: { from: string; text: string }) => message.from === "agent" && SIMULATOR_LINE.test(message.text.trim());
+const openSimulator = () => window.open("/simulator/", "simulator", "popup,width=1440,height=860");
 
 // How fast a new answer types out, in characters a second.
 const STREAM_CPS = 320;
@@ -211,15 +217,6 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
   const post = async (words: string, typed: boolean) => {
     const trimmed = words.trim();
     if (!trimmed || !studyId || sending) return;
-    if (!local && wantsSimulator(trimmed)) {
-      // Opened before any wait, so the browser counts it as the viewer's own click.
-      window.open("/simulator/#thinking", "simulator", "popup,width=1440,height=860");
-      if (typed) setText("");
-      setAsked((now) => keepAsked(withAsked(now, studyId, trimmed)));
-      setNotice("The simulator: thinking…");
-      await new Promise((resolve) => setTimeout(resolve, 1800));
-      return setNotice("The simulator opened in a new window, for you to try. On a planner's own computer, Gemini drives it by sight.");
-    }
     setSending(true);
     if (typed) setText("");
     atFoot.current = true;
@@ -260,7 +257,11 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
                     ids={ids}
                     onPage={onPage}
                     onDone={() => {
-                      if (streams.current.get(item.seq)) typed((n) => n + 1);
+                      if (streams.current.get(item.seq)) {
+                        typed((n) => n + 1);
+                        // An answer that arrived live opens the simulator itself, if the browser lets it.
+                        if (simulator(item)) openSimulator();
+                      }
                       streams.current.set(item.seq, false);
                     }}
                   />
@@ -268,6 +269,17 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
                   <Text text={executive(item) ? withoutExecutive(item.text) : item.text} ids={ids} onPage={onPage} />
                 )}
               </p>
+              {simulator(item) && !streams.current.get(item.seq) && (
+                <div class="doc-card sim-card">
+                  <p>
+                    <span class="doc-title">Intersection Simulator 4.2</span>
+                    <span class="doc-kind">Don Mills & Eglinton, sample data</span>
+                  </p>
+                  <button type="button" class="doc-open" onClick={() => openSimulator()}>
+                    Open the simulator<span class="sr-only"> in a new window</span>
+                  </button>
+                </div>
+              )}
               {executive(item) && studyId && !streams.current.get(item.seq) && (
                 <ExecutiveCard
                   studyId={studyId}
@@ -332,7 +344,7 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
         </div>
       )}
       {/* Between the log and the form, so its arrival moves nothing but the log's foot. */}
-      <p class={notice?.startsWith("The simulator") ? "refusal ok" : "refusal"} role="status">
+      <p class="refusal" role="status">
         {notice}
       </p>
       {usage.calls > 0 && (
