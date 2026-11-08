@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { describe, it } from "node:test";
-import { AUDIENCE, Role } from "./index.ts";
+import { Activity, AUDIENCE, Role } from "./index.ts";
 
 describe("AUDIENCE", () => {
   it("takes a guest or user id of 16 random bytes in base64url", () => {
@@ -37,5 +37,26 @@ describe("AUDIENCE", () => {
 describe("Role", () => {
   it("has a guest", () => {
     assert.equal(Role.parse("guest"), "guest");
+  });
+});
+
+describe("Activity", () => {
+  it("takes the specialist a reading or usage is for, and the skill a specialist starts with, each optional", () => {
+    const usage = { kind: "usage", model: "m", inputTokens: 1, outputTokens: 1 };
+    for (const activity of [
+      { kind: "reading", contextId: "plan", page: 2, subagentId: "a1b2c3" },
+      { kind: "reading", contextId: "plan" },
+      { ...usage, subagentId: "a1b2c3" },
+      usage,
+      { kind: "subagent.started", id: "a1b2c3", question: "Riders?", skill: "gtfs-analyst" },
+      { kind: "subagent.started", id: "a1b2c3", question: "Riders?" },
+    ]) {
+      assert.deepEqual(Activity.parse(activity), activity);
+    }
+  });
+
+  it("refuses an id or skill that isn't a slug", () => {
+    assert.throws(() => Activity.parse({ kind: "reading", contextId: "plan", subagentId: "Not One" }));
+    assert.throws(() => Activity.parse({ kind: "subagent.started", id: "a1", question: "Riders?", skill: "../x" }));
   });
 });

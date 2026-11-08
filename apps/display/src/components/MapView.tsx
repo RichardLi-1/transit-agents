@@ -9,7 +9,7 @@ import { boundsOf, frameOf } from "../map/gestures.ts";
 import { toPoint, ViewFeed } from "../map/projection.ts";
 import { createRenderer, type MapRenderer } from "../map/renderer.ts";
 import { ScheduledVehicles, type StudyLine } from "../map/vehicles.ts";
-import { OVERVIEW, VIEWS } from "../map/views.ts";
+import { OVERVIEW, studyColor, VIEWS } from "../map/views.ts";
 import type { Simulator } from "../simulator.ts";
 import { clockAt, dateToMs, DAY_MS } from "../time.ts";
 import { Needs } from "./Needs.tsx";
@@ -92,7 +92,7 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
   // Puts the current study on whichever renderer is active.
   const showStudy = (map: Renderer, animate: boolean) => {
     const line = lineKey ? lines.current[lineKey] : undefined;
-    map.setStudyLines(line?.lines ?? [], line?.proposed ?? []);
+    map.setStudyLines(line?.lines ?? [], line?.proposed ?? [], studyColor(lineKey));
     map.setStudyFailing(failing);
     scheduled.current = line ? new ScheduledVehicles(line) : null;
     if (!isFlat(map)) {

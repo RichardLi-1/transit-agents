@@ -17,7 +17,7 @@ from pathlib import Path
 from google.genai.client import AsyncClient
 from mcp import ClientSession
 
-from core import Budget, LocalTool, ModelError, answered, clip, config, for_planners, report, work
+from core import Budget, LocalTool, ModelError, answered, clip, config, for_planners, report, work, working_for
 from skills import Skill, load_skill, skill_tools
 
 # The most specialists the lead may ask for in one turn. It asks for more once their
@@ -146,7 +146,12 @@ async def run_specialist(
         # Its first call, taken once it may run, so one waiting its turn holds none.
         if budget is not None and not budget.take():
             raise RuntimeError("This run has no model calls or budget left for a specialist. Answer from what you have.")
-        await report(session, study, "subagent.started", id=sub, question=clip(question, 300))
+        # With its skill's name, so planners see which skill each specialist uses.
+        named = {"skill": chosen.name} if chosen else {}
+        await report(session, study, "subagent.started", id=sub, question=clip(question, 300), **named)
+        # Its reading and usage say they are its own. Each specialist runs in a task
+        # of its own, so this never marks the lead's or another specialist's.
+        mine = working_for.set(sub)
         try:
             # Its share of the service's tools, and the skill's scripts. No
             # ask_specialist, so specialists can't recurse.
@@ -172,6 +177,8 @@ async def run_specialist(
                 async with asyncio.timeout(10):
                     await report(session, study, "subagent.finished", id=sub, summary=stopped, ok=False)
             raise
+        finally:
+            working_for.reset(mine)
         # One that ran out of calls, or that Gemini stopped, shows it stopped: it didn't answer.
         ok = answered(summary)
         summary = summary.strip() or "No answer."

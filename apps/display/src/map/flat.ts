@@ -1,6 +1,7 @@
 // A flat map for when WebGL is missing or lost. No tilt or fog: just the network,
 // the study line and its vehicles, so the display is never blank.
-import { FIELD_OF_VIEW, type Camera, type NetworkData, type Point } from "./engine.ts";
+import { FIELD_OF_VIEW, isRail, type Camera, type NetworkData, type NetworkRoute, type Point } from "./engine.ts";
+import { LINE_COLORS } from "./views.ts";
 
 // How the flat map frames the ground: the point on the ground at the middle of the
 // clear part of the canvas, where that middle is, CSS pixels per metre, and which
@@ -18,6 +19,7 @@ export class FlatMap {
   private network: NetworkData | null = null;
   private lines: Point[][] = [];
   private proposed: Point[][] = [];
+  private color = "#b03488";
   private vehicles: ArrayLike<number> = [];
   private failing = false;
   private reported = "";
@@ -34,9 +36,10 @@ export class FlatMap {
     this.draw();
   }
 
-  setStudyLines(lines: Point[][], proposed: Point[][] = []) {
+  setStudyLines(lines: Point[][], proposed: Point[][] = [], color = "b03488") {
     this.lines = lines;
     this.proposed = proposed;
+    this.color = `#${color}`;
     this.draw();
   }
 
@@ -103,23 +106,39 @@ export class FlatMap {
       this.onView(view);
     }
 
-    context.lineWidth = ratio;
-    context.strokeStyle = "rgba(110, 115, 125, 0.45)";
-    context.beginPath();
-    for (const line of data.polylines) {
+    // Buses and streetcars in TTC Red, thin; rail lines in their own colours on a
+    // white casing, with round joins, as on the tilted map.
+    const trace = (line: (typeof data.polylines)[number]) => {
+      context.beginPath();
       for (let i = 0; i < line.count; i++) {
         const at = (line.start + i) * 2;
         const [x, y] = toScreen((data.coordinates[at] as number) * data.unitMetres, (data.coordinates[at + 1] as number) * data.unitMetres);
         if (i === 0) context.moveTo(x, y);
         else context.lineTo(x, y);
       }
-    }
-    context.stroke();
-
-    context.lineWidth = 5 * ratio;
+      context.stroke();
+    };
+    context.lineCap = "round";
     context.lineJoin = "round";
+    context.lineWidth = ratio;
+    context.strokeStyle = "rgba(218, 37, 29, 0.4)";
+    const rail = data.polylines.filter((line) => isRail(data.routes[line.route] as NetworkRoute));
+    for (const line of data.polylines) if (!rail.includes(line)) trace(line);
+    for (const [width, casing] of [
+      [7, true],
+      [4, false],
+    ] as const) {
+      context.lineWidth = width * ratio;
+      for (const line of rail) {
+        const route = data.routes[line.route] as NetworkRoute;
+        context.strokeStyle = casing ? "#ffffff" : `#${LINE_COLORS[route.id] ?? route.color}`;
+        trace(line);
+      }
+    }
+
+    context.lineWidth = 7 * ratio;
     // Proposed segments are dashed in the line's colour, as on the 3D map.
-    context.strokeStyle = this.failing ? "#4d525c" : "#b03488";
+    context.strokeStyle = this.failing ? "#4d525c" : this.color;
     const strokes: [Point[][], number[]][] = [
       [this.lines, []],
       [this.proposed, [10 * ratio, 6 * ratio]],
@@ -143,11 +162,11 @@ export class FlatMap {
       context.beginPath();
       context.arc(x, y, 5 * ratio, 0, Math.PI * 2);
       if (this.vehicles[i + 2]) {
-        context.fillStyle = "#b03488";
+        context.fillStyle = this.color;
         context.fill();
       } else {
         context.lineWidth = 2 * ratio;
-        context.strokeStyle = "#b03488";
+        context.strokeStyle = this.color;
         context.stroke();
       }
     }

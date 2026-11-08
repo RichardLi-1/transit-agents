@@ -4,6 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { Activity, Assumption, Context, LogEntry, StudyView, Usage } from "@transit-agents/contracts";
 import { api, bearer, eventsUrl } from "./api.ts";
 import { hear, NOTHING_HEARD, type Heard } from "./notify.ts";
+import { track, type Runs } from "./runs.ts";
 
 // replay is true for the scripted replay's work, which no model did. It's kept for
 // each message and sub-agent, so a study's chat says so whatever comes after.
@@ -29,9 +30,13 @@ export type Store = {
   // Each study's, since the chat shows the open study's spend. Calls reported
   // without a cost are counted, so no dollar sum shows while one is missing.
   usage: Record<string, Usage>;
+  // Each study's open run: the seq of its run.started, until run.finished.
+  openRuns: Record<string, number>;
   focus: string | null;
   // The notices new entries raise, and what they need from earlier ones.
   heard: Heard;
+  // Each study's latest agent run, for the agents panel.
+  runs: Runs;
 };
 
 export const EMPTY_USAGE: Usage = { inputTokens: 0, outputTokens: 0, costUsd: 0, computeSeconds: 0, calls: 0 };
@@ -46,8 +51,10 @@ export const initial: Store = {
   subagents: [],
   reading: null,
   usage: {},
+  openRuns: {},
   focus: null,
   heard: NOTHING_HEARD,
+  runs: {},
 };
 
 // How long a folder stays lit after the agent reads from it.
@@ -60,6 +67,12 @@ const PERSON = /^(planner|guest):/;
 // already held when the display opened fills the view, but leaves the camera where
 // it is, and so does a planner's rating or decision.
 export function reduce(store: Store, entry: LogEntry, live = true): Store {
+  const next = apply(store, entry, live);
+  const runs = track(next.runs, entry, live);
+  return runs === next.runs ? next : { ...next, runs };
+}
+
+function apply(store: Store, entry: LogEntry, live: boolean): Store {
   if (entry.type === "context.added") {
     const context = { ...(entry.data as Context), addedAt: entry.at, addedBy: entry.actor };
     return { ...store, contexts: [...store.contexts.filter((c) => c.id !== context.id), context] };
@@ -98,7 +111,16 @@ export function reduce(store: Store, entry: LogEntry, live = true): Store {
         ),
       };
     case "run.started":
-      return { ...next, subagents: store.subagents.filter((s) => s.studyId !== entry.studyId) };
+      return {
+        ...next,
+        subagents: store.subagents.filter((s) => s.studyId !== entry.studyId),
+        openRuns: entry.studyId ? { ...store.openRuns, [entry.studyId]: entry.seq } : store.openRuns,
+      };
+    case "run.finished": {
+      if (!entry.studyId || !(entry.studyId in store.openRuns)) return next;
+      const { [entry.studyId]: _, ...openRuns } = store.openRuns;
+      return { ...next, openRuns };
+    }
     case "usage": {
       if (!entry.studyId) return next;
       const usage = store.usage[entry.studyId] ?? EMPTY_USAGE;

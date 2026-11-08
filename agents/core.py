@@ -387,6 +387,16 @@ def clip(text: str, limit: int) -> str:
 # the answer's citations can be checked against them. Whoever starts a run sets it.
 pages_read: ContextVar[set[tuple[str, int]] | None] = ContextVar("pages_read", default=None)
 
+# The specialist whose work this is, set while one works, so its reading and usage
+# say whose they are and the display can show each specialist's progress.
+working_for: ContextVar[str | None] = ContextVar("working_for", default=None)
+
+
+def _whose() -> dict[str, str]:
+    """The subagentId field for an activity, while a specialist works."""
+    sub = working_for.get()
+    return {"subagentId": sub} if sub else {}
+
 
 class Budget:
     """The model calls one run may make, and the dollars it may spend, shared by the lead
@@ -669,7 +679,7 @@ async def _report_usage(session: ClientSession, study: str, model: str, usage: A
     fields = tokens_and_cost(model, usage)
     day = datetime.now(UTC).date()
     _spent[day] = _spent.get(day, 0.0) + fields.get("costUsd", 0.0)
-    answer = await call(session, "report_activity", {"studyId": study, "kind": "usage", "model": model, **fields})
+    answer = await call(session, "report_activity", {"studyId": study, "kind": "usage", "model": model, **fields, **_whose()})
     left = answer.get("budgetLeftUsd") if isinstance(answer, dict) else None
     if isinstance(left, (int, float)) and (left <= 0 or left < fields.get("costUsd", 0)):
         raise SpendCapReached(BUDGET_SPENT)
@@ -845,7 +855,7 @@ def _within_limit(output: Any) -> dict[str, Any]:
 async def _report_reading(session: ClientSession, study: str, arguments: dict[str, Any]) -> None:
     # Lights up the source on the display. It only shows the work, so a refusal here
     # doesn't stop it.
-    fields: dict[str, Any] = {"contextId": arguments.get("contextId")}
+    fields: dict[str, Any] = {"contextId": arguments.get("contextId"), **_whose()}
     with contextlib.suppress(KeyError, TypeError, ValueError):
         fields["page"] = int(arguments["page"])
     if (read := pages_read.get()) is not None and "page" in fields:

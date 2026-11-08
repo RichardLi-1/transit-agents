@@ -83,6 +83,34 @@ class SpecialistTest(unittest.IsolatedAsyncioTestCase):
         kinds = [a["kind"] for a in support.activities(study)]
         self.assertLess(kinds.index("subagent.started"), kinds.index("subagent.finished"))
 
+    async def test_its_start_names_its_skill_and_its_reading_and_usage_name_it(self):
+        # So the display can show each specialist's skill, what it reads and what it spends.
+        study = support.open_study("whose")
+
+        def respond(request):
+            if request.model == "lead-model":
+                if request.turn == 0:
+                    return reply(("read_page", {"contextId": SOURCE, "page": 2}))
+                if request.turn == 1:
+                    return reply(ask("How many riders?", skill="quote-check"), ask("How many hours?"))
+                return reply(text="Done.")
+            if request.turn == 0:
+                page = 1 if "riders" in request.task else 2
+                return reply(("read_page", {"contextId": SOURCE, "page": page}))
+            return reply(text="From the plan (test-plan p. 1).")
+
+        await lead(FakeGemini(respond), study)
+
+        started = {a["question"]: a for a in support.activities(study, "subagent.started")}
+        self.assertEqual(started["How many riders?"]["skill"], "quote-check")
+        self.assertNotIn("skill", started["How many hours?"])
+        riders, hours = started["How many riders?"]["id"], started["How many hours?"]["id"]
+        reading = [(a["page"], a.get("subagentId")) for a in support.activities(study, "reading")]
+        self.assertEqual(sorted(reading, key=str), sorted([(2, None), (1, riders), (2, hours)], key=str))
+        usage = [a.get("subagentId") for a in support.activities(study, "usage")]
+        # The lead's three calls are its own; each specialist's two are its.
+        self.assertEqual(sorted(usage, key=str), sorted([None] * 3 + [riders] * 2 + [hours] * 2, key=str))
+
     async def test_has_the_services_tools_only_so_it_cant_recurse(self):
         study = support.open_study("recursion")
 

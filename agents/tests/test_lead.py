@@ -1,7 +1,10 @@
 import contextlib
 import io
 import os
+import tempfile
 import unittest
+import uuid
+from pathlib import Path
 from unittest import mock
 
 import core
@@ -177,6 +180,79 @@ class LeadTest(unittest.IsolatedAsyncioTestCase):
             await run_lead(fake, study)
 
         self.assertEqual(len([r for r in fake.requests if r.model == "lead-model"]), 1)
+
+    async def test_a_question_in_parts_goes_to_one_specialist_a_part_each_with_its_skill(self):
+        study = support.open_study("lead-parts")
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        for name in ("gtfs-analyst", "engagement-needs"):
+            (root / name).mkdir()
+            (root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: The {name} skill.\n---\nAnswer from the sources.\n")
+        lead_turns = [
+            reply(("list_skills", {})),
+            reply(
+                ask("How often does the route run?", skill="gtfs-analyst"),
+                ask("Who must hear about the change?", skill="engagement-needs"),
+            ),
+            reply(text="Every 10 minutes (test-plan p. 1). Riders near the stop (test-plan p. 2)."),
+        ]
+
+        def respond(request):
+            if request.model == "lead-model":
+                return lead_turns[request.turn]
+            return reply(text=f"Answer to {request.task} (test-plan p. 1).")
+
+        fake = FakeGemini(respond)
+        async with support.session() as session:
+            await lead.run_lead(session, fake, study, "How often does it run, and who must hear about it?", skills_dir=root)
+
+        system = fake.requests[0].system
+        self.assertIn("A request with several parts, such as ridership, cost and the public's needs, is one question for each part.", system)
+        self.assertIn("Ask one specialist for each part; don't read the sources for every part yourself.", system)
+        self.assertIn("gtfs-analyst", system)
+        # The display shows each specialist's skill from its start.
+        started = support.activities(study, "subagent.started")
+        self.assertEqual(
+            sorted((a["question"], a.get("skill")) for a in started),
+            [("How often does the route run?", "gtfs-analyst"), ("Who must hear about the change?", "engagement-needs")],
+        )
+        specialist = {r.task: r.system for r in fake.requests if r.model == "specialist-model"}
+        self.assertIn("Skill gtfs-analyst: The gtfs-analyst skill.", specialist["How often does the route run?"])
+
+    async def test_what_if_previews_the_change_and_records_nothing(self):
+        study = support.open_study("lead-what-if")
+        key = f"growth-{uuid.uuid4().hex[:6]}"
+        support.api("PUT", f"/v1/assumptions/{key}", {"value": 1, "label": "Growth", "reason": "No growth yet."})
+        quote = "weekly ridership increase of 1,680 customers"
+        support.api(
+            "POST",
+            f"/v1/studies/{study}/figures",
+            {"id": "riders", "label": "Riders", "value": 1680, "basis": {"kind": "cited", "citation": {"contextId": SOURCE, "page": 1, "quote": quote}}},
+            token=support.AGENT,
+        )
+        formula = {"kind": "derived", "formula": "riders * growth", "inputs": {"riders": {"figure": "riders"}, "growth": {"assumption": key}}}
+        support.api("POST", f"/v1/studies/{study}/figures", {"id": "grown", "label": "Riders grown", "basis": formula}, token=support.AGENT)
+        lead_turns = [
+            reply(("get_study", {"studyId": study}), ("preview_change", {"studyId": study, "assumptions": {key: 1.5}})),
+            reply(text="- Riders grown: 1,680 → 2,520 (test-plan p. 1). Nothing was saved."),
+        ]
+        fake = FakeGemini(lambda request: lead_turns[request.turn])
+
+        answer = await run_lead(fake, study, f"What changes if {key} is 1.5?")
+
+        self.assertIn("preview_change", fake.requests[0].tools)
+        system = fake.requests[0].system
+        self.assertIn("when a planner asks what changes if an input changes", system)
+        self.assertIn("you never record the change: a planner does.", system)
+        (_, now), (_, after) = fake.requests[1].results
+        value = lambda view: next(f["value"] for f in view["output"]["figures"] if f["id"] == "grown")
+        self.assertEqual((value(now), value(after)), (1680, 2520))
+        self.assertIn("1,680 → 2,520", answer)
+        # Nothing saved: the assumption and the figure are as they were.
+        rules = {a["key"]: a["value"] for a in support.api("GET", "/v1/assumptions")}
+        self.assertEqual(rules[key], 1)
+        self.assertEqual(value({"output": support.api("GET", f"/v1/studies/{study}")}), 1680)
+        self.assertEqual([e["type"] for e in support.entries(study) if e["type"] == "assumption.set"], [])
+
 
 
 def tools_off(request):

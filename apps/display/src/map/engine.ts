@@ -2,6 +2,8 @@
 // There is no basemap: bus routes trace the street grid well enough, and with
 // no tiles the map loads instantly, works offline and calls no third parties.
 
+import { LINE_COLORS, TTC_RED } from "./views.ts";
+
 type Vec3 = [number, number, number];
 export type Point = [number, number];
 
@@ -28,16 +30,12 @@ const nextFrame: (callback: (time: number) => void) => number =
     : (callback) => setTimeout(() => callback(performance.now()), 16) as unknown as number;
 const cancelFrame: (id: number) => void = typeof cancelAnimationFrame === "function" ? (id) => cancelAnimationFrame(id) : (id) => clearTimeout(id);
 
-const MAGENTA: Vec3 = [176 / 255, 52 / 255, 136 / 255];
-const SLATE: Vec3 = [0.42, 0.45, 0.5];
-const GREY: Vec3 = [0.58, 0.6, 0.63];
 const FAILING: Vec3 = [0.3, 0.32, 0.36];
 export const FIELD_OF_VIEW = (32 * Math.PI) / 180;
 
-// While a study is shown, the other rail lines fade this far toward grey, so none
-// reads as part of it. A line whose colour is near the study's magenta, such as
-// Line 4's purple, goes all the way: muted part way, it still reads as the study.
-const RAIL_MUTE = 0.65;
+// While a study is shown, the other rail lines fade this far toward grey, so the
+// study leads. Each keeps its own colour, whatever the study's colour is.
+const RAIL_MUTE = 0.3;
 
 // A proposed segment is dashed in the line's colour, so it reads as unbuilt: dash
 // and gap, in metres.
@@ -130,36 +128,53 @@ in vec4 vColor;
 out vec4 color;
 void main() { color = vec4(vColor.rgb * vColor.a, vColor.a); }`;
 
+// Lines are drawn as transit maps draw them: a soft glow in the line's colour, a
+// casing to part it from what it crosses, and the line itself on top, with round
+// joins and ends. Widths are in screen pixels at the camera's target, so a line
+// keeps its weight as the map zooms, and thins with distance toward the horizon.
+// aNormal is the unit offset from the centre line: across a strip, or out to a
+// round join's rim. uWidth is the layer's half width in metres.
 const RIBBON_VERTEX = `${HEADER}
 in vec2 aPosition;
+in vec2 aNormal;
 in float aAlong;
 in vec3 aColor;
-uniform float uProgress;
+in vec3 aCasing;
+uniform float uWidth;
+uniform float uLayer;
 uniform float uFogged;
 uniform float uMute;
 out vec4 vColor;
 out float vAlong;
+out vec2 vNormal;
 void main() {
   vAlong = aAlong;
+  vNormal = aNormal;
+  vec3 rgb = uLayer > 0.5 && uLayer < 1.5 ? aCasing : aColor;
   // The network fades into the distance. The study line doesn't: it is the subject.
-  float near = 1.0 - smoothstep(0.3, 0.4, distance(aColor, vec3(${MAGENTA.join(", ")})));
-  float mute = uMute > 0.0 ? max(uMute, near) : 0.0;
-  vColor = vec4(mix(aColor, vec3(0.58, 0.6, 0.63), mute), mix(1.0, fade(aPosition), uFogged));
-  gl_Position = uViewProjection * vec4(aPosition, 0.0, 1.0);
+  vColor = vec4(mix(rgb, vec3(0.58, 0.6, 0.63), uMute), mix(1.0, fade(aPosition), uFogged));
+  gl_Position = uViewProjection * vec4(aPosition + aNormal * uWidth, 0.0, 1.0);
 }`;
 
-// uDash: where along the line the dashes start, their period, and the dash's share of it.
+// uDash: where along the line the dashes start, their period, and the dash's share
+// of it. uFeather: the share of the half width that one pixel takes, for a smooth edge.
 const RIBBON_FRAGMENT = `#version 300 es
 precision highp float;
 in vec4 vColor;
 in float vAlong;
+in vec2 vNormal;
 uniform float uProgress;
 uniform vec3 uDash;
+uniform float uFeather;
+uniform float uLayer;
 out vec4 color;
 void main() {
   if (vAlong > uProgress) discard;
   if (vAlong > uDash.x && fract((vAlong - uDash.x) / uDash.y) > uDash.z) discard;
-  color = vec4(vColor.rgb * vColor.a, vColor.a);
+  float r = min(length(vNormal), 1.0);
+  float edge = uLayer < 0.5 ? 0.3 * (1.0 - r) * (1.0 - r) : 1.0 - smoothstep(1.0 - uFeather, 1.0, r);
+  float alpha = vColor.a * edge;
+  color = vec4(vColor.rgb * alpha, alpha);
 }`;
 
 const VEHICLE_VERTEX = `${HEADER}
@@ -217,7 +232,7 @@ const hexToRgb = (hex: string): Vec3 => [
   parseInt(hex.slice(4, 6), 16) / 255,
 ];
 
-const isRail = (route: NetworkRoute) => /^[1-6]$/.test(route.id);
+export const isRail = (route: NetworkRoute) => /^[1-6]$/.test(route.id);
 
 function cumulative(points: Point[]): number[] {
   const lengths = [0];
@@ -231,34 +246,63 @@ function cumulative(points: Point[]): number[] {
 
 const longest = (lines: Point[][]) => Math.max(0, ...lines.map((line) => cumulative(line).at(-1) ?? 0));
 
-// A flat strip of triangles along a line, joined with mitres. `along` is the share
-// of the draw-in animation the line spans, or null for a line that doesn't animate.
-function ribbon(points: Point[], width: number, color: Vec3, out: number[], along: [number, number] | null = [0, 1]) {
+// The casing under a line: white, so the line stands clear of what it crosses, or,
+// for a pale line such as Line 1's yellow, a darker shade of it, so it still
+// stands out on the white map.
+function casingOf(color: Vec3): Vec3 {
+  const linear = color.map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  const luminance = 0.2126 * (linear[0] as number) + 0.7152 * (linear[1] as number) + 0.0722 * (linear[2] as number);
+  return luminance > 0.25 ? [color[0] * 0.55, color[1] * 0.55, color[2] * 0.55] : [1, 1, 1];
+}
+
+const ROUND = 12;
+const FLOATS = 11;
+
+// Triangles along a line: a strip for each segment, and a round disc at each bend
+// and end, so joins and ends are round. `along` is the share of the draw-in
+// animation the line spans, or null for a line that doesn't animate.
+function ribbon(points: Point[], color: Vec3, casing: Vec3, out: number[], along: [number, number] | null = [0, 1]) {
   const lengths = cumulative(points);
   const total = lengths.at(-1) ?? 0;
-  const side = (i: number): Point => {
-    const a = points[Math.max(i - 1, 0)] as Point;
-    const b = points[Math.min(i + 1, points.length - 1)] as Point;
+  const at = (i: number) => (along ? along[0] + ((along[1] - along[0]) * (lengths[i] as number)) / (total || 1) : 0);
+  const vertex = (p: Point, nx: number, ny: number, t: number) => out.push(p[0], p[1], nx, ny, t, ...color, ...casing);
+  const disc = (i: number) => {
+    const p = points[i] as Point;
+    const t = at(i);
+    for (let k = 0; k < ROUND; k++) {
+      const a0 = (k / ROUND) * Math.PI * 2;
+      const a1 = ((k + 1) / ROUND) * Math.PI * 2;
+      vertex(p, 0, 0, t);
+      vertex(p, Math.cos(a0), Math.sin(a0), t);
+      vertex(p, Math.cos(a1), Math.sin(a1), t);
+    }
+  };
+  let previous: Point | null = null;
+  for (let i = 0; i + 1 < points.length; i++) {
+    const a = points[i] as Point;
+    const b = points[i + 1] as Point;
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
-    const length = Math.hypot(dx, dy) || 1;
-    return [-dy / length, dx / length];
-  };
-  const vertex = (i: number, sign: number) => {
-    const p = points[i] as Point;
-    const n = side(i);
-    const t = along ? along[0] + ((along[1] - along[0]) * (lengths[i] as number)) / (total || 1) : 0;
-    out.push(p[0] + n[0] * sign * width, p[1] + n[1] * sign * width, t, color[0], color[1], color[2]);
-  };
-  for (let i = 0; i + 1 < points.length; i++) {
-    vertex(i, 1);
-    vertex(i, -1);
-    vertex(i + 1, 1);
-    vertex(i + 1, 1);
-    vertex(i, -1);
-    vertex(i + 1, -1);
+    const length = Math.hypot(dx, dy);
+    if (!length) continue;
+    const n: Point = [-dy / length, dx / length];
+    // A disc only where the line turns, or at its start.
+    if (!previous || Math.abs(previous[0] * n[1] - previous[1] * n[0]) > 0.02 || previous[0] * n[0] + previous[1] * n[1] < 0) disc(i);
+    previous = n;
+    const [ta, tb] = [at(i), at(i + 1)];
+    vertex(a, n[0], n[1], ta);
+    vertex(a, -n[0], -n[1], ta);
+    vertex(b, n[0], n[1], tb);
+    vertex(b, n[0], n[1], tb);
+    vertex(a, -n[0], -n[1], ta);
+    vertex(b, -n[0], -n[1], tb);
   }
+  if (points.length > 1) disc(points.length - 1);
 }
+
+// Each layer's full width in CSS pixels at the camera's target: glow, casing, line.
+const RAIL_WIDTHS: Vec3 = [16, 8, 5];
+const STUDY_WIDTHS: Vec3 = [30, 14, 9];
 
 export class MapEngine {
   private readonly gl: WebGL2RenderingContext;
@@ -322,7 +366,8 @@ export class MapEngine {
         for (let i = line.start; i < line.start + line.count; i++) {
           points.push([(data.coordinates[i * 2] as number) * this.unit, (data.coordinates[i * 2 + 1] as number) * this.unit]);
         }
-        ribbon(points, 20, hexToRgb(route.color), rail, null);
+        const color = hexToRgb(LINE_COLORS[route.id] ?? route.color);
+        ribbon(points, color, casingOf(color), rail, null);
       } else {
         for (let i = line.start; i + 1 < line.start + line.count; i++) indices.push(i, i + 1);
       }
@@ -346,7 +391,7 @@ export class MapEngine {
     this.networkIndexCount = indices.length;
 
     this.railVao = this.ribbonVao(new Float32Array(rail));
-    this.railCount = rail.length / 6;
+    this.railCount = rail.length / FLOATS;
 
     this.routeTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.routeTexture);
@@ -370,16 +415,19 @@ export class MapEngine {
     gl.bindVertexArray(vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-    const stride = 6 * 4;
-    const position = gl.getAttribLocation(this.ribbons, "aPosition");
-    const along = gl.getAttribLocation(this.ribbons, "aAlong");
-    const color = gl.getAttribLocation(this.ribbons, "aColor");
-    gl.enableVertexAttribArray(position);
-    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, stride, 0);
-    gl.enableVertexAttribArray(along);
-    gl.vertexAttribPointer(along, 1, gl.FLOAT, false, stride, 8);
-    gl.enableVertexAttribArray(color);
-    gl.vertexAttribPointer(color, 3, gl.FLOAT, false, stride, 12);
+    const stride = FLOATS * 4;
+    const attributes: [string, number, number][] = [
+      ["aPosition", 2, 0],
+      ["aNormal", 2, 2],
+      ["aAlong", 1, 4],
+      ["aColor", 3, 5],
+      ["aCasing", 3, 8],
+    ];
+    for (const [name, size, offset] of attributes) {
+      const location = gl.getAttribLocation(this.ribbons, name);
+      gl.enableVertexAttribArray(location);
+      gl.vertexAttribPointer(location, size, gl.FLOAT, false, stride, offset * 4);
+    }
     gl.bindVertexArray(null);
     return vao;
   }
@@ -393,13 +441,14 @@ export class MapEngine {
     const h0 = Math.floor(hour) % 24;
     const h1 = (h0 + 1) % 24;
     const blend = hour - Math.floor(hour);
+    // Buses and streetcars are drawn in TTC Red, the TTC's colour for local routes.
+    const red = hexToRgb(TTC_RED).map((c) => c * 255);
     routes.forEach((route, i) => {
       const day = route.service[dayType ?? 0] ?? [];
       const peak = Math.max(...(route.service[0] ?? [1]), 1);
       const now = (day[h0] ?? 0) * (1 - blend) + (day[h1] ?? 0) * blend;
       const level = dayType === null ? 0.35 : Math.min(now / peak, 1);
-      const rgb = route.type === 0 ? SLATE : GREY;
-      pixels.set([rgb[0] * 255, rgb[1] * 255, rgb[2] * 255, (0.08 + 0.62 * Math.sqrt(level)) * 255], i * 4);
+      pixels.set([...red, (0.08 + 0.52 * Math.sqrt(level)) * 255], i * 4);
     });
     gl.bindTexture(gl.TEXTURE_2D, this.routeTexture);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, routes.length, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
@@ -410,10 +459,13 @@ export class MapEngine {
   private proposedLines: Point[][] = [];
   private studyFailing = false;
   private studyDash: Vec3 = NO_DASH;
+  private studyColor: Vec3 = hexToRgb("b03488");
 
-  setStudyLines(lines: Point[][], proposed: Point[][] = []) {
+  // `color` is the line's colour as hex, such as "0082c9".
+  setStudyLines(lines: Point[][], proposed: Point[][] = [], color = "b03488") {
     this.studyLines = lines;
     this.proposedLines = proposed;
+    this.studyColor = hexToRgb(color);
     this.rebuildStudy();
   }
 
@@ -425,18 +477,21 @@ export class MapEngine {
   }
 
   private rebuildStudy() {
-    const color = this.studyFailing ? FAILING : MAGENTA;
+    const color = this.studyFailing ? FAILING : this.studyColor;
     const data: number[] = [];
     // A proposed extension draws on once the line it extends is drawn, at one speed.
     const built = longest(this.studyLines);
     const total = built + longest(this.proposedLines) || 1;
     const split = this.proposedLines.length ? built / total : 1;
-    for (const line of this.studyLines) ribbon(line, 34, color, data, [0, split]);
-    for (const line of this.proposedLines) ribbon(line, 34, color, data, [split, 1]);
+    // A proposed segment's casing is a pale tint of its colour, so the gaps between
+    // its dashes read as one unbuilt line.
+    const tint: Vec3 = [color[0] * 0.3 + 0.7, color[1] * 0.3 + 0.7, color[2] * 0.3 + 0.7];
+    for (const line of this.studyLines) ribbon(line, color, casingOf(color), data, [0, split]);
+    for (const line of this.proposedLines) ribbon(line, color, tint, data, [split, 1]);
     const period = DASH_METRES + GAP_METRES;
     this.studyDash = this.proposedLines.length ? [split, period / total, DASH_METRES / period] : NO_DASH;
     this.studyVao = this.ribbonVao(new Float32Array(data));
-    this.studyCount = data.length / 6;
+    this.studyCount = data.length / FLOATS;
     this.requestDraw();
   }
 
@@ -555,25 +610,39 @@ export class MapEngine {
     gl.bindVertexArray(this.networkVao);
     gl.drawElements(gl.LINES, this.networkIndexCount, gl.UNSIGNED_INT, 0);
 
+    // Metres a CSS pixel spans at the camera's target, and a gentle growth as the
+    // map zooms in, as transit maps thicken their lines.
+    const metresPerPixel = (2 * camera.distance * Math.tan(FIELD_OF_VIEW / 2)) / (this.size[1] || canvas.height);
+    const zoom = Math.min(Math.max((16000 / camera.distance) ** 0.35, 0.9), 1.8);
+    const layers = (vao: WebGLVertexArrayObject | null, count: number, widths: Vec3, dash: Vec3) => {
+      gl.bindVertexArray(vao);
+      widths.forEach((px, layer) => {
+        gl.uniform1f(gl.getUniformLocation(this.ribbons, "uLayer"), layer);
+        gl.uniform1f(gl.getUniformLocation(this.ribbons, "uWidth"), (px / 2) * zoom * metresPerPixel);
+        gl.uniform1f(gl.getUniformLocation(this.ribbons, "uFeather"), Math.min(2 / (px * zoom), 1));
+        gl.uniform3fv(gl.getUniformLocation(this.ribbons, "uDash"), layer === 2 ? dash : NO_DASH);
+        // Glow overlaps itself at every join, so take the brighter, not the sum.
+        gl.blendEquation(layer === 0 ? gl.MAX : gl.FUNC_ADD);
+        gl.drawArrays(gl.TRIANGLES, 0, count);
+      });
+      gl.blendEquation(gl.FUNC_ADD);
+    };
+
     shared(this.ribbons);
     gl.uniform1f(gl.getUniformLocation(this.ribbons, "uProgress"), 2);
     gl.uniform1f(gl.getUniformLocation(this.ribbons, "uFogged"), 1);
     gl.uniform1f(gl.getUniformLocation(this.ribbons, "uMute"), this.studyCount ? RAIL_MUTE : 0);
-    gl.uniform3fv(gl.getUniformLocation(this.ribbons, "uDash"), NO_DASH);
-    gl.bindVertexArray(this.railVao);
-    gl.drawArrays(gl.TRIANGLES, 0, this.railCount);
+    layers(this.railVao, this.railCount, RAIL_WIDTHS, NO_DASH);
     if (this.studyVao) {
       gl.uniform1f(gl.getUniformLocation(this.ribbons, "uFogged"), 0);
       gl.uniform1f(gl.getUniformLocation(this.ribbons, "uMute"), 0);
-      gl.uniform3fv(gl.getUniformLocation(this.ribbons, "uDash"), this.studyDash);
       gl.uniform1f(gl.getUniformLocation(this.ribbons, "uProgress"), this.studyProgress);
-      gl.bindVertexArray(this.studyVao);
-      gl.drawArrays(gl.TRIANGLES, 0, this.studyCount);
+      layers(this.studyVao, this.studyCount, STUDY_WIDTHS, this.studyDash);
     }
 
     if (this.vehicleCount) {
       shared(this.vehicles);
-      gl.uniform3fv(gl.getUniformLocation(this.vehicles, "uColor"), MAGENTA);
+      gl.uniform3fv(gl.getUniformLocation(this.vehicles, "uColor"), this.studyFailing ? FAILING : this.studyColor);
       gl.uniform1f(gl.getUniformLocation(this.vehicles, "uScale"), 140000 * (canvas.height / 1000));
       gl.bindVertexArray(this.vehicleVao);
       gl.drawArrays(gl.POINTS, 0, this.vehicleCount);

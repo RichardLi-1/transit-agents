@@ -66,6 +66,16 @@ describe("replay", () => {
   });
 });
 
+describe("runs", () => {
+  it("follows the open run from activity and the figures recorded in it, for the agents panel", () => {
+    let store = reduce(initial, activity({ kind: "run.started" }));
+    store = reduce(store, activity({ kind: "subagent.started", id: "a1", question: "Riders?", skill: "gtfs-analyst" }));
+    store = reduce(store, { ...activity({ id: "riders", label: "Weekly riders" }), type: "figure.recorded" });
+    assert.deepEqual(store.runs.s?.specialists.map((s) => [s.skill, s.doing]), [["gtfs-analyst", { kind: "recorded", label: "Weekly riders" }]]);
+    assert.equal(store.subagents.length, 1); // the chat still lists it
+  });
+});
+
 describe("messages", () => {
   it("puts a visitor's words on the person's side, as a planner's are", () => {
     let store = initial;

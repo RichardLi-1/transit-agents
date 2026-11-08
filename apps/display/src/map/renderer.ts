@@ -5,7 +5,7 @@ import { MapEngine } from "./engine.ts";
 
 export interface MapRenderer {
   setNetwork(data: NetworkData): void;
-  setStudyLines(lines: Point[][], proposed?: Point[][]): void;
+  setStudyLines(lines: Point[][], proposed?: Point[][], color?: string): void;
   setStudyFailing(failing: boolean): void;
   setVehicles(data: Float32Array): void;
   setClock(dayType: number | null, hour: number): void;
@@ -36,8 +36,8 @@ class WorkerRenderer implements MapRenderer {
   setNetwork(data: NetworkData) {
     this.call("setNetwork", data);
   }
-  setStudyLines(lines: Point[][], proposed: Point[][] = []) {
-    this.call("setStudyLines", lines, proposed);
+  setStudyLines(lines: Point[][], proposed: Point[][] = [], color?: string) {
+    this.call("setStudyLines", lines, proposed, color);
   }
   setStudyFailing(failing: boolean) {
     this.call("setStudyFailing", failing);

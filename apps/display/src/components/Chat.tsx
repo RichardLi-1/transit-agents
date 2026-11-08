@@ -5,9 +5,20 @@ import { withCites } from "../cites.ts";
 import { refusal, setNotice, unsaid, useNotice } from "../notice.ts";
 import { plain } from "../plain.ts";
 import { EMPTY_USAGE, type Store } from "../store.ts";
+import { typing } from "../typing.ts";
 import { CheckIcon, SendIcon, StaleIcon } from "./icons.tsx";
 
 const number = new Intl.NumberFormat("en-CA");
+
+// Offered until the viewer says something, so a first look isn't a wall of text.
+const SUGGESTIONS = [
+  "What would it cost to extend the Ontario Line up Don Mills to Sheppard?",
+  "How often does the 25 Don Mills bus run at peak?",
+  "Compare the two alignment options",
+  "What changes if it ends at Lawrence?",
+  "What's a QCRA, and does this estimate have one?",
+  "Who needs to hear about this?",
+];
 const money = new Intl.NumberFormat("en-CA", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 
 type Props = {
@@ -38,6 +49,10 @@ function Text({ text, ids, onPage }: { text: string; ids: string[]; onPage: Prop
 export function Chat({ store, studyId, canPost, onPage }: Props) {
   const ids = store.contexts.map((context) => context.id);
   const [text, setText] = useState("");
+  // Whether the earlier messages show, and whether the viewer has said anything yet.
+  const [expanded, setExpanded] = useState(false);
+  const [sent, setSent] = useState(false);
+  useEffect(() => setExpanded(false), [studyId]);
   const log = useRef<HTMLDivElement>(null);
   const messages = store.messages.filter((m) => m.studyId === studyId);
   const subagents = store.subagents.filter((s) => s.studyId === studyId);
@@ -49,19 +64,30 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
   const usage = (studyId && store.usage[studyId]) || EMPTY_USAGE;
   const spent = spentUsd(usage);
   const notice = useNotice();
+  // The agent is at work: a run has started, and nothing has answered it yet.
+  const working = typing(studyId ? store.openRuns[studyId] : undefined, items);
+  // What the log held when the page opened folds away behind one line.
+  const since = store.since ?? Infinity;
+  const earlier = items.filter((item) => item.seq <= since).length;
+  const shown = expanded ? items : items.filter((item) => item.seq > since);
 
   // The notice takes room from the foot of the log, so the last message is kept in view.
   useEffect(() => {
     const element = log.current;
     if (element) element.scrollTop = element.scrollHeight;
-  }, [messages.length, subagents, notice]);
+  }, [messages.length, subagents, notice, working]);
 
-  const send = async (event: Event) => {
+  const send = (event: Event) => {
     event.preventDefault();
-    const typed = text;
-    const trimmed = typed.trim();
+    void post(text, true);
+  };
+
+  // `typed`: the words came from the box, so they go back in it if not sent.
+  const post = async (words: string, typed: boolean) => {
+    const trimmed = words.trim();
     if (!trimmed || !studyId) return;
-    setText("");
+    setSent(true);
+    if (typed) setText("");
     const response = await api(`/v1/studies/${studyId}/activity`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -70,7 +96,7 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
     if (response?.ok) return setNotice(null);
     // Not sent: the words come back, unless more has been typed since, and the service says
     // why, unless the chat has just said it.
-    setText((now) => now || typed);
+    if (typed) setText((now) => now || words);
     setNotice(unsaid(await refusal(response), messages.at(-1)?.text));
   };
 
@@ -78,7 +104,12 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
     <aside class="chat" aria-label="Agent">
       {replay && <p class="tag">Replay</p>}
       <div class="log" ref={log} role="log" aria-live="polite" tabIndex={0} aria-label="Agent activity">
-        {items.map((item) =>
+        {earlier > 0 && (
+          <button type="button" class="earlier" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+            {expanded ? "Hide earlier messages" : `Earlier: ${number.format(earlier)} ${earlier === 1 ? "message" : "messages"}`}
+          </button>
+        )}
+        {shown.map((item) =>
           "text" in item ? (
             <p key={`m${item.seq}`} class={`bubble ${item.from}`} data-seq={item.seq}>
               {item.replay && <span class="sr-only">Replay: </span>}
@@ -100,7 +131,32 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
             </div>
           ),
         )}
+        {/* Added once as a run starts, so the log says it once; the dots move, the words don't. */}
+        {working && (
+          <p class="bubble agent typing">
+            <span class="dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            Working…
+          </p>
+        )}
       </div>
+      {canPost && !sent && studyId && (
+        <div class="suggestions">
+          <p id="suggestions-title">Some things I can do</p>
+          <ul aria-labelledby="suggestions-title">
+            {SUGGESTIONS.map((suggestion) => (
+              <li key={suggestion}>
+                <button type="button" onClick={() => void post(suggestion, false)}>
+                  {suggestion}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {/* Between the log and the form, so its arrival moves nothing but the log's foot. */}
       <p class="refusal" role="status">
         {notice}

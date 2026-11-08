@@ -156,6 +156,28 @@ describe("notices", () => {
     }
   });
 
+  it("says a study's brief changed when a planner sets an input it uses, with the new value, and points Review at the moved figures", () => {
+    const set = (effects: unknown[]) =>
+      entry("assumption.set", { key: "fare", label: "Average fare", value: 3.3, unit: "CAD", from: 3.25, reason: "New fare.", effects }, "planner:demo", null);
+    const heard = live(
+      set([
+        { studyId: "s", figures: [{ id: "revenue", from: 1, to: 2 }], checks: [] },
+        { studyId: "t", figures: [], checks: [{ id: "cost", from: "pass", to: "fail" }] },
+      ]),
+    );
+    assert.deepEqual(
+      heard.notices.map((n) => [n.kind, n.studyId, n.text, n.target]),
+      [
+        ["brief", "s", "Brief changed: Average fare, now 3.3 CAD", { kind: "figures", ids: ["revenue"] }],
+        ["brief", "t", "Brief changed: Average fare, now 3.3 CAD", { kind: "figures", ids: [] }],
+      ],
+    );
+    assert.equal(new Set(heard.notices.map((n) => n.id)).size, 2); // each its own toast
+    // An input that moves no study, or one the log already held, says nothing.
+    assert.deepEqual(lines(live(set([]))), []);
+    assert.equal(hear(NOTHING_HEARD, set([{ studyId: "s", figures: [{ id: "revenue", from: 1, to: 2 }], checks: [] }]), false), NOTHING_HEARD);
+  });
+
   it("keeps the most recent notices only", () => {
     let heard = NOTHING_HEARD;
     for (let i = 0; i < KEEP + 5; i++) heard = hear(heard, entry("decision.recorded", { outcome: "defer", decidedBy: `P${i}` }, "planner:demo"), true);

@@ -1,10 +1,10 @@
 // What a planner hears about: a case an agent hands them, a need an agent proposes,
-// media that is ready, a decision, and an answer. Only new entries notify. What the
+// media that is ready, a decision, an answer, and a brief a planner changed. Only new entries notify. What the
 // log already held when the display opened only fills in what a notice names, such
 // as the place a need is for.
-import type { Activity, LogEntry, Outcome } from "@transit-agents/contracts";
+import { HANDOVER, NO_ANSWER, type Activity, type LogEntry, type Outcome } from "@transit-agents/contracts";
 
-export type NoticeKind = "finding" | "handover" | "need" | "media" | "decision" | "answer";
+export type NoticeKind = "finding" | "handover" | "need" | "media" | "decision" | "answer" | "brief";
 
 // Where Review takes the planner. A hand-over goes to where a planner decides,
 // and its message says what to decide. A decision goes to the card's decision.
@@ -14,7 +14,9 @@ export type Target =
   | { kind: "decision" }
   | { kind: "need"; id: string }
   | { kind: "media"; need: string; media: "image" | "video" }
-  | { kind: "message"; seq: number };
+  | { kind: "message"; seq: number }
+  // The card's figures a changed input moved, the first that shows taking focus.
+  | { kind: "figures"; ids: string[] };
 
 export type Notice = {
   // The entry that raised it, and the latest one folded into it.
@@ -46,12 +48,6 @@ const TOGETHER_MS = 15_000;
 
 const OUTCOME: Record<Outcome, string> = { adopt: "Adopted", reject: "Not adopted", defer: "Deferred", amend: "Amended" };
 
-// The line the skills end a hand-over with, and the replay's hand-over.
-const HANDOVER = /\bfor a planner to decide:|\bready for planners\b/i;
-// What the agent posts when a run stops without an answer, the service's BUDGET_SPENT
-// words included, which a visitor's run ends on once visitors' budget runs out.
-const NO_ANSWER = /^(That failed\.|That took more than|Stopped before answering\.|The lead gave no answer\.|Visitors have used today's agent budget\.)/;
-
 const CALL = "Needs your call";
 
 // A person's own words and work, a planner's or a visitor's: never an agent's, so never a notice.
@@ -67,6 +63,7 @@ const field = (data: unknown, key: string) => {
 // What one entry adds to what the display has heard. `live` is false for entries
 // the log held when the display opened: they never notify.
 export function hear(heard: Heard, entry: LogEntry, live: boolean): Heard {
+  if (entry.type === "assumption.set") return live ? briefChanged(heard, entry) : heard;
   const studyId = entry.studyId;
   if (!studyId) return heard;
   const person = PERSON.test(entry.actor);
@@ -124,6 +121,25 @@ export function hear(heard: Heard, entry: LogEntry, live: boolean): Heard {
   const notices = live && raised ? add(heard.notices, raised, entry, studyId) : heard.notices;
   if (notices === heard.notices && said === heard.said && places === heard.places) return heard;
   return { notices, said, places };
+}
+
+const amount = new Intl.NumberFormat("en-CA", { maximumFractionDigits: 4 });
+
+// A planner set a rule or assumption: each study whose figures or checks it moved
+// hears that its brief changed, with the input and its new value. An assumption
+// belongs to no one study, so its effects say which.
+function briefChanged(heard: Heard, entry: LogEntry): Heard {
+  const data = entry.data as { key?: string; label?: string; value?: number; unit?: string; effects?: { studyId: string; figures?: { id: string }[] }[] } | null;
+  if (typeof data?.value !== "number") return heard;
+  const unit = data.unit ? ` ${data.unit}` : "";
+  const text = `Brief changed: ${data.label || data.key || "an input"}, now ${amount.format(data.value)}${unit}`;
+  let notices = heard.notices;
+  (data.effects ?? []).forEach((effect, i) => {
+    const target: Target = { kind: "figures", ids: (effect.figures ?? []).map((figure) => figure.id) };
+    // One entry, a notice for each study: each needs an id of its own.
+    notices = [...notices, { kind: "brief" as const, text, target, id: entry.seq + i / 1000, seq: entry.seq, at: entry.at, studyId: effect.studyId, count: 1 }].slice(-KEEP);
+  });
+  return notices === heard.notices ? heard : { ...heard, notices };
 }
 
 // Findings an agent records on one study in a burst fold into one notice.

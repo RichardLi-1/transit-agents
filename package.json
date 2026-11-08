@@ -13,6 +13,7 @@
   "scripts": {
     "build": "vite build apps/display",
     "demo": "node --disable-warning=ExperimentalWarning scripts/demo.ts",
+    "slack:demo": "node --disable-warning=ExperimentalWarning scripts/slack-demo.ts",
     "replay": "node --disable-warning=ExperimentalWarning clients/replay.ts",
     "decide": "node --disable-warning=ExperimentalWarning clients/decide.ts",
     "agent": "agents/.venv/bin/python agents/main.py",

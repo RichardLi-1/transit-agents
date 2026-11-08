@@ -158,6 +158,21 @@ are JSON, sent as JSON.
 
 Webhooks can only go to hosts listed in `WEBHOOK_HOSTS`.
 
+### Slack
+
+Set `SLACK_WEBHOOK_URL` to a Slack incoming webhook
+(`https://hooks.slack.com/services/...`), and the service posts short notices
+to its channel: "Needs your call" when an agent hands a draft over, "Answer
+ready" when an agent answers a planner, "Decided: <outcome>, by <name>", "Brief
+changed" with the assumption and its new value, and "Illustrative image ready"
+or "video ready" for a need. Each names the study and links to it at
+`PUBLIC_URL/#<study>`; a change to the brief names every study it moves. It
+needs no `WEBHOOK_HOSTS` entry, and takes no other address but localhost, for
+tests. Only the shared record is posted, never a visitor's sandbox, and never
+anyone's words: not a message, a reason or a prompt. The address is a secret,
+so no log line or error shows it. A post times out after 3 s, is tried once
+more, and is then dropped with a log line; the service never waits for it.
+
 Writes from a browser page on another site or port are refused (403), token or
 not, as on `/v1/mcp`: a write's `Origin`, when it has one, must be the service's
 own address at an IP or localhost, or `PUBLIC_URL`, and a browser that says the

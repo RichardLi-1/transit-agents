@@ -1,6 +1,6 @@
 // Takes a planner to what a notice is about, once its study shows: a finding, a
-// need's card, the media viewer, where to decide, a decision or the agent's
-// answer. Focus moves there, and the place glows for a moment, so it's seen as
+// need's card, the media viewer, where to decide, a decision, the agent's
+// answer or the figures a changed brief moved. Focus moves there, and the place glows for a moment, so it's seen as
 // well as heard.
 import type { Target } from "./notify.ts";
 
@@ -66,6 +66,16 @@ function find(target: Target, studyId: string): Found | null {
     case "message": {
       const message = query(`.chat [data-seq="${target.seq}"]`);
       return message && { focus: message };
+    }
+    case "figures": {
+      // The first moved figure the card shows, unfolding the card's other figures
+      // if it's among them, or else the card's tests.
+      for (const id of target.ids) {
+        const figure = unfold(card.querySelector<HTMLElement>(`[data-figure="${CSS.escape(id)}"]`));
+        if (figure) return { focus: figure, glow: figure.closest<HTMLElement>("li") ?? figure };
+      }
+      const checks = card.querySelector<HTMLElement>(".checks");
+      return checks && { focus: within(checks), glow: checks };
     }
   }
 }

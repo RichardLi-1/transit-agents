@@ -66,6 +66,14 @@ function Glyph({ notice }: { notice: Notice }) {
         );
       case "answer":
         return <path d="M5 6.500h14v9H10l-4 3v-3H5z" {...stroke} />;
+      case "brief":
+        // A slider: an input set to a new value.
+        return (
+          <>
+            <path d="M5 12h14" {...stroke} />
+            <circle cx="14" cy="12" r="3" fill="currentColor" />
+          </>
+        );
     }
   })();
   return (

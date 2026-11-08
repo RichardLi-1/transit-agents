@@ -439,8 +439,10 @@ export const Activity = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("run.started") }),
   z.object({ kind: z.literal("run.finished") }),
   z.object({ kind: z.literal("message"), text: z.string().min(1).max(4000) }),
-  z.object({ kind: z.literal("reading"), contextId: slug, page: z.number().int().positive().optional() }),
-  z.object({ kind: z.literal("subagent.started"), id: slug, question: z.string().min(1).max(300) }),
+  // subagentId names the specialist whose reading or usage it is. The lead's has none.
+  z.object({ kind: z.literal("reading"), contextId: slug, page: z.number().int().positive().optional(), subagentId: slug.optional() }),
+  // skill is the skill the lead gave it, if any.
+  z.object({ kind: z.literal("subagent.started"), id: slug, question: z.string().min(1).max(300), skill: slug.optional() }),
   // ok is false when it stopped before answering, as on an error or a cancel.
   z.object({ kind: z.literal("subagent.finished"), id: slug, summary: z.string().min(1).max(1000), ok: z.boolean().optional() }),
   z.object({
@@ -450,9 +452,17 @@ export const Activity = z.discriminatedUnion("kind", [
     outputTokens: z.number().int().nonnegative(),
     costUsd: z.number().nonnegative().optional(),
     computeSeconds: z.number().nonnegative().optional(),
+    subagentId: slug.optional(),
   }),
 ]);
 export type Activity = z.infer<typeof Activity>;
+
+// How an agent's last message before run.finished reads. The line the skills end a
+// hand-over with, and the replay's hand-over, ask for a planner's call. What the
+// agent posts when a run stops without an answer, BUDGET_SPENT's words included,
+// is no answer. The display's notices and the Slack integration both read these.
+export const HANDOVER = /\bfor a planner to decide:|\bready for planners\b/i;
+export const NO_ANSWER = /^(That failed\.|That took more than|Stopped before answering\.|The lead gave no answer\.|Visitors have used today's agent budget\.)/;
 
 export type Usage = {
   inputTokens: number;

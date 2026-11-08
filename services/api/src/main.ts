@@ -10,6 +10,7 @@ import { loadSchedule, Measurements, openMeasurements } from "./collector.ts";
 import { watchInbox } from "./inbox.ts";
 import { VisitorLimits } from "./limits.ts";
 import { Service } from "./service.ts";
+import { Slack, slackUrl } from "./slack.ts";
 import { buildTimeline } from "./timeline.ts";
 import { Webhooks } from "./webhooks.ts";
 
@@ -72,6 +73,11 @@ mkdirSync(dataDir, { recursive: true });
 
 const service = new Service(join(dataDir, "log.db"), { mediaDir: join(dataDir, "media"), budget });
 const webhooks = new Webhooks(service, process.env.PUBLIC_URL);
+// Notices to one Slack channel. The address is a secret, so no line here prints it.
+const slackAddress = slackUrl(process.env.SLACK_WEBHOOK_URL);
+const slack = slackAddress ? new Slack(service, slackAddress, { publicUrl: process.env.PUBLIC_URL }) : null;
+if (slack) console.log("Slack is on: the shared record's notices go to SLACK_WEBHOOK_URL.");
+else if (process.env.SLACK_WEBHOOK_URL) console.warn("Slack is off: SLACK_WEBHOOK_URL must be a Slack incoming webhook, https://hooks.slack.com/services/...");
 const stopInbox = watchInbox(service, join(dataDir, "inbox"));
 // Measurements live apart from the log, so a demo can reset one without losing
 // the other. The collector, a separate process, writes them.
@@ -117,6 +123,7 @@ const shutdown = () => {
   stopping = true;
   stopInbox();
   webhooks.stop();
+  slack?.stop();
   server.close(() => service.close());
   // An open event stream never ends by itself, and would keep the service
   // running and a display listening to it. Ending it lets the display

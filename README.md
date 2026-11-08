@@ -71,7 +71,12 @@ For a second screen, http://127.0.0.1:4100/spend shows what the agents have
 spent, for visitors too: dollars, tokens, model calls, and at least the energy
 those calls used, with its CO2e. Use the browser's full screen.
 
-Checks: `npm test` (529 tests), `npm run typecheck`, and `npm run agent:test`
+To hear about the shared record in Slack, set `SLACK_WEBHOOK_URL` to a Slack
+incoming webhook (`https://hooks.slack.com/services/...`) and `PUBLIC_URL` to
+the display's address. `npm run slack:demo` posts one sample of each notice.
+See [Slack](docs/system.md#slack).
+
+Checks: `npm test` (535 tests), `npm run typecheck`, and `npm run agent:test`
 (336 Python tests, which never call Gemini; set `AGENT_TEST_PORT` and
 `EVAL_PORTS` if ports 4171-4174 or 4175-4179 are taken).
 

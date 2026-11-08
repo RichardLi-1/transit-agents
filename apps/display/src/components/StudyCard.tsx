@@ -7,6 +7,7 @@ import { gap } from "../gap.ts";
 import { refusal, setNotice } from "../notice.ts";
 import { canDecide, signIn, type Session } from "../session.ts";
 import { CheckIcon, CrossIcon, StaleIcon } from "./icons.tsx";
+import { studyColor } from "../map/views.ts";
 
 const SYMBOL = { ">=": "≥", ">": ">", "<=": "≤", "<": "<" } as const;
 const STATUS_TEXT = { pass: "Passes", fail: "Fails", stale: "Out of date", unverified: "Awaiting a planner" } as const;
@@ -314,7 +315,7 @@ export function StudyCard({ study, session, studies, assumptions, since, timelin
       )}
 
       {key && (
-        <p class="key">
+        <p class="key" style={{ "--line": `#${studyColor(study.line)}` }}>
           <span>
             <span class="swatch" aria-hidden="true" />
             <span class="sr-only">Solid line: </span>
@@ -332,7 +333,7 @@ export function StudyCard({ study, session, studies, assumptions, since, timelin
         {study.checks.map((check) => (
           <li key={check.id}>
             <Status status={check.status} />
-            <button type="button" class="figure" onClick={(event) => onFigure(check.figure, event.currentTarget)}>
+            <button type="button" class="figure" data-figure={check.figure} onClick={(event) => onFigure(check.figure, event.currentTarget)}>
               {signed(check.actual)}
               <span class="sr-only">{opens(check.figure)}</span>
             </button>
@@ -349,7 +350,7 @@ export function StudyCard({ study, session, studies, assumptions, since, timelin
         <ul class="headlines">
           {headlines.map(({ figure, caption }) => (
             <li key={figure.id}>
-              <button type="button" class="figure" onClick={(event) => onFigure(figure.id, event.currentTarget)}>
+              <button type="button" class="figure" data-figure={figure.id} onClick={(event) => onFigure(figure.id, event.currentTarget)}>
                 {amount(figure)}
                 <span class="sr-only">{`, ${figure.label}${opens(figure.id)}`}</span>
               </button>
@@ -416,7 +417,7 @@ export function StudyCard({ study, session, studies, assumptions, since, timelin
               <ul>
                 {group.figures.map((figure) => (
                   <li key={figure.id} class={since !== null && figure.seq > since ? "new" : undefined}>
-                    <button type="button" class="figure" onClick={(event) => onFigure(figure.id, event.currentTarget)}>
+                    <button type="button" class="figure" data-figure={figure.id} onClick={(event) => onFigure(figure.id, event.currentTarget)}>
                       {amount(figure)}
                       <span class="sr-only">{opens(figure.id)}</span>
                     </button>

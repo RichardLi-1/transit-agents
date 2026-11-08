@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { CheckView, FindingView, StudyView, Timeline } from "@transit-agents/contracts";
 import { Account } from "./components/Account.tsx";
+import { Agents } from "./components/Agents.tsx";
 import { Chat } from "./components/Chat.tsx";
 import { MapView, type Credit } from "./components/MapView.tsx";
 import { Notices } from "./components/Notices.tsx";
@@ -218,6 +219,7 @@ export function App() {
         {trial && <TimeBar simulator={simulator} timeline={timeline} trialStart={trial.startedOn} />}
       </main>
       <Chat store={store} studyId={studyId} canPost={canPost(session?.me ?? null)} onPage={openPage} />
+      <Agents run={(studyId && store.runs[studyId]) || null} contexts={store.contexts} study={study?.title ?? studyId ?? ""} />
       {credit && (
         // The page's footer, so the credit sits in a landmark of its own.
         <footer>
