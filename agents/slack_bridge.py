@@ -157,6 +157,24 @@ def clip(text: str, limit: int = SLACK_LIMIT) -> str:
     return cut.rstrip() + "…"
 
 
+# A document the lead made, as its answer links it: "Document ready: <title>. <url>".
+DOCUMENT = re.compile(r"(?:Document ready:\s*(?P<title>.+?)\.\s+)?(?P<url>https?://\S+?/v1/media/(?P<sha>[0-9a-f]{64}))")
+
+
+def document_in(answer: str) -> tuple[str, str, str] | None:
+    """The (sha, title, url) of a document the answer links, if it links one."""
+    found = DOCUMENT.search(answer)
+    if not found:
+        return None
+    return found["sha"], (found["title"] or "Document").strip(), found["url"]
+
+
+def file_name(title: str) -> str:
+    """A PDF's file name from its title: words and hyphens only."""
+    stem = re.sub(r"[^A-Za-z0-9]+", "-", title).strip("-").lower()[:80]
+    return f"{stem or 'document'}.pdf"
+
+
 def link(public_url: str, study: str) -> str:
     return f"<{public_url.rstrip('/')}/#{study}|Open the study>"
 
@@ -206,6 +224,12 @@ class Service:
         )
         response.raise_for_status()
         return int(response.json()["seq"])
+
+    def media(self, sha: str) -> bytes:
+        """A stored file, such as a document's PDF, by its hash."""
+        response = self.http.get(f"{self.url}/v1/media/{sha}")
+        response.raise_for_status()
+        return response.content
 
     def log(self, after: int) -> list[dict[str, Any]]:
         response = self.http.get(f"{self.url}/v1/log", params={"after": after, "limit": 200})
@@ -290,6 +314,20 @@ class Bridge:
         else:
             say(reply(answer, self.public_url, request.study))
             print(f"{request.study}: answered {seq} in Slack", flush=True)
+            if document := document_in(answer):
+                self.attach(client, channel, thread, *document)
+
+    def attach(self, client: Any, channel: str, thread: str, sha: str, title: str, url: str) -> None:
+        """Put a document's PDF in the thread, so it opens in Slack. The answer already
+        links it, so if Slack refuses (the app needs the files:write scope), say so in
+        the terminal and leave the link."""
+        try:
+            pdf = self.service.media(sha)
+            client.files_upload_v2(channel=channel, thread_ts=thread, content=pdf, filename=file_name(title), title=title)
+            print(f"Attached {file_name(title)} in Slack", flush=True)
+        except Exception as error:  # Slack's API errors, or the service's
+            detail = getattr(getattr(error, "response", None), "data", None) or type(error).__name__
+            print(f"Couldn't attach the PDF in Slack ({detail}); the answer links it. Add the files:write scope to attach it.", file=sys.stderr, flush=True)
 
     def wait(self, study: str, seq: int) -> str | None:
         """The lead's answer to the message at `seq`, or None after wait_seconds."""

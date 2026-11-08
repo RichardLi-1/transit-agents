@@ -164,6 +164,9 @@ class FakeService:
     def log(self, after: int) -> list[dict[str, Any]]:
         return [e for e in (self.pages.pop(0) if self.pages else []) if e["seq"] > after]
 
+    def media(self, sha: str) -> bytes:
+        return b"%PDF-1.3 " + sha.encode()
+
 
 class FakeSlack:
     def __init__(self):
@@ -176,6 +179,15 @@ class FakeSlack:
 
     def chat_update(self, **kwargs: Any) -> dict[str, Any]:
         self.updates.append(kwargs)
+        return {"ok": True}
+
+    files: list[dict[str, Any]]
+    refuse_files = False
+
+    def files_upload_v2(self, **kwargs: Any) -> dict[str, Any]:
+        if self.refuse_files:
+            raise RuntimeError("missing_scope")
+        self.files = [*getattr(self, "files", []), kwargs]
         return {"ok": True}
 
 
@@ -232,6 +244,35 @@ class Handle(unittest.TestCase):
         self.bridge(FakeService([])).handle({"channel": "C1", "ts": "1.5", "text": "<@U07BOT>"}, slack)
         self.bridge(FakeService([], fail=True)).handle({"channel": "C1", "ts": "1.6", "text": "<@U07BOT> cost?"}, slack)
         self.assertEqual([post["text"] for post in slack.posts], [bridge.NO_QUESTION, bridge.FAILED])
+
+
+    def document_run(self) -> FakeService:
+        text = f"Document ready: TPAP brief: Ontario Line Don Mills extension. http://127.0.0.1:4100/v1/media/{SHA}"
+        return FakeService([[entry(11, "agent:lead", "run.started"), entry(12, "agent:lead", "message", text), entry(13, "agent:lead", "run.finished")]])
+
+    def test_a_document_is_attached_in_the_thread(self):
+        slack = FakeSlack()
+        self.bridge(self.document_run()).handle({"channel": "C1", "ts": "1.5", "text": "<@U07BOT> make a TPAP brief as a PDF"}, slack)
+        self.assertIn(f"/v1/media/{SHA}", slack.updates[0]["text"])
+        [upload] = slack.files
+        self.assertEqual(upload["channel"], "C1")
+        self.assertEqual(upload["thread_ts"], "1.5")
+        self.assertEqual(upload["filename"], "tpap-brief-ontario-line-don-mills-extension.pdf")
+        self.assertEqual(upload["title"], "TPAP brief: Ontario Line Don Mills extension")
+        self.assertTrue(upload["content"].startswith(b"%PDF"))
+
+    def test_without_the_files_scope_the_link_stays(self):
+        slack = FakeSlack()
+        slack.refuse_files = True
+        self.bridge(self.document_run()).handle({"channel": "C1", "ts": "1.5", "text": "<@U07BOT> make a TPAP brief as a PDF"}, slack)
+        self.assertIn(f"/v1/media/{SHA}", slack.updates[0]["text"])
+        self.assertFalse(hasattr(slack, "files"))
+
+    def test_an_answer_without_a_document_attaches_nothing(self):
+        self.assertIsNone(bridge.document_in("The cost is $4.6B (ontario-line-ibc-2019 p. 77)."))
+
+
+SHA = "08f81de7bb5bc84819ba01532be976ab385b8389ef4dc3a27200cc6c86f67fe0"
 
 
 if __name__ == "__main__":
