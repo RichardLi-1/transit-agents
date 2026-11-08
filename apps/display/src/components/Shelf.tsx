@@ -5,10 +5,37 @@ import { api } from "../api.ts";
 import { webUrl } from "../host.ts";
 import { DocumentIcon, FileIcon, FolderIcon, PlusIcon } from "./icons.tsx";
 
-async function upload(file: File) {
+// What a new file says as it's taken in, in a bubble under it on the shelf.
+type Bubble = { id: string; text: string };
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// What a page is about, from its first line that reads as words: a document's title.
+export function aboutOf(text: string | undefined): string | null {
+  for (const raw of (text ?? "").split("\n")) {
+    const line = raw.replace(/[^\p{L}\p{N}&,.'()\-– ]+/gu, " ").replace(/\s+/g, " ").trim();
+    if ((line.match(/\p{L}/gu) ?? []).length >= 10) return line.length > 80 ? `${line.slice(0, 79).trimEnd()}…` : line;
+  }
+  return null;
+}
+
+async function upload(file: File, say: (bubble: Bubble | null) => void) {
   const form = new FormData();
   form.set("file", file);
-  await api("/v1/context", { method: "POST", body: form });
+  const response = await api("/v1/context", { method: "POST", body: form });
+  if (!response.ok) return;
+  const context = (await response.json()) as { id: string; title: string; pageCount?: number };
+  const pages = context.pageCount ?? 0;
+  say({ id: context.id, text: `Indexing ${context.title}…` });
+  await wait(900);
+  say({ id: context.id, text: `Indexed ${pages} ${pages === 1 ? "page" : "pages"}. Understanding it…` });
+  const about = await api(`/v1/context/${encodeURIComponent(context.id)}/pages/1`)
+    .then((r) => (r.ok ? (r.json() as Promise<{ text?: string }>) : null))
+    .then((page) => aboutOf(page?.text))
+    .catch(() => null);
+  await wait(900);
+  say({ id: context.id, text: `${about ? `About: ${about}. ` : ""}Every agent can now find and cite it.` });
+  await wait(7000);
+  say(null);
 }
 
 const extension = (title: string) => /\.(\w{1,4})$/.exec(title)?.[1]?.toUpperCase() ?? "";
@@ -30,6 +57,18 @@ export function Shelf({ contexts, drafts = [], reading, highlight, canAdd }: Pro
   const [dragging, setDragging] = useState(false);
   const [waited, setWaited] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const nav = useRef<HTMLElement>(null);
+  const [bubble, setBubble] = useState<Bubble | null>(null);
+  const [bubbleAt, setBubbleAt] = useState<number | null>(null);
+  // Under the new file once the shelf shows it; until then, under the add button.
+  useEffect(() => {
+    if (!bubble || !nav.current) return setBubbleAt(null);
+    const shelf = nav.current.getBoundingClientRect();
+    const item = nav.current.querySelector(`li[data-folder="${CSS.escape(bubble.id)}"]`) ?? nav.current.querySelector("li:has(> .add)");
+    const at = item?.getBoundingClientRect();
+    setBubbleAt(at ? at.left + at.width / 2 - shelf.left : null);
+  }, [bubble, contexts.length]);
+  const say = (next: Bubble | null) => setBubble(next);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setWaited(true), FOLDERS_WAIT_MS);
@@ -54,7 +93,7 @@ export function Shelf({ contexts, drafts = [], reading, highlight, canAdd }: Pro
       event.preventDefault();
       depth = 0;
       setDragging(false);
-      for (const file of event.dataTransfer?.files ?? []) void upload(file);
+      for (const file of event.dataTransfer?.files ?? []) void upload(file, say);
     };
     window.addEventListener("dragenter", enter);
     window.addEventListener("dragover", over);
@@ -76,7 +115,7 @@ export function Shelf({ contexts, drafts = [], reading, highlight, canAdd }: Pro
   }
 
   return (
-    <nav class={`shelf${dragging ? " dragging" : ""}`} aria-label="Context">
+    <nav ref={nav} class={`shelf${dragging ? " dragging" : ""}`} aria-label="Context">
       <ul>
         {[...folders].map(([name, items]) => {
           const isReading = items.some((c) => c.id === reading) || name === highlight;
@@ -138,13 +177,16 @@ export function Shelf({ contexts, drafts = [], reading, highlight, canAdd }: Pro
               aria-hidden="true"
               onChange={(event) => {
                 const target = event.currentTarget;
-                for (const file of target.files ?? []) void upload(file);
+                for (const file of target.files ?? []) void upload(file, say);
                 target.value = "";
               }}
             />
           </li>
         )}
       </ul>
+      <p class="shelf-bubble" role="status" hidden={!bubble} style={bubbleAt === null ? undefined : { left: `${bubbleAt}px` }}>
+        {bubble?.text}
+      </p>
     </nav>
   );
 }

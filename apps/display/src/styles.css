@@ -1361,6 +1361,45 @@ input[type="range"] {
   font-size: 13px;
 }
 
+.shelf-bubble {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 300px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--panel-solid);
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.35;
+  box-shadow: var(--panel-lift);
+  z-index: 5;
+  animation: bubble-in 0.25s ease-out;
+}
+
+.shelf-bubble::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  background: var(--panel-solid);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+@keyframes bubble-in {
+  from { opacity: 0; transform: translate(-50%, -4px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shelf-bubble { animation: none; }
+}
+
 .doc-edit {
   color: var(--accent-ink);
   font-size: 13px;
