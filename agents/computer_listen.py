@@ -117,7 +117,7 @@ def main() -> int:
                 say(study, "Opening the intersection simulator on this screen. Gemini will work it by sight, and ask before it saves.")
                 run = subprocess.Popen(
                     [sys.executable, str(HERE / "computer_use.py"), "--app", "microsim", "--headed", "--confirm",
-                     "--size", "1500x840", "--steps", "22", "--hold", str(HOLD_SECONDS), "--study", study, "--service", url],
+                     "--size", "1500x860", "--steps", "22", "--hold", str(HOLD_SECONDS), "--study", study, "--service", url],
                     cwd=HERE.parent, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                 )
                 front()

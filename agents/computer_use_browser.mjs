@@ -24,7 +24,10 @@ import { chromium } from "playwright-core";
 
 const FPS = 25;
 const CAPTION_HEIGHT = 72;
-const SIDE_WIDTH = 400;
+const SIDE_WIDTH = 320;
+// The app is laid out as at least this wide and scaled to fit beside the transcript:
+// squeezed narrower, the mock apps cut off their left side and Gemini gets lost.
+const LAYOUT_WIDTH = 1440;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const options = JSON.parse(process.argv[2] ?? "{}");
@@ -70,14 +73,19 @@ function chromePath() {
 
 // The pointer, drawn on the page: a recording shows no real one. It never takes a
 // click, and the captions sit below the part of the screen the model sees.
-function decorate({ reserved, side, x, y }) {
+function decorate({ reserved, side, layout, x, y }) {
   const draw = () => {
     if (document.getElementById("computer-use-layer")) return;
     if (reserved) document.documentElement.style.setProperty("--reserved-bottom", `${reserved}px`);
-    if (side) document.documentElement.style.setProperty("--reserved-right", `${side}px`);
+    // Scaled so the app keeps the layout it has at LAYOUT_WIDTH; the layer undoes it.
+    const zoom = side ? Math.min(1, (innerWidth - side) / layout) : 1;
+    if (side) {
+      document.documentElement.style.zoom = String(zoom);
+      document.documentElement.style.setProperty("--reserved-right", `${side / zoom}px`);
+    }
     const host = document.createElement("div");
     host.id = "computer-use-layer";
-    host.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483647";
+    host.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:2147483647;zoom:${1 / zoom}`;
     const root = host.attachShadow({ mode: "closed" });
     root.innerHTML = `<style>
       .pointer { position: fixed; left: 0; top: 0; width: 26px; height: 26px; will-change: transform; filter: drop-shadow(1px 2px 1px rgb(0 0 0 / 0.35)); }
@@ -203,7 +211,7 @@ await context.route("**/*", (route) => {
   return route.abort("blockedbyclient");
 });
 let pointer = { x: Math.round(screen.width / 2), y: Math.round(screen.height / 2) };
-await context.addInitScript(decorate, { reserved, side, ...pointer });
+await context.addInitScript(decorate, { reserved, side, layout: LAYOUT_WIDTH, ...pointer });
 const page = await context.newPage();
 context.on("page", (other) => other !== page && other.close().catch(() => {}));
 page.on("dialog", (dialog) => dialog.dismiss().catch(() => {}));
