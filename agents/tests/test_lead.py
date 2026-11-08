@@ -3,6 +3,7 @@ import io
 import os
 import tempfile
 import unittest
+import urllib.request
 import uuid
 from pathlib import Path
 from unittest import mock
@@ -80,7 +81,7 @@ class LeadTest(unittest.IsolatedAsyncioTestCase):
 
         offered = fake.requests[0].tools
         self.assertTrue({"ask_specialist", "list_skills", "read_page", "trace_figure", "list_rules"} <= offered)
-        self.assertLessEqual(offered, lead.TOOLS | {"ask_specialist", "list_skills"})
+        self.assertLessEqual(offered, lead.TOOLS | {"ask_specialist", "list_skills", "read_skill"})
         self.assertFalse({"record_figure", "record_check", "open_study", "report_activity"} & offered)
         system = fake.requests[0].system
         self.assertIn("Only planners decide.", system)  # the service's rules
@@ -280,6 +281,96 @@ class AlignmentTest(unittest.TestCase):
         self.assertEqual(core.WRITES["propose_alignment"], "studyId")
         self.assertIn("call propose_alignment yourself, once for each realistic terminus", lead.INSTRUCTIONS)
         self.assertIn("Never draw or describe a line the tool didn't build", lead.INSTRUCTIONS)
+
+
+BRIEF_POINT = {
+    "text": "1,680 more riders a week",
+    "citation": {"contextId": SOURCE, "page": 1, "quote": "weekly ridership increase of 1,680 customers"},
+}
+
+
+class DocumentTest(unittest.IsolatedAsyncioTestCase):
+    """A planner asks for a document: the lead reads the study and the skill, then makes one PDF."""
+
+    def setUp(self):
+        env = {"LEAD_MODEL": "lead-model", "SPECIALIST_MODEL": "specialist-model", "MAX_MODEL_CALLS": "", "MAX_RUN_CALLS": ""}
+        self.enterContext(mock.patch.dict(os.environ, env))
+
+    async def test_the_lead_makes_a_tpap_brief_from_the_study_in_one_create_document_call(self):
+        study = support.open_study("tpap")
+        sections = [
+            {"heading": "Need and justification", "points": [BRIEF_POINT]},
+            {"heading": "To confirm", "points": ["TPAP steps, for a planner to confirm against the regulation"]},
+        ]
+        turns = [
+            reply(("get_study", {"studyId": study}), ("read_skill", {"name": "tpap-brief"})),
+            reply(("create_document", {"studyId": study, "kind": "slides", "title": "TPAP brief", "sections": sections})),
+            reply(text="Document ready: TPAP brief. http://127.0.0.1/v1/media/x"),
+        ]
+        fake = FakeGemini(lambda request: turns[request.turn])
+
+        async with support.session() as session:
+            answer = await lead.run_lead(session, fake, study, "Make a slideshow for TPAP")
+
+        self.assertEqual(answer, "Document ready: TPAP brief. http://127.0.0.1/v1/media/x")
+        self.assertEqual([request.model for request in fake.requests], ["lead-model"] * 3)  # no specialists
+        [(_, study_view), (_, skill)] = fake.requests[1].results
+        self.assertEqual(study_view["output"]["id"], study)
+        self.assertIn("Transit Project Assessment Process", skill["output"])
+        [(name, made)] = fake.requests[2].results
+        self.assertEqual(name, "create_document")
+        self.assertEqual(made["output"]["kind"], "slides")
+        self.assertRegex(made["output"]["url"], r"^/v1/media/[0-9a-f]{64}$")
+        [created] = [entry for entry in support.entries(study) if entry["type"] == "document.created"]
+        self.assertEqual(created["actor"], "agent:lead")
+        self.assertEqual(created["data"]["cites"], [{"contextId": SOURCE, "pages": [1]}])
+        pdf = urllib.request.urlopen(f"{support.URL}{made['output']['url']}").read()
+        self.assertTrue(pdf.startswith(b"%PDF-"))
+
+    async def test_a_refused_point_goes_back_to_the_lead_to_fix(self):
+        study = support.open_study("tpap-fix")
+        wrong = {**BRIEF_POINT, "citation": {**BRIEF_POINT["citation"], "quote": "2,000 more riders"}}
+        document = lambda point: ("create_document", {"studyId": study, "kind": "report", "title": "TPAP brief", "sections": [{"heading": "Need", "points": [point]}]})
+        turns = [reply(document(wrong)), reply(document(BRIEF_POINT)), reply(text="Document ready.")]
+        fake = FakeGemini(lambda request: turns[request.turn])
+
+        async with support.session() as session:
+            await lead.run_lead(session, fake, study, "Generate me a doc for TPAP")
+
+        [(_, refused)] = fake.requests[1].results
+        self.assertRegex(refused["error"], r'^422 quote_not_found: Section "Need", point 1: Quote not found on page 1')
+        self.assertEqual(len([entry for entry in support.entries(study) if entry["type"] == "document.created"]), 1)
+
+    async def test_a_document_is_written_only_to_the_runs_study(self):
+        study = support.open_study("tpap-own")
+        other = support.open_study("tpap-other")
+        call = ("create_document", {"studyId": other, "kind": "report", "title": "Brief", "sections": [{"heading": "Need", "points": ["x"]}]})
+        turns = [reply(call), reply(text="Done.")]
+        fake = FakeGemini(lambda request: turns[request.turn])
+
+        async with support.session() as session:
+            await lead.run_lead(session, fake, study, "Make a TPAP brief as a PDF")
+
+        [(_, refused)] = fake.requests[1].results
+        self.assertIn("this run writes only to study", refused["error"])
+        self.assertEqual([entry for entry in support.entries(other) if entry["type"] == "document.created"], [])
+
+    def test_the_lead_is_told_to_build_documents_fast_from_the_study(self):
+        self.assertIn("create_document", lead.TOOLS)
+        self.assertEqual(core.WRITES["create_document"], "studyId")
+        self.assertIn("call get_study and read_skill together", lead.INSTRUCTIONS)
+        self.assertIn("Then call create_document once", lead.INSTRUCTIONS)
+        self.assertIn('"Document ready: <title>. <link>"', lead.INSTRUCTIONS)
+        self.assertIn("Never say a document is ready without the link create_document returned", lead.INSTRUCTIONS)
+        # Asked to "generate tpap", it makes a draft brief for planners rather than refusing.
+        self.assertIn("or just to generate or draft a TPAP", lead.INSTRUCTIONS)
+        self.assertIn("never a statutory filing, an approval or a decision, so make it, and never refuse", lead.INSTRUCTIONS)
+        self.assertIn("tpap-brief", [skill["name"] for skill in skills.list_skills()])
+        brief = skills.load_skill("tpap-brief").body
+        self.assertIn("make it whenever asked, and never refuse", brief)
+        for heading in ("Project description", "Need and justification", "Alternatives considered", "Existing conditions",
+                        "Potential impacts and mitigation", "Consultation plan", "What's not known yet", "Next steps", "To confirm"):
+            self.assertIn(heading, brief)
 
 
 class RunBudgetTest(unittest.IsolatedAsyncioTestCase):

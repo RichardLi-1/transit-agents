@@ -65,6 +65,7 @@ WRITES = {
     "record_finding": "studyId",
     "add_engagement_need": "studyId",
     "propose_alignment": "studyId",
+    "create_document": "studyId",
     "report_activity": "studyId",
 }
 

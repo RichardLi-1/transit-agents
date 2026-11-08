@@ -203,4 +203,15 @@ describe("notices", () => {
     );
     assert.equal(spokenTogether([], (id) => id), "");
   });
+
+  it("says a document is ready, by its title, and points Open at its PDF, without a second notice for the answer", () => {
+    const heard = live(
+      activity({ kind: "run.started" }),
+      entry("document.created", { sha256: "a".repeat(64), url: `/v1/media/${"a".repeat(64)}`, kind: "report", title: "TPAP brief" }),
+      activity({ kind: "message", text: "Document ready: TPAP brief. http://127.0.0.1:4550/v1/media/aaa" }),
+      activity({ kind: "run.finished" }),
+    );
+    assert.deepEqual(lines(heard), ["Document ready: TPAP brief"]);
+    assert.deepEqual(first(heard).target, { kind: "document", url: `/v1/media/${"a".repeat(64)}` });
+  });
 });

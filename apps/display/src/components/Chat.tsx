@@ -6,6 +6,7 @@ import { refusal, setNotice, unsaid, useNotice } from "../notice.ts";
 import { plain } from "../plain.ts";
 import { EMPTY_USAGE, type Store } from "../store.ts";
 import { foldAt, waiting } from "../typing.ts";
+import { DocumentCard } from "./DocumentCard.tsx";
 import { CheckIcon, SendIcon, StaleIcon } from "./icons.tsx";
 
 const number = new Intl.NumberFormat("en-CA");
@@ -15,8 +16,8 @@ const number = new Intl.NumberFormat("en-CA");
 const SUGGESTIONS = [
   "What would it cost to extend the Ontario Line up Don Mills to Sheppard?",
   "Compare the two alignment options",
-  "What changes if it ends at Lawrence?",
   "Who needs to hear about this?",
+  "Make a TPAP brief as a PDF",
 ];
 
 // The studies the viewer has said something in, kept for the tab, so a reload
@@ -135,8 +136,9 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
   }
   const messages = store.messages.filter((m) => m.studyId === studyId);
   const subagents = store.subagents.filter((s) => s.studyId === studyId);
-  // Messages and sub-agents in the order the log has them.
-  const items = [...messages, ...subagents].sort((a, b) => a.seq - b.seq);
+  const documents = store.documents.filter((d) => d.studyId === studyId);
+  // Messages, sub-agents and documents in the order the log has them.
+  const items = [...messages, ...subagents, ...documents].sort((a, b) => a.seq - b.seq);
   // Whether any of this study's chat is the scripted replay's, whatever came after.
   const replay = items.some((item) => item.replay);
   // The open study's spend, not every study's.
@@ -221,7 +223,9 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
           </button>
         )}
         {shown.map((item) =>
-          "text" in item ? (
+          "url" in item ? (
+            <DocumentCard key={`d${item.seq}`} document={item} />
+          ) : "text" in item ? (
             <p key={`m${item.seq}`} class={`bubble ${item.from}`} data-seq={item.seq}>
               {item.replay && <span class="sr-only">Replay: </span>}
               {streams.current.get(item.seq) ? (

@@ -24,9 +24,9 @@ import {
   NewFigure,
   NewAlignment,
   NewFinding,
+  NewDocument,
   NewMedia,
   NewNeed,
-  type MediaType,
   NewSkill,
   NewStudy,
   NewSubscription,
@@ -180,8 +180,6 @@ function multipart(form: z.ZodType) {
   };
 }
 
-const EXTENSIONS: Record<MediaType, string> = { "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "video/mp4": ".mp4" };
-
 // Media is named by its hash, so a copy never goes stale, but a planner can take a
 // file down, so each use checks it is still there: a 304 when it is. Browsers play
 // and seek video by asking for ranges of it.
@@ -193,9 +191,10 @@ function serveMedia(c: HonoContext<Env>, file: MediaFile): Response {
     "cache-control": `${file.private ? "private" : "public"}, no-cache`,
     etag,
     "accept-ranges": "bytes",
-    // Saved or shared, its name says it's illustrative, and for which need: never a
-    // name an upload chose. A need's id is a slug, safe in a header.
-    "content-disposition": `inline; filename="${file.need}-illustrative${EXTENSIONS[file.type]}"`,
+    // A name the service chose, never an upload's, and safe in a header.
+    "content-disposition": `inline; filename="${file.filename}"`,
+    // A PDF opens in the browser's own viewer, which the display's policy would block.
+    ...(file.type === "application/pdf" ? { "content-security-policy": PDF_POLICY } : {}),
   };
   const cached = c.req.header("if-none-match")?.split(",").map((tag) => tag.trim().replace(/^W\//, ""));
   if (cached?.includes(etag) || cached?.includes("*")) return c.body(null, 304, headers);
@@ -223,6 +222,11 @@ const CONTENT_TYPES: Record<string, string> = {
   ".bin": "application/octet-stream",
   ".txt": "text/plain; charset=utf-8",
 };
+
+// A PDF the service made, opened in a tab of its own, where no other page may frame
+// it. Chrome's viewer runs as a plugin, which the display's object-src 'none' would
+// block, so a PDF has this policy instead.
+const PDF_POLICY = "object-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 // When people can sign in, the page talks to the Auth0 tenant, and renews their
 // token in a hidden frame from it. The manifest, which makes the display an app
@@ -265,7 +269,9 @@ export function createApp(options: AppOptions) {
 
   app.use("*", async (c, next) => {
     await next();
-    for (const [key, value] of Object.entries(headers)) c.header(key, value);
+    // A PDF keeps the policy it was served with.
+    const own = c.res.headers.get("content-type") === "application/pdf" ? ["content-security-policy"] : [];
+    for (const [key, value] of Object.entries(headers)) if (!own.includes(key)) c.header(key, value);
   });
 
   app.onError((error, c) => {
@@ -750,9 +756,21 @@ export function createApp(options: AppOptions) {
       },
     },
     {
+      method: "post",
+      path: "/v1/studies/:id/documents",
+      summary:
+        "Make a PDF of the study, a report or slides, from sections of points. A point with a citation is refused unless its quote is on the cited page. Returns where to read it",
+      roles: authors,
+      body: NewDocument,
+      handler: async (c) => {
+        const base = options.publicUrl ?? new URL(c.req.url).origin;
+        return c.json(await view(c).createDocument(actorName(c), c.req.param("id") as string, await bodyOf(c, NewDocument), base), 201);
+      },
+    },
+    {
       method: "get",
       path: "/v1/media/:id",
-      summary: "Read a generated image or video by its sha256. Needs no token",
+      summary: "Read a generated image or video, or a document's PDF, by its sha256. Needs no token",
       roles: anyone,
       public: true,
       handler: (c) => serveMedia(c, service.mediaFile(c.req.param("id") as string)),

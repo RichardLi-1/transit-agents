@@ -66,6 +66,14 @@ function Glyph({ notice }: { notice: Notice }) {
         );
       case "answer":
         return <path d="M5 6.500h14v9H10l-4 3v-3H5z" {...stroke} />;
+      case "document":
+        // A page with its corner folded.
+        return (
+          <>
+            <path d="M7 4.500h7l4 4v11H7z" {...stroke} />
+            <path d="M14 4.500v4h4M10 13h5M10 16h5" {...stroke} />
+          </>
+        );
       case "brief":
         // A slider: an input set to a new value.
         return (
@@ -146,7 +154,7 @@ function Toast({ notice, title, held, leaving, onDone, onReview }: ToastProps) {
         <span class="study">{title}</span>
       </p>
       <button type="button" class="review" aria-describedby={words} onClick={() => onReview(notice)}>
-        Review
+        {notice.target.kind === "document" ? "Open" : "Review"}
       </button>
     </li>
   );

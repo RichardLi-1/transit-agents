@@ -112,6 +112,12 @@ QUOTES = [
         "in cases where only certain metrics pass, or in other exceptional circumstances, "
         "discretionary recommendations may be made that transcend the metrics above",
     ),
+    # tpap-brief
+    ("metrolinx-bcm-vol2", 204, "projects (Ontario Regulation 231/08)"),
+    ("ontario-line-pdbc-2020", 17, "seeking environmental approvals through a TPAP"),
+    ("ontario-line-ibc-2019", 81, "the project was screened through the TPAP at a very early level of preliminary design"),
+    ("ontario-line-ibc-2019", 81, "Some design changes were identified as necessitating an Addendum to the existing approved Environmental Project Report (EPR)"),
+    ("ontario-line-ibc-2019", 82, "Environmental approval and design work will be required"),
     # engagement-needs
     ("ttc-standards-2024", 31, "All major service changes and plans require public consultation"),
     ("ontario-line-ibc-2019", 82, "will also require further public and stakeholder engagement"),

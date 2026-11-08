@@ -1,11 +1,11 @@
 // One command for the whole local demo: builds the display, starts the service
-// (seeding it the first time), then the Gemini chat agent and the media agent.
-// Ctrl+C stops everything.
+// (seeding it the first time), then the Gemini chat agent and the media agent, and
+// the Slack bridge when Slack's tokens are set. Ctrl+C stops everything.
 //
 // Usage: npm run dev [-- --fresh]. --fresh starts from an empty log. PORT and
 // DATA_DIR work as for the demo; the agents read GEMINI_API_KEY from agents/.env.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(import.meta.dirname, "..");
@@ -13,6 +13,18 @@ const port = process.env.PORT ?? "4100";
 const url = `http://127.0.0.1:${port}`;
 const python = join(root, "agents/.venv/bin/python");
 const children: ChildProcess[] = [];
+
+// Whether Slack's two tokens are set, in the environment or agents/.env. Only that is
+// read here: the bridge reads the tokens themselves.
+const slackTokens = (() => {
+  let file = "";
+  try {
+    file = readFileSync(join(root, "agents/.env"), "utf8");
+  } catch {}
+  return ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"].every(
+    (name) => process.env[name]?.trim() || new RegExp(`^[ \\t]*(?:export[ \\t]+)?${name}[ \\t]*=[ \\t]*['"]?[^\\s'"#]`, "m").test(file),
+  );
+})();
 
 // Each process's lines, with its name in front, so one terminal reads clearly.
 const run = (name: string, command: string, args: string[], env: NodeJS.ProcessEnv = {}) => {
@@ -70,5 +82,7 @@ if (!up) {
   const env = { TRANSIT_URL: url, ...(process.env.DATA_DIR ? { DATA_DIR: process.env.DATA_DIR } : {}) };
   run("agent", python, [join(root, "agents/main.py"), "listen"], env);
   run("media", python, [join(root, "agents/media.py"), "listen"], env);
-  console.log(`\nOpen ${url}. The chat agent and the media agent are listening. Ctrl+C stops everything.\n`);
+  if (slackTokens) run("slack", python, [join(root, "agents/slack_bridge.py")], env);
+  else console.log("To ask the lead from Slack, set SLACK_BOT_TOKEN and SLACK_APP_TOKEN in agents/.env (docs/system.md, Command it from Slack).");
+  console.log(`\nOpen ${url}. The chat agent and the media agent${slackTokens ? ", and the Slack bridge," : ""} are listening. Ctrl+C stops everything.\n`);
 }

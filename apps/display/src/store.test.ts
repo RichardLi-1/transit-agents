@@ -146,3 +146,14 @@ describe("the log's head", () => {
     assert.equal(asked, 1);
   });
 });
+
+describe("documents", () => {
+  it("keeps each document an agent makes, for the chat to show where the log has it", () => {
+    const sha = "b".repeat(64);
+    const made: LogEntry = { ...activity({}), type: "document.created", data: { sha256: sha, url: `/v1/media/${sha}`, kind: "slides", title: "TPAP brief" } };
+    const store = reduce(initial, made);
+    assert.deepEqual(store.documents, [{ seq: made.seq, studyId: "s", title: "TPAP brief", kind: "slides", url: `/v1/media/${sha}`, replay: false }]);
+    // An entry without its file's address shows nothing.
+    assert.equal(reduce(store, { ...made, seq: made.seq + 1, data: { title: "x" } }).documents.length, 1);
+  });
+});

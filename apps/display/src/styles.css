@@ -1308,6 +1308,54 @@ input[type="range"] {
   border-bottom-right-radius: 5px;
 }
 
+/* A document an agent made, in the chat: its title, its kind and a link to open it. */
+.doc-card {
+  align-self: flex-start;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  max-width: 88%;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border-bottom-left-radius: 5px;
+  background: var(--bubble);
+}
+
+.doc-card p {
+  margin: 0;
+  display: grid;
+  min-width: 0;
+}
+
+.doc-icon {
+  color: var(--accent-ink);
+}
+
+.doc-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.doc-kind {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.doc-open {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.doc-open:hover {
+  background: var(--accent-ink);
+}
+
 .sub {
   display: grid;
   grid-template-columns: 18px 1fr;
@@ -2335,6 +2383,10 @@ input[type="range"] {
 .glyph[data-kind="need"],
 .glyph[data-kind="media"] {
   background-color: #3f93dc;
+}
+
+.glyph[data-kind="document"] {
+  background-color: var(--accent-ink);
 }
 
 .glyph[data-kind="answer"] {

@@ -23,12 +23,15 @@ if (!existsSync(join(root, "apps/display/dist/index.html"))) {
 
 // One token per client. "lead" is for your own agents, so the display never
 // mistakes their work for the scripted replay. "media" is agents/media.py's.
+// "slack" is agents/slack_bridge.py's: a planner, so the lead answers what it asks,
+// and the log names Slack as where the question came from.
 const clients = [
   { key: "integration", role: "integration", name: "seed" },
   { key: "agent", role: "agent", name: "replay" },
   { key: "lead", role: "agent", name: "lead" },
   { key: "media", role: "agent", name: "media" },
   { key: "planner", role: "planner", name: "demo" },
+  { key: "slack", role: "planner", name: "slack" },
 ];
 const tokens: Record<string, string> = Object.fromEntries(clients.map(({ key }) => [key, randomBytes(18).toString("base64url")]));
 mkdirSync(data, { recursive: true });

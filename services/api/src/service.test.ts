@@ -490,7 +490,7 @@ describe("engagement", () => {
     assert.deepEqual(ready?.media, [attached]);
     assert.equal(attached.url, `/v1/media/${sha256}`);
     assert.equal(attached.label, "Illustrative");
-    assert.deepEqual(service.mediaFile(sha256), { id: sha256, path: join(dir, "media", sha256), type: "image/png", size: SAMPLE.png.length, private: false, need: "poster" });
+    assert.deepEqual(service.mediaFile(sha256), { id: sha256, path: join(dir, "media", sha256), type: "image/png", size: SAMPLE.png.length, private: false, filename: "poster-illustrative.png" });
   });
 
   it("attaches the same file once", () => {

@@ -1,10 +1,10 @@
 // What a planner hears about: a case an agent hands them, a need an agent proposes,
-// media that is ready, a decision, an answer, and a brief a planner changed. Only new entries notify. What the
+// media or a document that is ready, a decision, an answer, and a brief a planner changed. Only new entries notify. What the
 // log already held when the display opened only fills in what a notice names, such
 // as the place a need is for.
 import { HANDOVER, NO_ANSWER, type Activity, type LogEntry, type Outcome } from "@transit-agents/contracts";
 
-export type NoticeKind = "finding" | "handover" | "need" | "media" | "decision" | "answer" | "brief";
+export type NoticeKind = "finding" | "handover" | "need" | "media" | "decision" | "answer" | "brief" | "document";
 
 // Where Review takes the planner. A hand-over goes to where a planner decides,
 // and its message says what to decide. A decision goes to the card's decision.
@@ -15,6 +15,8 @@ export type Target =
   | { kind: "need"; id: string }
   | { kind: "media"; need: string; media: "image" | "video" }
   | { kind: "message"; seq: number }
+  // A PDF, which opens in a tab of its own.
+  | { kind: "document"; url: string }
   // The card's figures a changed input moved, the first that shows taking focus.
   | { kind: "figures"; ids: string[] };
 
@@ -50,6 +52,9 @@ const OUTCOME: Record<Outcome, string> = { adopt: "Adopted", reject: "Not adopte
 
 const CALL = "Needs your call";
 
+// How the lead's answer starts once it has made a document.
+const DOCUMENT_READY = /^Document ready\b/;
+
 // A person's own words and work, a planner's or a visitor's: never an agent's, so never a notice.
 const PERSON = /^(planner|guest):/;
 
@@ -77,7 +82,8 @@ export function hear(heard: Heard, entry: LogEntry, live: boolean): Heard {
     } else if (activity.kind === "run.finished") {
       const last = said[studyId];
       if (last && HANDOVER.test(last.text)) raised = { kind: "handover", text: CALL, target: { kind: "decide", seq: last.seq } };
-      else if (last && !NO_ANSWER.test(last.text)) raised = { kind: "answer", text: "Answer ready", target: { kind: "message", seq: last.seq } };
+      // A document's own notice already says it's ready.
+      else if (last && !NO_ANSWER.test(last.text) && !DOCUMENT_READY.test(last.text)) raised = { kind: "answer", text: "Answer ready", target: { kind: "message", seq: last.seq } };
     }
   }
   // A run's answer is its last word: anything it does after a message, but read,
@@ -107,6 +113,12 @@ export function hear(heard: Heard, entry: LogEntry, live: boolean): Heard {
       if (!need) break;
       const place = places[`${studyId}/${need}`];
       raised = { kind: "media", text: `Illustrative ${kind} ready${place ? `: ${place}` : ""}`, target: { kind: "media", need, media: kind } };
+      break;
+    }
+    case "document.created": {
+      const url = field(entry.data, "url");
+      if (!url) break;
+      raised = { kind: "document", text: `Document ready: ${field(entry.data, "title") ?? "document"}`, target: { kind: "document", url } };
       break;
     }
     case "decision.recorded": {

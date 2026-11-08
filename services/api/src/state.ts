@@ -12,6 +12,7 @@ import {
   type Figure,
   type FigureView,
   type FindingView,
+  type DocumentKind,
   type MediaType,
   type MediaView,
   type NeedStatus,
@@ -59,6 +60,8 @@ export type State = {
   // Every file a log entry names, by its sha256, and a need that names it. Only these
   // are served.
   media: Map<string, { type: MediaType; size: number; need: string }>;
+  // Every document a log entry names, by its PDF's sha256. Only these are served.
+  documents: Map<string, { size: number; title: string; kind: DocumentKind }>;
 };
 
 const noUsage = (): Usage => ({ inputTokens: 0, outputTokens: 0, costUsd: 0, computeSeconds: 0, calls: 0, unpricedCalls: 0 });
@@ -71,6 +74,7 @@ export const emptyState = (): State => ({
   usage: noUsage(),
   usageByStudy: new Map(),
   media: new Map(),
+  documents: new Map(),
 });
 
 export const mediaUrl = (sha256: string) => `/v1/media/${sha256}`;
@@ -545,6 +549,13 @@ export function apply(state: State, entry: Entry): void {
         addedAt: entry.at,
       });
       state.media.set(media.sha256, { type: media.type, size: media.size, need: media.need });
+      return;
+    }
+
+    // A study's PDF, kept outside the log by its hash, like media.
+    case "document.created": {
+      const document = data as unknown as { sha256: string; size: number; title: string; kind: DocumentKind };
+      state.documents.set(document.sha256, { size: document.size, title: document.title, kind: document.kind });
       return;
     }
 

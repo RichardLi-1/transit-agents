@@ -66,7 +66,7 @@ describe("schemas agents are given", () => {
   // subschema such as a tuple's `items: false`, so no tool may carry one.
   it("carry no boolean subschema that google-genai can't read", async () => {
     const { z } = await import("zod");
-    const { NewFinding, AlignmentOption } = await import("./index.ts");
+    const { NewFinding, AlignmentOption, NewDocument } = await import("./index.ts");
     const found: string[] = [];
     const walk = (node: unknown, path: string) => {
       if (Array.isArray(node)) return node.forEach((item, i) => walk(item, `${path}[${i}]`));
@@ -78,6 +78,7 @@ describe("schemas agents are given", () => {
     };
     walk(z.toJSONSchema(NewFinding, { io: "input", unrepresentable: "any" }), "NewFinding");
     walk(z.toJSONSchema(AlignmentOption, { io: "input", unrepresentable: "any" }), "AlignmentOption");
+    walk(z.toJSONSchema(NewDocument, { io: "input", unrepresentable: "any" }), "NewDocument");
     assert.deepEqual(found, []);
   });
 

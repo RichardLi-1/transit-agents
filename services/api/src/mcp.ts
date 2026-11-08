@@ -115,6 +115,11 @@ export const TOOLS: Record<string, Spec> = {
     description:
       "Propose something to make so people in one neighbourhood hear about a change: an image such as a poster, a short video, or both. Pin it to a point on the study's route with lon and lat, name the place, give one sentence on why, and cite the pages it rests on. Nothing is made until a planner asks.",
   },
+  "POST /v1/studies/:id/documents": {
+    name: "create_document",
+    description:
+      'Make a PDF of the study for planners: kind "report" (portrait pages) or "slides" (16:9, at most 5 points a slide). Give a title and sections, each a heading and its points. A point is plain words, or {text, citation} with a citation as a finding has one: contextId, page and a quote that is on that page, word for word. Reuse the citations get_study shows on the study\'s findings. A point whose quote isn\'t on its page is refused with which one, so fix it and call again. The PDF says it is a draft first pass and lists its sources. Returns its url and link.',
+  },
   "POST /v1/studies/:id/needs/:need/create": {
     name: "request_engagement_media",
     description:

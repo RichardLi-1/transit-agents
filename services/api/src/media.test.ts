@@ -59,6 +59,13 @@ describe("MediaStore", () => {
     assert.equal(store.path("c".repeat(64)), undefined);
   });
 
+  it("makes its folder again if it was removed while the service ran", () => {
+    const store = new MediaStore(join(dir, "media"));
+    rmSync(store.directory, { recursive: true });
+    store.put("d".repeat(64), FILES.png);
+    assert.deepEqual(readdirSync(store.directory), ["d".repeat(64)]);
+  });
+
   it("names files only by a hash, so no name can reach outside its folder", () => {
     const store = new MediaStore(join(dir, "media"));
     assert.throws(() => store.path("../log.db"), /not a sha256/);

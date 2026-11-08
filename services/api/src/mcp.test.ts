@@ -136,9 +136,11 @@ describe("mcp", () => {
     const [planner, agent, integration, viewer] = await Promise.all(
       ["planner-token", "agent-token", "integration-token", "viewer-token"].map(names),
     );
-    assert.equal(planner?.length, 34);
-    assert.equal(agent?.length, 25);
+    assert.equal(planner?.length, 35);
+    assert.equal(agent?.length, 26);
     assert.ok(agent?.includes("propose_alignment"));
+    assert.ok(agent?.includes("create_document") && planner?.includes("create_document"));
+    assert.ok(!integration?.includes("create_document") && !viewer?.includes("create_document"));
     assert.ok(agent?.includes("whoami"));
     assert.deepEqual(agent?.filter((name) => PLANNER_ONLY.includes(name)), []);
     assert.ok(agent?.includes("record_figure") && agent.includes("report_activity"));

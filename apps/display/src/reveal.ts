@@ -67,6 +67,9 @@ function find(target: Target, studyId: string): Found | null {
       const message = query(`.chat [data-seq="${target.seq}"]`);
       return message && { focus: message };
     }
+    case "document":
+      // It opens in a tab of its own, never here.
+      return null;
     case "figures": {
       // The first moved figure the card shows, unfolding the card's other figures
       // if it's among them, or else the card's tests.

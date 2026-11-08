@@ -115,6 +115,8 @@ export class MediaStore {
   put(sha256: string, bytes: Uint8Array) {
     const path = this.pathOf(sha256);
     if (existsSync(path)) return;
+    // The folder again, in case it was removed while the service ran.
+    mkdirSync(this.directory, { recursive: true });
     const partial = `${path}.${randomUUID()}.partial`;
     writeFileSync(partial, bytes, { flag: "wx" });
     renameSync(partial, path);

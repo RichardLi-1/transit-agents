@@ -167,9 +167,10 @@ export function App() {
     setOpened(need);
   }, []);
 
-  // Review: the notice's study, then what it's about.
+  // Review: the notice's study, then what it's about. A document opens in a tab of its own.
   const review = useCallback(
     (notice: Notice) => {
+      if (notice.target.kind === "document") return void window.open(notice.target.url, "_blank", "noopener");
       select(notice.studyId);
       void reveal(notice.target, notice.studyId);
     },

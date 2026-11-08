@@ -14,6 +14,9 @@ export type Message = { seq: number; studyId: string | null; from: "agent" | "pl
 // ok is false for one that stopped before answering.
 export type Subagent = { seq: number; id: string; studyId: string | null; question: string; summary?: string; ok?: boolean; replay: boolean };
 
+// A PDF an agent made of a study, which the chat shows where the log has it.
+export type DocumentItem = { seq: number; studyId: string | null; title: string; kind: "report" | "slides"; url: string; replay: boolean };
+
 export const REPLAY = "agent:replay";
 
 export type Store = {
@@ -26,6 +29,7 @@ export type Store = {
   since: number | null;
   messages: Message[];
   subagents: Subagent[];
+  documents: DocumentItem[];
   reading: string | null;
   // Each study's, since the chat shows the open study's spend. Calls reported
   // without a cost are counted, so no dollar sum shows while one is missing.
@@ -49,6 +53,7 @@ export const initial: Store = {
   since: null,
   messages: [],
   subagents: [],
+  documents: [],
   reading: null,
   usage: {},
   openRuns: {},
@@ -76,6 +81,12 @@ function apply(store: Store, entry: LogEntry, live: boolean): Store {
   if (entry.type === "context.added") {
     const context = { ...(entry.data as Context), addedAt: entry.at, addedBy: entry.actor };
     return { ...store, contexts: [...store.contexts.filter((c) => c.id !== context.id), context] };
+  }
+  if (entry.type === "document.created") {
+    const data = entry.data as Partial<Omit<DocumentItem, "seq" | "studyId" | "replay">>;
+    if (typeof data.url !== "string" || typeof data.title !== "string") return store;
+    const document: DocumentItem = { seq: entry.seq, studyId: entry.studyId, title: data.title, kind: data.kind === "slides" ? "slides" : "report", url: data.url, replay: entry.actor === REPLAY };
+    return { ...store, documents: [...store.documents, document] };
   }
   const moves = entry.type === "study.opened" || entry.type === "activity";
   const focus = live && moves && entry.studyId ? entry.studyId : store.focus;
@@ -187,6 +198,7 @@ const EVENT_TYPES = [
   "need.create.requested",
   "need.create.failed",
   "media.added",
+  "document.created",
   "activity",
 ];
 

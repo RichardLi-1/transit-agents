@@ -18,6 +18,8 @@ import {
   type CheckView,
   type Context,
   type Decision,
+  type DocumentKind,
+  type DocumentView,
   type Figure,
   type FindingView,
   type MediaKind,
@@ -39,12 +41,14 @@ import type {
   NeedClaim as NeedClaimSchema,
   NeedFailure as NeedFailureSchema,
   NeedWithdrawal as NeedWithdrawalSchema,
+  NewDocument as NewDocumentSchema,
   NewMedia as NewMediaSchema,
   NewNeed as NewNeedSchema,
   NewStudy as NewStudySchema,
 } from "@transit-agents/contracts";
 import { type Alignment, ALIGNMENT_COST, AlignmentError, along, cachedNetwork, slugOf, snapAlignment } from "./alignment.ts";
 import { checkValue, findQuote } from "./citations.ts";
+import { renderDocument, type RenderedSection, type Source } from "./document.ts";
 import type { Page } from "./extract.ts";
 import type { VisitorBudget } from "./budget.ts";
 import { estimate } from "./footprint.ts";
@@ -61,6 +65,7 @@ import {
   emptyState,
   isOpen,
   isOverride,
+  mediaUrl,
   missingKinds,
   noSpend,
   resolveFigures,
@@ -156,9 +161,16 @@ export type ServiceOptions = {
   budget?: VisitorBudget;
 };
 
-// private is true for a file made in a visitor's sandbox, and need names a need it's
-// for, which a saved file is named after.
-export type MediaFile = { id: string; path: string; type: MediaType; size: number; private: boolean; need: string };
+// private is true for a file made in a visitor's sandbox, and filename is what a
+// saved copy is called: for a need's file, the need it's for.
+export type MediaFile = { id: string; path: string; type: MediaType | "application/pdf"; size: number; private: boolean; filename: string };
+
+// A page cite written into a document's words, as agents cite in their answers:
+// (source-id p. N).
+const TEXT_CITE = /\(([a-z0-9][a-z0-9._-]*) p\. (\d+)\)/g;
+
+// A document's sources by a short name: a title cut at a word.
+const shortName = (title: string) => (title.length <= 70 ? title : `${title.slice(0, 70).replace(/\s+\S*$/, "")}…`);
 
 export class Service {
   readonly log: Log;
@@ -173,6 +185,8 @@ export class Service {
   // The files agents made in visitors' sandboxes, by sha256, with the need each is
   // for. The shared state names the shared record's files.
   private readonly visitorMedia = new Map<string, { type: MediaType; size: number; studyId: string | null; need: string }>();
+  // The documents made in visitors' sandboxes, by sha256.
+  private readonly visitorDocuments = new Map<string, { size: number; title: string }>();
   // What agents spent for visitors, every sandbox's together: numbers only.
   private readonly visitorSpend: Spend = noSpend();
   private closed = false;
@@ -223,8 +237,10 @@ export class Service {
   private observe(entry: Entry) {
     this.budget?.observe(entry);
     if (entry.audience) countUsage(this.visitorSpend, entry);
-    const data = entry.data as { need?: string; sha256?: string; type?: MediaType; size?: number };
-    if (entry.type === "media.added" && entry.audience && data.sha256 && data.need && data.type && data.size !== undefined) {
+    const data = entry.data as { need?: string; sha256?: string; type?: MediaType; size?: number; title?: string };
+    if (entry.type === "document.created" && entry.audience && data.sha256 && data.size !== undefined) {
+      this.visitorDocuments.set(data.sha256, { size: data.size, title: data.title ?? "document" });
+    } else if (entry.type === "media.added" && entry.audience && data.sha256 && data.need && data.type && data.size !== undefined) {
       this.visitorMedia.set(data.sha256, { type: data.type, size: data.size, studyId: entry.studyId, need: data.need });
     } else if (entry.type === "need.dismissed" && !entry.audience) {
       for (const [id, file] of this.visitorMedia) if (file.studyId === entry.studyId && file.need === data.need) this.visitorMedia.delete(id);
@@ -854,11 +870,84 @@ export class Service {
   // one made in a visitor's sandbox, served privately to whoever has its hash, which
   // only their sandbox shows.
   mediaFile(id: string): MediaFile {
-    const shared = isSha256(id) ? this.state.media.get(id) : undefined;
-    const known = shared ?? (isSha256(id) ? this.visitorMedia.get(id) : undefined);
+    if (!isSha256(id)) throw notFound("media", id);
+    const document = this.state.documents.get(id) ?? this.visitorDocuments.get(id);
+    if (document) {
+      const path = this.media?.path(id);
+      if (!path) throw notFound("media", id);
+      const name = slugify(document.title).slice(0, 60) || "document";
+      return { id, path, type: "application/pdf", size: document.size, private: !this.state.documents.has(id), filename: `${name}-draft.pdf` };
+    }
+    const shared = this.state.media.get(id);
+    const known = shared ?? this.visitorMedia.get(id);
     const path = known && this.media?.path(id);
     if (!known || !path) throw notFound("media", id);
-    return { id, path, type: known.type, size: known.size, private: !shared, need: known.need };
+    const extension = { "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "video/mp4": ".mp4" }[known.type];
+    // Saved or shared, its name says it's illustrative, and for which need: never a
+    // name an upload chose. A need's id is a slug, safe in a header.
+    return { id, path, type: known.type, size: known.size, private: !shared, filename: `${known.need}-illustrative${extension}` };
+  }
+
+  // --- Documents -------------------------------------------------------------
+
+  // A study's document as a PDF, from points an agent or a planner gives. A point's
+  // citation is checked as a finding's is, and a page it names in its words must
+  // exist, so nothing in it cites a page that doesn't say so. The PDF is kept in the
+  // media store, and the log names its hash. `base` is the service's address, for
+  // the whole link.
+  async createDocument(actor: string, studyId: string, input: z.output<typeof NewDocumentSchema>, base: string): Promise<DocumentView> {
+    const study = this.study(studyId);
+    if (!this.media) throw new ApiError(503, "no_media_store", "This service has nowhere to keep documents");
+    const sources = new Map<string, Source>();
+    const cite = (contextId: string, page: number) => {
+      const context = this.state.contexts.get(contextId) as Context;
+      const source = sources.get(contextId) ?? { n: sources.size + 1, name: shortName(context.title), pages: [] };
+      sources.set(contextId, source);
+      if (!source.pages.includes(page)) source.pages.push(page);
+      return { n: source.n, page };
+    };
+    const sections: RenderedSection[] = input.sections.map((section) => ({
+      heading: section.heading,
+      points: section.points.map((point, i) => {
+        const where = `Section "${section.heading}", point ${i + 1}`;
+        const text = typeof point === "string" ? point : point.text;
+        for (const [, contextId, page] of text.matchAll(TEXT_CITE)) {
+          const context = this.state.contexts.get(contextId as string);
+          if (!context) throw new ApiError(422, "unknown_source", `${where}: no source "${contextId}". Cite a source from list_sources, or drop the cite`);
+          if (Number(page) < 1 || Number(page) > context.pageCount) {
+            throw new ApiError(422, "page_not_found", `${where}: "${contextId}" has no page ${page}. Cite a page it has, or drop the cite`);
+          }
+        }
+        if (typeof point === "string") return { text };
+        try {
+          this.verifyCitation(point.citation);
+        } catch (error) {
+          if (!(error instanceof ApiError)) throw error;
+          throw new ApiError(
+            error.status,
+            error.code,
+            `${where}: ${error.message}. Quote the page word for word, as a finding in get_study does, or give the point as plain words without a citation`,
+          );
+        }
+        return { text, cite: cite(point.citation.contextId, point.citation.page) };
+      }),
+    }));
+    for (const source of sources.values()) source.pages.sort((a, b) => a - b);
+
+    const created = this.clock();
+    const date = new Intl.DateTimeFormat("en-CA", { day: "numeric", month: "long", year: "numeric", timeZone: "America/Toronto" }).format(created);
+    const { bytes, pages } = await renderDocument({ kind: input.kind, title: input.title, study: study.title, date, sections, sources: [...sources.values()] }, created);
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    this.media.put(sha256, bytes);
+    const url = mediaUrl(sha256);
+    const cites = [...sources.entries()].map(([contextId, source]) => ({ contextId, pages: source.pages }));
+    this.commit({
+      actor,
+      type: "document.created",
+      studyId,
+      data: { sha256, url, kind: input.kind, title: input.title, size: bytes.length, pages, sections: input.sections.length, cites },
+    });
+    return { id: sha256, url, link: new URL(url, base).href, kind: input.kind, title: input.title, pages, size: bytes.length };
   }
 
   // --- Activity ------------------------------------------------------------

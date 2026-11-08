@@ -360,6 +360,46 @@ export type MediaView = {
   addedAt: string;
 };
 
+// --- Documents ---------------------------------------------------------------
+
+// A PDF an agent or a planner builds from a study's cited findings: a report, or
+// slides. A point is plain words, or words with the page they come from, cited as a
+// finding is: the quote must be on that page.
+export const DocumentKind = z.enum(["report", "slides"]);
+export type DocumentKind = z.infer<typeof DocumentKind>;
+
+export const DocumentPoint = z.union([
+  z.string().min(1).max(500),
+  z.object({ text: z.string().min(1).max(500), citation: Citation }),
+]);
+export type DocumentPoint = z.infer<typeof DocumentPoint>;
+
+export const NewDocument = z.object({
+  kind: DocumentKind,
+  title: z.string().min(1).max(120),
+  sections: z
+    .array(z.object({ heading: z.string().min(1).max(100), points: z.array(DocumentPoint).min(1).max(15) }))
+    .min(1)
+    .max(15),
+});
+export type NewDocument = z.input<typeof NewDocument>;
+
+// Every document is a first pass, and says so on its first page.
+export const DOCUMENT_LABEL = "Draft first pass for planners, not a final answer";
+
+export type DocumentView = {
+  // The PDF's sha256.
+  id: string;
+  // Where to read it, from this service. Needs no token.
+  url: string;
+  // The same, as a whole address, to give people.
+  link: string;
+  kind: DocumentKind;
+  title: string;
+  pages: number;
+  size: number;
+};
+
 export type NeedView = {
   id: string;
   title: string;
