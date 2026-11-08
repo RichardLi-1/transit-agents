@@ -2871,3 +2871,31 @@ input[type="range"] {
     border: 2px solid CanvasText;
   }
 }
+
+/* A new answer typing out: a thin caret at its end. */
+.bubble .caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: currentColor;
+  animation: caret 0.9s steps(1) infinite;
+}
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bubble .caret {
+    animation: none;
+  }
+}
+
+/* A card listed at the map's top left, with no room by its place, shows only its
+   title until it's pointed at, focused or opened, so the corner doesn't fill up. */
+.pin[data-side="listed"] .need:not(:hover):not(:focus-within) .words:not([aria-expanded="true"]) .place,
+.pin[data-side="listed"] .need:not(:hover):not(:focus-within) .words:not([aria-expanded="true"]) .state {
+  display: none;
+}

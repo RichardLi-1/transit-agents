@@ -46,6 +46,42 @@ function Text({ text, ids, onPage }: { text: string; ids: string[]; onPage: Prop
   );
 }
 
+// How fast a new answer types out, in characters a second.
+const STREAM_CPS = 320;
+const still = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// A new agent answer, typed out as it arrives. Screen readers get the whole text once;
+// the typing is for the eye only. `onGrow` keeps the log's foot in view as it grows.
+function Streamed({ text, ids, onPage, onGrow }: { text: string; ids: string[]; onPage: Props["onPage"]; onGrow: () => void }) {
+  const full = plain(text);
+  const [shown, setShown] = useState(() => (still() ? full.length : 0));
+  useEffect(() => {
+    if (shown >= full.length) return;
+    const started = performance.now() - (shown / STREAM_CPS) * 1000;
+    let frame = 0;
+    const tick = (now: number) => {
+      const next = Math.min(full.length, Math.ceil(((now - started) / 1000) * STREAM_CPS));
+      setShown(next);
+      onGrow();
+      if (next < full.length) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [full]);
+  if (shown >= full.length) return <Text text={text} ids={ids} onPage={onPage} />;
+  // Cut at a word, so a page cite isn't half a button; it becomes one when it's whole.
+  const cut = full.lastIndexOf(" ", shown);
+  return (
+    <>
+      <span class="sr-only">{full}</span>
+      <span aria-hidden="true">
+        {full.slice(0, cut > 0 ? cut : shown)}
+        <span class="caret" />
+      </span>
+    </>
+  );
+}
+
 export function Chat({ store, studyId, canPost, onPage }: Props) {
   const ids = store.contexts.map((context) => context.id);
   const [text, setText] = useState("");
@@ -54,6 +90,8 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
   const [sent, setSent] = useState(false);
   useEffect(() => setExpanded(false), [studyId]);
   const log = useRef<HTMLDivElement>(null);
+  // Answers already in the log when the chat first drew show whole; later ones type out.
+  const firstSeen = useRef<number | null>(null);
   const messages = store.messages.filter((m) => m.studyId === studyId);
   const subagents = store.subagents.filter((s) => s.studyId === studyId);
   // Messages and sub-agents in the order the log has them.
@@ -70,6 +108,11 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
   const since = store.since ?? Infinity;
   const earlier = items.filter((item) => item.seq <= since).length;
   const shown = expanded ? items : items.filter((item) => item.seq > since);
+  if (firstSeen.current === null) firstSeen.current = Math.max(since === Infinity ? 0 : since, ...items.map((item) => item.seq), 0);
+  const toFoot = () => {
+    const element = log.current;
+    if (element) element.scrollTop = element.scrollHeight;
+  };
 
   // The notice takes room from the foot of the log, so the last message is kept in view.
   useEffect(() => {
@@ -113,7 +156,11 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
           "text" in item ? (
             <p key={`m${item.seq}`} class={`bubble ${item.from}`} data-seq={item.seq}>
               {item.replay && <span class="sr-only">Replay: </span>}
-              <Text text={item.text} ids={ids} onPage={onPage} />
+              {item.from === "agent" && !item.replay && item.seq > (firstSeen.current ?? Infinity) ? (
+                <Streamed text={item.text} ids={ids} onPage={onPage} onGrow={toFoot} />
+              ) : (
+                <Text text={item.text} ids={ids} onPage={onPage} />
+              )}
             </p>
           ) : (
             <div key={`s${item.id}`} class={`sub${item.summary ? (item.ok ? " done" : " stopped") : ""}`}>
