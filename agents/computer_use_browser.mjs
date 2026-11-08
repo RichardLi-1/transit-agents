@@ -24,6 +24,7 @@ import { chromium } from "playwright-core";
 
 const FPS = 25;
 const CAPTION_HEIGHT = 72;
+const SIDE_WIDTH = 400;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const options = JSON.parse(process.argv[2] ?? "{}");
@@ -32,9 +33,11 @@ const HOME = `${ORIGIN}/`;
 const width = options.width ?? 1920;
 const height = options.height ?? 1080;
 const pace = Boolean(options.pace);
-// A recording, or a window people watch, has captions under the screen.
-const reserved = (options.record || options.headed) && options.captions ? CAPTION_HEIGHT : 0;
-const screen = { width, height: height - reserved };
+// A recording has captions under the screen. A window people watch live has a
+// transcript down its right side instead: what Gemini says at each step.
+const reserved = options.record && options.captions ? CAPTION_HEIGHT : 0;
+const side = options.headed && !options.record && options.captions ? SIDE_WIDTH : 0;
+const screen = { width: width - side, height: height - reserved };
 const html = readFileSync(options.page, "utf8");
 
 function out(message) {
@@ -67,10 +70,11 @@ function chromePath() {
 
 // The pointer, drawn on the page: a recording shows no real one. It never takes a
 // click, and the captions sit below the part of the screen the model sees.
-function decorate({ reserved, x, y }) {
+function decorate({ reserved, side, x, y }) {
   const draw = () => {
     if (document.getElementById("computer-use-layer")) return;
     if (reserved) document.documentElement.style.setProperty("--reserved-bottom", `${reserved}px`);
+    if (side) document.documentElement.style.setProperty("--reserved-right", `${side}px`);
     const host = document.createElement("div");
     host.id = "computer-use-layer";
     host.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483647";
@@ -85,7 +89,17 @@ function decorate({ reserved, x, y }) {
       .who { font-weight: 600; white-space: nowrap; }
       .text { flex: 1; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
       .meta { color: #b6bdc6; white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .side { position: fixed; top: 0; right: 0; bottom: 0; width: ${side}px; display: ${side ? "flex" : "none"}; flex-direction: column;
+        background: #101317; color: #f4f6f8; font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+      .side h2 { margin: 0; padding: 16px 18px 12px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #9fb4ff; border-bottom: 1px solid #262b33; }
+      .log { flex: 1; overflow-y: auto; padding: 10px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
+      .line { display: grid; gap: 2px; }
+      .line .m { color: #8f98a3; font-size: 12px; font-variant-numeric: tabular-nums; }
+      .line.new { animation: in .35s ease-out; }
+      .line.ask { color: #ffd479; }
+      @keyframes in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
     </style>
+    <div class="side"><h2>Gemini, live</h2><div class="log"></div></div>
     <div class="strip"><span class="who"></span><span class="text"></span><span class="meta"></span></div>
     <div class="ring"></div>
     <svg class="pointer" viewBox="0 0 26 26" aria-hidden="true"><path d="M3 2 L3 21 L8.2 16.4 L11.6 24 L15 22.5 L11.7 15 L18.6 15 Z" fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
@@ -105,7 +119,19 @@ function decorate({ reserved, x, y }) {
       },
       true,
     );
+    const log = root.querySelector(".log");
+    let last = "";
     window.__computerUseCaption = ({ who = "", text = "", meta = "" }) => {
+      if (side && text && text !== last) {
+        last = text;
+        const line = document.createElement("div");
+        line.className = `line new${/confirm|asks/i.test(text) ? " ask" : ""}`;
+        line.innerHTML = '<span class="m"></span><span class="t"></span>';
+        line.querySelector(".m").textContent = meta || who;
+        line.querySelector(".t").textContent = text;
+        log.append(line);
+        log.scrollTop = log.scrollHeight;
+      }
       root.querySelector(".who").textContent = who;
       root.querySelector(".text").textContent = text;
       root.querySelector(".meta").textContent = meta;
@@ -176,8 +202,8 @@ await context.route("**/*", (route) => {
   blocked.push(url);
   return route.abort("blockedbyclient");
 });
-let pointer = { x: Math.round(width / 2), y: Math.round(screen.height / 2) };
-await context.addInitScript(decorate, { reserved, ...pointer });
+let pointer = { x: Math.round(screen.width / 2), y: Math.round(screen.height / 2) };
+await context.addInitScript(decorate, { reserved, side, ...pointer });
 const page = await context.newPage();
 context.on("page", (other) => other !== page && other.close().catch(() => {}));
 page.on("dialog", (dialog) => dialog.dismiss().catch(() => {}));

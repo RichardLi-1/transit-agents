@@ -25,6 +25,7 @@
     --field: #ffffff;
     /* A harness can keep the bottom of the screen for its own captions. */
     --reserved-bottom: 0px;
+    --reserved-right: 0px;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: #3a6ea5; overflow: hidden; }
@@ -35,7 +36,7 @@
   .sunken { box-shadow: inset 1px 1px var(--shadow), inset -1px -1px var(--light), inset 2px 2px var(--dark), inset -2px -2px var(--face); }
   .thin-sunken { box-shadow: inset 1px 1px var(--shadow), inset -1px -1px var(--light); }
 
-  .window { position: fixed; inset: 0 0 var(--reserved-bottom) 0; display: flex; flex-direction: column; padding: 3px; }
+  .window { position: fixed; inset: 0 var(--reserved-right) var(--reserved-bottom) 0; display: flex; flex-direction: column; padding: 3px; }
   .titlebar { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 4px 0 6px; color: #fff; font-weight: bold;
     background: linear-gradient(90deg, #0a246a, #3a6ea5 55%, #a6caf0); flex: none; }
   .titlebar.inactive { background: linear-gradient(90deg, #808080, #b5b5b5); color: #d4d0c8; }
@@ -138,7 +139,7 @@
   .progress.on { display: block; }
   .progress span { display: block; height: 100%; width: 0; background: repeating-linear-gradient(90deg, var(--select) 0 12px, transparent 12px 15px); }
 
-  .modal-cover { position: fixed; inset: 0 0 var(--reserved-bottom) 0; z-index: 30; display: none; }
+  .modal-cover { position: fixed; inset: 0 var(--reserved-right) var(--reserved-bottom) 0; z-index: 30; display: none; }
   .modal-cover.open { display: block; }
   .dialog { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: 1000px; padding: 3px; }
   .dialog .titlebar { height: 32px; }
