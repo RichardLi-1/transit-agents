@@ -8,7 +8,7 @@ import { echoesDocument } from "../echo.ts";
 import { refusal, setNotice, unsaid, useNotice } from "../notice.ts";
 import { plain, plainBold } from "../plain.ts";
 import { EMPTY_USAGE, type Store } from "../store.ts";
-import { unasked, withAsked, type Asked } from "../suggestions.ts";
+import { local, unasked, wantsSimulator, withAsked, type Asked } from "../suggestions.ts";
 import { foldAt, waiting } from "../typing.ts";
 import { DocumentCard } from "./DocumentCard.tsx";
 import { ExecutiveCard, withoutExecutive, type Ping } from "./ExecutiveCard.tsx";
@@ -211,6 +211,13 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
   const post = async (words: string, typed: boolean) => {
     const trimmed = words.trim();
     if (!trimmed || !studyId || sending) return;
+    if (!local && wantsSimulator(trimmed)) {
+      // Opened before any wait, so the browser counts it as the viewer's own click.
+      window.open("/simulator/", "simulator", "popup,width=1440,height=860");
+      if (typed) setText("");
+      setAsked((now) => keepAsked(withAsked(now, studyId, trimmed)));
+      return setNotice("The simulator opened in a new window, for you to try. On a planner's own computer, Gemini drives it by sight.");
+    }
     setSending(true);
     if (typed) setText("");
     atFoot.current = true;
@@ -323,7 +330,7 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
         </div>
       )}
       {/* Between the log and the form, so its arrival moves nothing but the log's foot. */}
-      <p class="refusal" role="status">
+      <p class={notice?.startsWith("The simulator opened") ? "refusal ok" : "refusal"} role="status">
         {notice}
       </p>
       {usage.calls > 0 && (

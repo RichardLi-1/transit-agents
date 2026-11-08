@@ -4,11 +4,14 @@
 // On the local demo, computer use runs from the chat (npm run dev opens the simulator
 // on this machine), so it's offered there in place of the stakeholder question.
 export const SIMULATOR = "Retime the Don Mills & Eglinton signal in the simulator";
-const local = typeof location !== "undefined" && /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
+export const local = typeof location !== "undefined" && /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
+// An ask for the simulator: on the local demo Gemini drives it; elsewhere it opens for
+// the viewer to try, as no server here has a screen for Gemini to drive it on.
+export const wantsSimulator = (text: string) => /\b(simulator|signal timing|retime|computer use)\b/i.test(text);
 export const SUGGESTIONS = [
   "What would it cost to extend the Ontario Line up Don Mills to Sheppard?",
   "Compare the two alignment options",
-  local ? SIMULATOR : "Who needs to hear about this?",
+  SIMULATOR,
   "Make a TPAP brief as a PDF",
 ];
 

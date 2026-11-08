@@ -3154,3 +3154,8 @@ input[type="range"] {
 .pin:hover {
   z-index: 2;
 }
+
+/* A notice that isn't a refusal, such as the simulator opening. */
+.refusal.ok {
+  color: var(--muted);
+}
