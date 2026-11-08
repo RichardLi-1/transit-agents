@@ -9,6 +9,7 @@ import { StudyCard } from "./components/StudyCard.tsx";
 import { Thread } from "./components/Thread.tsx";
 import { TimeBar } from "./components/TimeBar.tsx";
 import { api } from "./api.ts";
+import { isTestBuild } from "./host.ts";
 import { canAdd, canPost, useSession } from "./session.ts";
 import { Simulator } from "./simulator.ts";
 import { useStore } from "./store.ts";
@@ -24,6 +25,7 @@ type TraceNode = {
 };
 
 const FIRST_REVIEW_DAYS = 365;
+const TEST_BUILD = isTestBuild(location.hostname);
 
 export function App() {
   const session = useSession();
@@ -111,6 +113,7 @@ export function App() {
     <>
       <header>
         <h1 class="sr-only">Transit Agents</h1>
+        {TEST_BUILD && <p class="tag build">Test build</p>}
         <Shelf
           contexts={store.contexts}
           reading={store.reading}

@@ -692,6 +692,23 @@ input[type="range"] {
   }
 }
 
+/* Test build ------------------------------------------------------------ */
+
+/* A tab in the top-right corner. At 12px tall it clears the folders on phones,
+   and 10px text keeps every letter inside it, so axe can check its contrast.
+   Fixed, so it moves nothing; clicks pass through it. */
+.build {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  padding: 0 8px;
+  border-radius: 0 0 0 8px;
+  font-size: 10px;
+  line-height: 12px;
+  pointer-events: none;
+}
+
 /* Quick Look ------------------------------------------------------------ */
 
 .quicklook {
@@ -917,6 +934,8 @@ input[type="range"] {
   .checks .label,
   .sub,
   .sub .question,
+  .decision,
+  .decision strong,
   .when .clock,
   .track .legend,
   .bubble.planner {

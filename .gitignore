@@ -10,3 +10,6 @@ coverage/
 .lighthouse/
 .venv/
 __pycache__/
+
+# Downloaded reference files (licences in references/manifest.json)
+/references/files/
