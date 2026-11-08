@@ -61,6 +61,15 @@ if (head.head.seq === 0) {
     env: { ...process.env, DATA_DIR: data, TRANSIT_URL: url },
   });
   await new Promise((resolve) => seed.on("exit", resolve));
+  // Under npm run dev, play the scripted runs too, so the studies (the Ontario Line
+  // among them) are there to open and chat in straight away.
+  if (process.env.DEV_ALL) {
+    const replay = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", join(root, "clients/replay.ts")], {
+      stdio: "inherit",
+      env: { ...process.env, DATA_DIR: data, TRANSIT_URL: url, REPLAY_GAP_MS: process.env.REPLAY_GAP_MS ?? "30" },
+    });
+    await new Promise((resolve) => replay.on("exit", resolve));
+  }
 }
 // Replay, decide and the agents find this service, and the tokens in the same folder.
 const settings = [url !== "http://127.0.0.1:4100" && `TRANSIT_URL=${url}`, process.env.DATA_DIR && `DATA_DIR=${data}`].filter(Boolean);

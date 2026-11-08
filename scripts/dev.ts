@@ -61,8 +61,12 @@ if (!up) {
 } else if (!existsSync(python)) {
   console.log(`\nNo agents/.venv yet, so the agents aren't running. Set it up with:\n  python3 -m venv agents/.venv && agents/.venv/bin/pip install -r agents/requirements.txt\n`);
 } else {
-  // Give the seed a moment, so the agents start on a seeded log.
-  await new Promise((resolve) => setTimeout(resolve, 3000));
+  // The agents start once the studies are there, so the chat has somewhere to talk.
+  for (let i = 0; i < 300; i++) {
+    const studies = await fetch(`${url}/v1/studies`).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+    if (Array.isArray(studies) && studies.length) break;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
   const env = { TRANSIT_URL: url, ...(process.env.DATA_DIR ? { DATA_DIR: process.env.DATA_DIR } : {}) };
   run("agent", python, [join(root, "agents/main.py"), "listen"], env);
   run("media", python, [join(root, "agents/media.py"), "listen"], env);
