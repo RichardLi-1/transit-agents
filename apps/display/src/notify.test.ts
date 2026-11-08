@@ -64,6 +64,13 @@ describe("notices", () => {
     assert.deepEqual([heard.notices[0]?.kind, heard.notices[0]?.target], ["handover", { kind: "decide", seq: handover.seq }]);
   });
 
+  it("says an executive decision is required when a run ends on one, and points Review at the answer, whose card offers the ping", () => {
+    const answer = activity({ kind: "message", text: "First pass, ready for planners.\n\nExecutive decision required: which option to fund." });
+    const heard = live(activity({ kind: "run.started" }), answer, activity({ kind: "run.finished" }));
+    assert.deepEqual(lines(heard), ["Executive decision required"]);
+    assert.deepEqual(heard.notices[0]?.target, { kind: "message", seq: answer.seq });
+  });
+
   it("reads the replay's hand-over to planners as one too", () => {
     const heard = live(activity({ kind: "message", text: "Draft ready for planners. Cost and riders are precedents." }), activity({ kind: "run.finished" }));
     assert.equal(heard.notices[0]?.kind, "handover");

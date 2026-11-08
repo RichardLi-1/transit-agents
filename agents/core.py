@@ -380,9 +380,20 @@ async def report(session: ClientSession, study: str, kind: str, **fields: Any) -
     return entry.get("seq") if isinstance(entry, dict) else None
 
 
+# The lead's last line when an answer needs an executive's decision. The display reads
+# it to offer a ping, so a cut keeps it. contracts' EXECUTIVE is the same words.
+EXECUTIVE = re.compile(r"\bexecutive decision required\b", re.I)
+
+
 def clip(text: str, limit: int) -> str:
-    """Shorten text to the limit the service allows, marking the cut."""
-    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+    """Shorten text to the limit the service allows, marking the cut. A last line
+    saying an executive decision is required stays, after the cut."""
+    if len(text) <= limit:
+        return text
+    body, _, last = text.rstrip().rpartition("\n")
+    if body and EXECUTIVE.search(last) and len(last) < limit // 2:
+        return body[: limit - len(last) - 3].rstrip() + "…\n\n" + last
+    return text[: limit - 1].rstrip() + "…"
 
 
 # The pages a run has read with read_page, the lead's and its specialists' alike, so

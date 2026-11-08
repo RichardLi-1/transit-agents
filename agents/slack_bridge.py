@@ -11,6 +11,9 @@ made from Slack: only a signed-in planner records one.
 
 "@Transit Agents what would the Don Mills extension cost?" asks the Ontario Line study.
 "ontario:", "lawrence:", "sherbourne:" or a study's id in front picks the study.
+
+An answer that needs an executive's decision says so, and "ping" in reply, in its thread,
+pings the executive on Slack as the slack planner, as the study's button does.
 """
 
 import json
@@ -57,6 +60,13 @@ NOT_THE_LEAD = frozenset({"agent:replay", "agent:media"})
 
 # What the lead says, without starting a run, when it won't answer: past its limits.
 HELD_BACK = ("The agent has reached today's spending limit", "The agent has answered as many messages")
+
+# The line the lead ends an answer with when it needs an executive's decision, as
+# contracts' EXECUTIVE, and a reply asking the bridge to ping the executive about it.
+EXECUTIVE = re.compile(r"\bexecutive decision required\b", re.I)
+PING = re.compile(r"^\s*ping[.!]?\s*$", re.I)
+NOTHING_TO_PING = "Nothing in this thread needs an executive's decision. Ask a question first."
+PING_FAILED = "I couldn't ping them just now. Try again, or ask a planner to ping from the study."
 
 # Leading user mentions, as Slack sends them: <@U123> or <@U123|name>.
 MENTION = re.compile(r"^\s*(?:<@[A-Z0-9]+(?:\|[^>]*)?>[\s,:]*)+", re.I)
@@ -175,6 +185,20 @@ def file_name(title: str) -> str:
     return f"{stem or 'document'}.pdf"
 
 
+def executive_decision(answer: str) -> str | None:
+    """The decision on an answer's last executive line, or None without one."""
+    lines = [line for line in answer.splitlines() if EXECUTIVE.search(line)]
+    if not lines:
+        return None
+    decision = re.sub(r"^.*?\bexecutive decision required\b\s*[:.\-–—]?\s*", "", lines[-1], flags=re.I).strip()
+    return decision[:1].upper() + decision[1:] if decision else None
+
+
+def offer(name: str) -> str:
+    """What the bridge adds to an answer that needs an executive's decision."""
+    return f"*Executive decision required.* Ask a planner to ping {name} from the study, or reply `ping` here."
+
+
 def link(public_url: str, study: str) -> str:
     return f"<{public_url.rstrip('/')}/#{study}|Open the study>"
 
@@ -236,6 +260,26 @@ class Service:
         response.raise_for_status()
         return response.json()
 
+    def executive(self) -> str | None:
+        """Who a planner can ping about an executive decision, or None when Slack isn't set up."""
+        response = self.http.get(f"{self.url}/v1/config")
+        response.raise_for_status()
+        name = response.json().get("executive")
+        return name if isinstance(name, str) else None
+
+    def escalate(self, study: str, text: str, message: int | None) -> tuple[bool, str]:
+        """Ping the executive about a decision: whether it went, and the service's words if not."""
+        body: dict[str, Any] = {"text": text[:300]}
+        if message is not None:
+            body["message"] = message
+        response = self.http.post(f"{self.url}/v1/studies/{study}/escalate", json=body)
+        if response.is_success:
+            return True, str(response.json().get("to", ""))
+        try:
+            return False, str(response.json()["error"]["message"])
+        except (ValueError, KeyError, TypeError):
+            return False, ""
+
 
 class Bridge:
     """Answers one Slack message at a time, each in its own thread: Bolt runs each
@@ -259,6 +303,9 @@ class Bridge:
         self.clock = clock
         self.seen: set[str] = set()
         self.lock = threading.Lock()
+        # Each thread's answer that needs an executive's decision: its study, the
+        # decision and the answer's log position, for a "ping" in reply.
+        self.pending: dict[str, tuple[str, str, int | None]] = {}
 
     def first_time(self, key: str) -> bool:
         """Whether this Slack message is new: Slack may deliver an event again."""
@@ -285,6 +332,9 @@ class Bridge:
             post(FAILED)
             return
         request = parse(event.get("text", ""), known)
+        if PING.match(request.text) and event.get("thread_ts"):
+            self.ping(f"{channel}:{thread}", post)
+            return
         if not request.text:
             post(NO_QUESTION)
             return
@@ -307,15 +357,23 @@ class Bridge:
             say(FAILED)
             return
         print(f"{request.study}: asked from Slack at {seq}", flush=True)
-        answer = self.wait(request.study, seq)
-        if answer is None:
+        found = self.wait(request.study, seq)
+        if found is None:
             say(f"{TIMED_OUT}\n\n{link(self.public_url, request.study)}")
             print(f"{request.study}: no answer to {seq} in time", flush=True)
+            return
+        answer, answered = found
+        decision = executive_decision(answer)
+        name = self.executive() if decision else None
+        if decision and name:
+            with self.lock:
+                self.pending[f"{channel}:{thread}"] = (request.study, decision, answered)
+            say(f"{reply(answer, self.public_url, request.study)}\n\n{offer(name)}")
         else:
             say(reply(answer, self.public_url, request.study))
-            print(f"{request.study}: answered {seq} in Slack", flush=True)
-            if document := document_in(answer):
-                self.attach(client, channel, thread, *document)
+        print(f"{request.study}: answered {seq} in Slack", flush=True)
+        if document := document_in(answer):
+            self.attach(client, channel, thread, *document)
 
     def attach(self, client: Any, channel: str, thread: str, sha: str, title: str, url: str) -> None:
         """Put a document's PDF in the thread, so it opens in Slack. The answer already
@@ -329,8 +387,35 @@ class Bridge:
             detail = getattr(getattr(error, "response", None), "data", None) or type(error).__name__
             print(f"Couldn't attach the PDF in Slack ({detail}); the answer links it. Add the files:write scope to attach it.", file=sys.stderr, flush=True)
 
-    def wait(self, study: str, seq: int) -> str | None:
-        """The lead's answer to the message at `seq`, or None after wait_seconds."""
+    def executive(self) -> str | None:
+        """The executive's name, or None when Slack can't take a ping."""
+        try:
+            return self.service.executive()
+        except httpx.HTTPError:
+            return None
+
+    def ping(self, key: str, post: Callable[[str], Any]) -> None:
+        """Ping the executive about the decision this thread's answer named."""
+        with self.lock:
+            pending = self.pending.get(key)
+        if not pending:
+            post(NOTHING_TO_PING)
+            return
+        study, decision, message = pending
+        try:
+            sent, said = self.service.escalate(study, decision, message)
+        except httpx.HTTPError as error:
+            print(f"{study}: can't ping the executive: {type(error).__name__}", file=sys.stderr, flush=True)
+            sent, said = False, ""
+        if sent:
+            post(f"Pinged {said or 'the executive'} on Slack.\n\n{link(self.public_url, study)}")
+            print(f"{study}: pinged the executive from Slack", flush=True)
+        else:
+            post(said or PING_FAILED)
+
+    def wait(self, study: str, seq: int) -> tuple[str, int | None] | None:
+        """The lead's answer to the message at `seq`, with its own log position, or None
+        after wait_seconds."""
         entries: list[dict[str, Any]] = []
         after = seq
         deadline = self.clock() + self.wait_seconds
@@ -343,7 +428,8 @@ class Bridge:
                 entries.extend(entry for entry in page if entry.get("studyId") == study)
                 after = page[-1]["seq"]
                 if (answer := answer_in(entries, study, seq)) is not None:
-                    return answer
+                    at = [e["seq"] for e in entries if e["seq"] > seq and e.get("type") == "activity" and (e.get("data") or {}).get("text") == answer]
+                    return answer, (at[-1] if at and answer else None)
             if len(page) < 200:
                 self.sleep(self.poll_seconds)
         return None

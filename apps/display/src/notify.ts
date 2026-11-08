@@ -2,7 +2,7 @@
 // media or a document that is ready, a decision, an answer, and a brief a planner changed. Only new entries notify. What the
 // log already held when the display opened only fills in what a notice names, such
 // as the place a need is for.
-import { HANDOVER, NO_ANSWER, type Activity, type LogEntry, type Outcome } from "@transit-agents/contracts";
+import { EXECUTIVE, HANDOVER, NO_ANSWER, type Activity, type LogEntry, type Outcome } from "@transit-agents/contracts";
 
 export type NoticeKind = "finding" | "handover" | "need" | "media" | "decision" | "answer" | "brief" | "document";
 
@@ -81,7 +81,9 @@ export function hear(heard: Heard, entry: LogEntry, live: boolean): Heard {
       said = { ...said, [studyId]: person ? undefined : { seq: entry.seq, text: activity.text } };
     } else if (activity.kind === "run.finished") {
       const last = said[studyId];
-      if (last && HANDOVER.test(last.text)) raised = { kind: "handover", text: CALL, target: { kind: "decide", seq: last.seq } };
+      // A decision above a planner's: Review goes to the answer, where its card offers the ping.
+      if (last && EXECUTIVE.test(last.text)) raised = { kind: "answer", text: "Executive decision required", target: { kind: "message", seq: last.seq } };
+      else if (last && HANDOVER.test(last.text)) raised = { kind: "handover", text: CALL, target: { kind: "decide", seq: last.seq } };
       // A document's own notice already says it's ready.
       else if (last && !NO_ANSWER.test(last.text) && !DOCUMENT_READY.test(last.text)) raised = { kind: "answer", text: "Answer ready", target: { kind: "message", seq: last.seq } };
     }

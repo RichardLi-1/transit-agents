@@ -98,7 +98,7 @@ describe("guest passes over HTTP", () => {
     assert.equal((service.log.db.prepare("SELECT count(*) AS n FROM idempotency").get() as { n: number }).n, 0);
     const me = await call("GET", "/v1/me", pass.token);
     assert.deepEqual(await me.json(), { role: "guest", name: pass.token.split(".")[1] });
-    assert.deepEqual(await (await call("GET", "/v1/config")).json(), { auth: "demo", signIn: null, guests: true });
+    assert.deepEqual(await (await call("GET", "/v1/config")).json(), { auth: "demo", signIn: null, guests: true, executive: null });
   });
 
   it("refuses a pass that doesn't check out, never reading it as no token", async () => {
@@ -147,7 +147,7 @@ describe("guest passes over HTTP", () => {
     const response = await call("POST", "/v1/guests");
     assert.equal(response.status, 404);
     assert.equal((await response.json()).error.code, "not_found");
-    assert.deepEqual(await (await call("GET", "/v1/config")).json(), { auth: "demo", signIn: null, guests: false });
+    assert.deepEqual(await (await call("GET", "/v1/config")).json(), { auth: "demo", signIn: null, guests: false, executive: null });
     // A pass the service would have signed, had it a secret, is still refused.
     const { token } = issueGuest(SECRET, NOW);
     assert.equal((await call("GET", "/v1/me", token)).status, 401);

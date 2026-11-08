@@ -35,6 +35,20 @@ describe("usage", () => {
   });
 });
 
+describe("escalations", () => {
+  it("keeps each ping to the executive, with the answer it was about, for every viewer's chat", () => {
+    let store = reduce(initial, activity({ kind: "message", text: "Option A is longer.\n\nExecutive decision required: which option to fund." }));
+    const answer = store.messages[0]?.seq;
+    store = reduce(store, activity({ kind: "escalation.sent", text: "which option to fund.", to: "Jordan Lee", message: answer }, "planner:ana"));
+    assert.deepEqual(
+      store.escalations.map(({ studyId, message, text, to, at }) => ({ studyId, message, text, to, at })),
+      [{ studyId: "s", message: answer, text: "which option to fund.", to: "Jordan Lee", at: "2026-11-08T00:00:00.000Z" }],
+    );
+    // A ping is no message.
+    assert.equal(store.messages.length, 1);
+  });
+});
+
 describe("subagents", () => {
   it("tells one that answered from one that stopped", () => {
     let store = initial;

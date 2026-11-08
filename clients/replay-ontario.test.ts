@@ -1,6 +1,7 @@
 // The answer the Ontario Line's scripted run gives the planner's question.
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { executiveDecision } from "@transit-agents/contracts";
 import { answer } from "./replay-ontario.ts";
 import { GAP, ONTARIO } from "./seed-ontario.ts";
 
@@ -32,5 +33,10 @@ describe("the Ontario Line's answer", () => {
       assert.ok(line.startsWith(`- ${text.slice(0, -1)} (`), line);
       assert.ok(line.endsWith(` p. ${citation.page}).`), line);
     }
+  });
+
+  it("ends asking for an executive's decision, which the display offers to ping about", () => {
+    assert.equal(lines.at(-1), "Executive decision required: whether to fund the extension's next stage of design.");
+    assert.equal(executiveDecision(lines.join("\n")), "Whether to fund the extension's next stage of design.");
   });
 });

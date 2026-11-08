@@ -1,4 +1,6 @@
+import { Fragment } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { EXECUTIVE } from "@transit-agents/contracts";
 import { api } from "../api.ts";
 import { spentUsd } from "../money.ts";
 import { withCites } from "../cites.ts";
@@ -7,6 +9,7 @@ import { plain } from "../plain.ts";
 import { EMPTY_USAGE, type Store } from "../store.ts";
 import { foldAt, waiting } from "../typing.ts";
 import { DocumentCard } from "./DocumentCard.tsx";
+import { ExecutiveCard, withoutExecutive, type Ping } from "./ExecutiveCard.tsx";
 import { CheckIcon, SendIcon, StaleIcon } from "./icons.tsx";
 
 const number = new Intl.NumberFormat("en-CA");
@@ -50,6 +53,8 @@ type Props = {
   store: Store;
   studyId: string | null;
   canPost: boolean;
+  // Who a planner can ping about an answer's executive decision.
+  ping: Ping;
   // Opens a cited page, as a figure's source opens.
   onPage: (contextId: string, page: number, element: Element) => void;
 };
@@ -70,6 +75,9 @@ function Text({ text, ids, onPage }: { text: string; ids: string[]; onPage: Prop
     </>
   );
 }
+
+// An agent's answer that ends asking for an executive's decision.
+const executive = (message: { from: string; text: string }) => message.from === "agent" && EXECUTIVE.test(message.text);
 
 // How fast a new answer types out, in characters a second.
 const STREAM_CPS = 320;
@@ -93,6 +101,7 @@ function Streamed({ text, ids, onPage, onDone }: { text: string; ids: string[]; 
       const next = Math.min(full.length, Math.ceil(((now - started) / 1000) * STREAM_CPS));
       setShown(next);
       if (next < full.length) frame = requestAnimationFrame(tick);
+      else onDone();
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
@@ -111,7 +120,7 @@ function Streamed({ text, ids, onPage, onDone }: { text: string; ids: string[]; 
   );
 }
 
-export function Chat({ store, studyId, canPost, onPage }: Props) {
+export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
   const ids = store.contexts.map((context) => context.id);
   const [text, setText] = useState("");
   // Whether the earlier messages show, and the studies the viewer has said something in.
@@ -137,6 +146,9 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
   const messages = store.messages.filter((m) => m.studyId === studyId);
   const subagents = store.subagents.filter((s) => s.studyId === studyId);
   const documents = store.documents.filter((d) => d.studyId === studyId);
+  const escalations = store.escalations.filter((e) => e.studyId === studyId);
+  // An answer that types out shows its executive card once it's whole.
+  const [, typed] = useState(0);
   // Messages, sub-agents and documents in the order the log has them.
   const items = [...messages, ...subagents, ...documents].sort((a, b) => a.seq - b.seq);
   // Whether any of this study's chat is the scripted replay's, whatever came after.
@@ -226,14 +238,33 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
           "url" in item ? (
             <DocumentCard key={`d${item.seq}`} document={item} />
           ) : "text" in item ? (
-            <p key={`m${item.seq}`} class={`bubble ${item.from}`} data-seq={item.seq}>
-              {item.replay && <span class="sr-only">Replay: </span>}
-              {streams.current.get(item.seq) ? (
-                <Streamed text={item.text} ids={ids} onPage={onPage} onDone={() => void streams.current.set(item.seq, false)} />
-              ) : (
-                <Text text={item.text} ids={ids} onPage={onPage} />
+            <Fragment key={`m${item.seq}`}>
+              <p class={`bubble ${item.from}`} data-seq={item.seq}>
+                {item.replay && <span class="sr-only">Replay: </span>}
+                {streams.current.get(item.seq) ? (
+                  <Streamed
+                    text={executive(item) ? withoutExecutive(item.text) : item.text}
+                    ids={ids}
+                    onPage={onPage}
+                    onDone={() => {
+                      if (streams.current.get(item.seq)) typed((n) => n + 1);
+                      streams.current.set(item.seq, false);
+                    }}
+                  />
+                ) : (
+                  <Text text={executive(item) ? withoutExecutive(item.text) : item.text} ids={ids} onPage={onPage} />
+                )}
+              </p>
+              {executive(item) && studyId && !streams.current.get(item.seq) && (
+                <ExecutiveCard
+                  studyId={studyId}
+                  seq={item.seq}
+                  text={item.text}
+                  sent={escalations.filter((e) => e.message === item.seq).at(-1)}
+                  ping={ping}
+                />
               )}
-            </p>
+            </Fragment>
           ) : (
             <div key={`s${item.id}`} class={`sub${item.summary ? (item.ok ? " done" : " stopped") : ""}`}>
               <span class="mark" aria-hidden="true">

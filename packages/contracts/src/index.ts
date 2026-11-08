@@ -20,8 +20,10 @@ export type AccessMode = z.infer<typeof AccessMode>;
 export type SignIn = { provider: "auth0"; domain: string; clientId: string; audience: string };
 
 // GET /v1/config, which needs no token. signIn is null when people can't sign in.
-// guests is true when the service gives out guest passes.
-export type ServiceConfig = { auth: AccessMode; signIn: SignIn | null; guests: boolean };
+// guests is true when the service gives out guest passes. executive is the name of
+// the person a planner can ping on Slack about an executive decision, and null when
+// Slack isn't set up. Older services send none.
+export type ServiceConfig = { auth: AccessMode; signIn: SignIn | null; guests: boolean; executive?: string | null };
 
 // GET /v1/me: who the caller is.
 export type Me = { role: Role; name: string };
@@ -547,7 +549,42 @@ export type Activity = z.infer<typeof Activity>;
 // agent posts when a run stops without an answer, BUDGET_SPENT's words included,
 // is no answer. The display's notices and the Slack integration both read these.
 export const HANDOVER = /\bfor a planner to decide:|\bready for planners\b/i;
+// The line the lead ends an answer with when it turns on a decision above a
+// planner's authority, such as which option to fund: "Executive decision required:
+// <the decision>." The display offers to ping the executive about it.
+export const EXECUTIVE = /\bexecutive decision required\b/i;
 export const NO_ANSWER = /^(That failed\.|That took more than|Stopped before answering\.|The lead gave no answer\.|Visitors have used today's agent budget\.)/;
+
+// The decision an answer's executive line names, or null without one: the text after
+// "Executive decision required:" on its last such line, capitalised. A line without a decision
+// after it names none.
+export function executiveDecision(text: string): string | null {
+  const lines = text.split("\n").filter((line) => EXECUTIVE.test(line));
+  const decision = lines.at(-1)?.replace(/^[\s\-•*]*/, "").replace(/^.*?\bexecutive decision required\b\s*[:.\-–—]?\s*/i, "").trim();
+  // As a line of its own, so it starts with a capital.
+  return decision ? decision.charAt(0).toUpperCase() + decision.slice(1) : null;
+}
+
+// A planner pinged the executive on Slack about a decision: the decision, who it
+// went to, and the log position of the answer that asked for it. Only POST
+// /v1/studies/:id/escalate logs one, as an activity, so agents can't post it.
+export const Escalation = z.object({
+  kind: z.literal("escalation.sent"),
+  text: z.string().min(1).max(300),
+  to: z.string().min(1).max(100),
+  message: z.number().int().positive().optional(),
+});
+export type Escalation = z.infer<typeof Escalation>;
+// What an activity entry in the log holds: what agents and people post, or a ping.
+export type LoggedActivity = Activity | Escalation;
+
+// POST /v1/studies/:id/escalate: the decision, or the answer's executive line, and
+// the answer's log position, which makes a second ping for it a repeat.
+export const NewEscalation = z.object({
+  text: z.string().trim().min(1).max(300),
+  message: z.number().int().positive().optional(),
+});
+export type NewEscalation = z.input<typeof NewEscalation>;
 
 export type Usage = {
   inputTokens: number;

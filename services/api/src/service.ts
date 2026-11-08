@@ -11,6 +11,7 @@ import {
   MEDIA_TYPES,
   variables,
   type Activity,
+  type Escalation,
   type Analysis,
   type Assumption,
   type Basis,
@@ -952,7 +953,8 @@ export class Service {
 
   // --- Activity ------------------------------------------------------------
 
-  recordActivity(actor: string, studyId: string, activity: Activity): Entry {
+  // An Escalation comes only from a planner's ping, never from POST .../activity.
+  recordActivity(actor: string, studyId: string, activity: Activity | Escalation): Entry {
     this.study(studyId);
     if (activity.kind === "reading" && !this.state.contexts.has(activity.contextId)) {
       throw new ApiError(422, "unknown_source", `No context "${activity.contextId}"`);

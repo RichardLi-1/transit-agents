@@ -105,6 +105,7 @@ Full schema at `GET /openapi.json`.
 - Set or change a rule or assumption: `PUT /v1/assumptions/{key}`
 - Try a change without recording it: `POST /v1/studies/{id}/preview`
 - Record a decision: `POST /v1/studies/{id}/decisions`
+- Ping the executive on Slack about an answer's executive decision (planners only): `POST /v1/studies/{id}/escalate`
 - Propose something to make for public engagement: `POST /v1/studies/{id}/needs`
 - Ask for it to be made: `POST /v1/studies/{id}/needs/{need}/create`
 - Take a request on before spending anything (agents only): `POST /v1/studies/{id}/needs/{need}/claim`
@@ -172,6 +173,32 @@ tests. Only the shared record is posted, never a visitor's sandbox, and never
 anyone's words: not a message, a reason or a prompt. The address is a secret,
 so no log line or error shows it. A post times out after 3 s, is tried once
 more, and is then dropped with a log line; the service never waits for it.
+
+An answer that needs a decision above a planner's authority, such as which
+alignment option to fund, committing capital, starting a TPAP or a trade-off
+between agencies, ends with one line: "Executive decision required: <the
+decision>." Its Slack notice says "Executive decision required" instead of
+"Needs your call", and mentions nobody. Under it, the chat offers "I can ping
+<name> on Slack for you", with a button only a planner can press (`AUTH=open`
+acts as one). The button calls `POST /v1/studies/{id}/escalate` with the
+decision and the answer's log position. The service posts to the same channel:
+"Executive decision required", an @-mention of the executive, the decision, the
+answer's first sentence, the study with its link and "Raised by <planner>". It
+logs an `escalation.sent` activity, so every viewer's chat says "Pinged <name>
+on Slack" with the time. A second ping about the same answer within 10 minutes
+is refused (409), and Slack failing is a 502 the planner can retry. Without
+`SLACK_WEBHOOK_URL` it's a 503 and the chat says Slack isn't set up. Agents
+can't ping: the route isn't an MCP tool, and `POST .../activity` takes no
+`escalation.sent`.
+
+`SLACK_EXECUTIVE` names who it pings: `SLACK_EXECUTIVE="Jordan Lee <U0123ABCD>"`,
+a name and a Slack member ID (their profile › ⋮ › Copy member ID), which the
+message turns into `<@U0123ABCD>`, a real mention. A name alone is posted in
+bold, with no mention; unset, the name is "the executive sponsor". `GET
+/v1/config` gives only the name, as `executive`, and null without a webhook. It
+is the service's setting: export it in the shell that runs `npm run dev` or
+`npm run serve`, or on Fly run `fly secrets set SLACK_EXECUTIVE="..."`.
+agents/.env doesn't reach the service.
 
 Writes from a browser page on another site or port are refused (403), token or
 not, as on `/v1/mcp`: a write's `Origin`, when it has one, must be the service's

@@ -10,7 +10,7 @@ import { loadSchedule, Measurements, openMeasurements } from "./collector.ts";
 import { watchInbox } from "./inbox.ts";
 import { VisitorLimits } from "./limits.ts";
 import { Service } from "./service.ts";
-import { Slack, slackUrl } from "./slack.ts";
+import { parseExecutive, Slack, slackUrl } from "./slack.ts";
 import { buildTimeline } from "./timeline.ts";
 import { Webhooks } from "./webhooks.ts";
 
@@ -76,7 +76,9 @@ const webhooks = new Webhooks(service, process.env.PUBLIC_URL);
 // Notices to one Slack channel. The address is a secret, so no line here prints it.
 const slackAddress = slackUrl(process.env.SLACK_WEBHOOK_URL);
 const slack = slackAddress ? new Slack(service, slackAddress, { publicUrl: process.env.PUBLIC_URL }) : null;
-if (slack) console.log("Slack is on: the shared record's notices go to SLACK_WEBHOOK_URL.");
+// Who a planner can ping about a decision above their authority: "Name <U0123ABCD>".
+const executive = parseExecutive(process.env.SLACK_EXECUTIVE);
+if (slack) console.log(`Slack is on: the shared record's notices go to SLACK_WEBHOOK_URL, and planners can ping ${executive.name}${executive.member ? " (with an @-mention)" : ""}.`);
 else if (process.env.SLACK_WEBHOOK_URL) console.warn("Slack is off: SLACK_WEBHOOK_URL must be a Slack incoming webhook, https://hooks.slack.com/services/...");
 const stopInbox = watchInbox(service, join(dataDir, "inbox"));
 // Measurements live apart from the log, so a demo can reset one without losing
@@ -102,6 +104,8 @@ const app = createApp({
   budget,
   limits: new VisitorLimits(),
   visitorAgents,
+  slack,
+  executive,
 });
 
 // HTTP/1.1, so it can close every connection. PORT=0 takes any free port.

@@ -247,12 +247,13 @@ describe("config", () => {
       auth: "token",
       signIn: { provider: "auth0", domain: "tenant.auth0.test", clientId: "display-client", audience: "https://api.transit.test" },
       guests: false,
+      executive: null,
     });
   });
 
   it("names the mode, and has no sign-in when Auth0 isn't set up", async () => {
     for (const access of ["token", "open", "demo"] as const) {
-      assert.deepEqual(await (await setup({ access }).call("GET", "/v1/config")).json(), { auth: access, signIn: null, guests: false });
+      assert.deepEqual(await (await setup({ access }).call("GET", "/v1/config")).json(), { auth: access, signIn: null, guests: false, executive: null });
     }
   });
 

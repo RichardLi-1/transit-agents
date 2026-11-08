@@ -283,6 +283,30 @@ class AlignmentTest(unittest.TestCase):
         self.assertIn("Never draw or describe a line the tool didn't build", lead.INSTRUCTIONS)
 
 
+class ExecutiveTest(unittest.TestCase):
+    def test_the_lead_ends_an_answer_above_a_planners_authority_with_the_executive_line(self):
+        rule = lead.INSTRUCTIONS
+        self.assertIn('"Executive decision required: <the decision, in under 15 words>."', rule)
+        self.assertIn("Comparing the alignment options always ends with it.", rule)
+        for example in ("which alignment option to fund or advance", "committing capital", "starting a TPAP", "a trade-off between agencies"):
+            self.assertIn(example, rule)
+        self.assertIn("never make or lean towards the choice", rule)
+        # The display offers the ping, so the name always matches the setting.
+        self.assertIn("Don't name who decides, and don't offer to contact anyone", rule)
+        self.assertIn("Never use the line for ordinary questions, facts, costs asked for alone, what ifs or drafts", rule)
+        # A planner's call is still handed over, without the line.
+        self.assertIn("is handed over as above, without the line", rule)
+
+    def test_a_long_answer_keeps_its_executive_line_when_cut(self):
+        line = "Executive decision required: which alignment option to fund."
+        text = "x " * 3000 + "\n\n" + line
+        cut = core.clip(text, 4000)
+        self.assertEqual(len(cut), 4000)
+        self.assertTrue(cut.endswith("…\n\n" + line))
+        self.assertEqual(core.clip("short\n" + line, 4000), "short\n" + line)
+        self.assertEqual(core.clip("y" * 5000, 4000), "y" * 3999 + "…")
+
+
 BRIEF_POINT = {
     "text": "1,680 more riders a week",
     "citation": {"contextId": SOURCE, "page": 1, "quote": "weekly ridership increase of 1,680 customers"},

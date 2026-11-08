@@ -146,7 +146,8 @@ const PLAN =
 
 // The answer: the precedent cost and its basis, then each gap on the card with its
 // next step, who to contact and its page, as agents/skills/handover sets out. It
-// opens with "ready for planners", the words that mark the replay's hand-over.
+// opens with "ready for planners", the words that mark the replay's hand-over, and
+// ends with the executive decision it needs, as the lead's answers do.
 export function answer(value: Value, findings: { text: string; citation: Citation }[]): string {
   const gaps = findings.filter((finding) => GAP.test(finding.text));
   return [
@@ -158,6 +159,8 @@ export function answer(value: Value, findings: { text: string; citation: Citatio
       ...gaps.map(({ text, citation }) => `- ${text.replace(/\.$/, "")} (${SHORT[citation.contextId] ?? citation.contextId} p. ${citation.page}).`),
     ].join("\n"),
     "Before anyone relies on the cost, a planner confirms the optimism bias adjustment and rebases the dollars (BCM pp. 103, 179).",
+    // Committing billions is above a planner's authority, so the display offers to ping the executive.
+    "Executive decision required: whether to fund the extension's next stage of design.",
   ].join("\n\n");
 }
 

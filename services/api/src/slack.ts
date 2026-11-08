@@ -8,7 +8,7 @@
 // The webhook's address is itself the secret, so it never appears in a log line or
 // an error. Posting never blocks the service: each notice waits its turn in a short
 // queue, times out quickly, is tried twice at most, and is dropped after that.
-import { HANDOVER, NO_ANSWER, type Activity, type Decision, type Outcome } from "@transit-agents/contracts";
+import { EXECUTIVE, HANDOVER, NO_ANSWER, type Decision, type LoggedActivity, type Outcome } from "@transit-agents/contracts";
 import type { Entry } from "./log.ts";
 import type { Service } from "./service.ts";
 
@@ -46,6 +46,20 @@ export function slackUrl(raw: string | undefined): URL | null {
   return null;
 }
 
+// Who a planner pings about a decision above their authority, from SLACK_EXECUTIVE:
+// a name, then their Slack member ID in angle brackets, for an @-mention, as in
+// "Jordan Lee <U0123ABCD>". A name alone is posted in bold, without a mention.
+export type Executive = { name: string; member?: string };
+export const DEFAULT_EXECUTIVE = "the executive sponsor";
+const MEMBER = /^[UW][A-Z0-9]{2,30}$/;
+
+export function parseExecutive(raw: string | undefined): Executive {
+  const match = (raw ?? "").trim().match(/^(.*?)\s*(?:<@?([A-Za-z0-9]+)>)?$/);
+  const name = (match?.[1] ?? "").replace(/[<>*_~`]/g, "").replace(/\s+/g, " ").trim().slice(0, 80) || DEFAULT_EXECUTIVE;
+  const member = match?.[2]?.toUpperCase();
+  return member && MEMBER.test(member) ? { name, member } : { name };
+}
+
 // Slack's mrkdwn treats these three as control characters.
 const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
@@ -55,6 +69,38 @@ export function message(notice: Pick<Notice, "headline" | "detail">, study: stri
   const text = `${escape(what)}. ${escape(study)}.${open}`;
   const section = `*${escape(what)}*\n${escape(study)}${link ? ` · <${link}|Open the study>` : ""}`;
   return { text, blocks: [{ type: "section", text: { type: "mrkdwn", text: section } }] };
+}
+
+// A planner's ping about a decision above their authority: the headline, the
+// executive, @-mentioned when their member ID is known, the decision, the answer's
+// gist, the study with its link, and who raised it.
+export function escalation(
+  executive: Executive,
+  { decision, summary, study, link, raisedBy }: { decision: string; summary?: string | undefined; study: string; link?: string | undefined; raisedBy: string },
+): SlackMessage {
+  const to = executive.member ? `<@${executive.member}>` : `*${escape(executive.name)}*`;
+  const plainTo = executive.member ? `<@${executive.member}>` : escape(executive.name);
+  const open = link ? ` <${link}|Open the study>` : "";
+  const text = `Executive decision required, for ${plainTo}: ${escape(decision)} ${escape(study)}.${open} Raised by ${escape(raisedBy)}.`;
+  const lines = [
+    `*Executive decision required*, for ${to}`,
+    escape(decision),
+    ...(summary ? [`_${escape(summary)}_`] : []),
+    `${escape(study)}${link ? ` · <${link}|Open the study>` : ""}`,
+    `Raised by ${escape(raisedBy)}`,
+  ];
+  return { text, blocks: [{ type: "section", text: { type: "mrkdwn", text: lines.join("\n") } }] };
+}
+
+// An answer's gist for a ping: its first sentence, at most 200 characters, cut at a word.
+export function gist(answer: string): string | undefined {
+  const first = answer.trim().split("\n")[0]?.trim() ?? "";
+  if (!first || EXECUTIVE.test(first)) return undefined;
+  // A sentence ends before a capital, not at a cited page's "p.".
+  const sentence = first.match(/^.+?(?<!\bpp?)[.!?](?=\s+[A-Z]|$)/)?.[0] ?? first;
+  if (sentence.length <= 200) return sentence;
+  const cut = sentence.slice(0, 199);
+  return `${cut.slice(0, cut.lastIndexOf(" ") > 100 ? cut.lastIndexOf(" ") : 199).trimEnd()}…`;
 }
 
 // Where the display opens on a study.
@@ -75,7 +121,7 @@ export function notice(entry: Entry, said: Map<string, string>, service: Service
   let raised: Notice | null = null;
 
   if (entry.type === "activity" && studyId) {
-    const activity = entry.data as Activity;
+    const activity = entry.data as LoggedActivity;
     if (activity.kind === "message") {
       if (PERSON.test(entry.actor)) said.delete(studyId);
       else said.set(studyId, activity.text);
@@ -83,7 +129,9 @@ export function notice(entry: Entry, said: Map<string, string>, service: Service
     }
     if (activity.kind === "run.finished") {
       const last = said.get(studyId);
-      if (last && HANDOVER.test(last)) raised = { headline: "Needs your call", studies: [studyId] };
+      // A decision above a planner's authority. Only a planner's ping @-mentions anyone.
+      if (last && EXECUTIVE.test(last)) raised = { headline: "Executive decision required", studies: [studyId] };
+      else if (last && HANDOVER.test(last)) raised = { headline: "Needs your call", studies: [studyId] };
       else if (last && !NO_ANSWER.test(last)) raised = { headline: "Answer ready", studies: [studyId] };
     }
     // A run's answer is its last word: anything it does after a message, but read,
@@ -168,16 +216,24 @@ export class Slack {
 
   // Waits its turn, so notices arrive in order.
   send(body: SlackMessage) {
+    void this.sendAndWait(body);
+  }
+
+  // As send, and resolves to null once Slack has the message, or to why it doesn't.
+  sendAndWait(body: SlackMessage): Promise<string | null> {
     if (this.waiting >= QUEUE) {
       this.warn("Slack: too many notices waiting; dropped one");
-      return;
+      return Promise.resolve("too many notices waiting");
     }
     this.waiting += 1;
-    this.queue = this.queue
-      .then(() => this.deliver(JSON.stringify(body)))
-      .finally(() => {
-        this.waiting -= 1;
-      });
+    const delivered = this.queue.then(() => this.deliver(JSON.stringify(body)));
+    this.queue = delivered.then(
+      () => undefined,
+      () => undefined,
+    ).finally(() => {
+      this.waiting -= 1;
+    });
+    return delivered;
   }
 
   // Resolves once every notice sent so far has been posted or dropped.
@@ -185,10 +241,10 @@ export class Slack {
     return this.queue;
   }
 
-  private async deliver(body: string) {
+  private async deliver(body: string): Promise<string | null> {
     let reason = "";
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      if (this.stopped) return;
+      if (this.stopped) return "stopped";
       try {
         const response = await this.post(this.url, {
           method: "POST",
@@ -197,7 +253,7 @@ export class Slack {
           signal: AbortSignal.timeout(this.timeoutMs),
         });
         await response.body?.cancel();
-        if (response.ok) return;
+        if (response.ok) return null;
         reason = `Slack returned ${response.status}`;
       } catch (error) {
         // Only the error's kind: a message could quote the address.
@@ -207,6 +263,7 @@ export class Slack {
       if (attempt === 1) await new Promise((resolve) => setTimeout(resolve, this.retryMs).unref());
     }
     this.warn(`Slack: a notice was not posted (${reason})`);
+    return reason;
   }
 
   stop() {

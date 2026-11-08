@@ -1,7 +1,7 @@
 // The display's view of the service. It listens to the event stream and asks for
 // fresh study values when something changes. It holds no truth of its own.
 import { useEffect, useState } from "preact/hooks";
-import type { Activity, Assumption, Context, LogEntry, StudyView, Usage } from "@transit-agents/contracts";
+import type { Assumption, Context, LoggedActivity, LogEntry, StudyView, Usage } from "@transit-agents/contracts";
 import { api, bearer, eventsUrl } from "./api.ts";
 import { hear, NOTHING_HEARD, type Heard } from "./notify.ts";
 import { track, type Runs } from "./runs.ts";
@@ -17,6 +17,10 @@ export type Subagent = { seq: number; id: string; studyId: string | null; questi
 // A PDF an agent made of a study, which the chat shows where the log has it.
 export type DocumentItem = { seq: number; studyId: string | null; title: string; kind: "report" | "slides"; url: string; replay: boolean };
 
+// A planner's ping to the executive about an answer's decision: the answer's seq,
+// who it went to and when, so every viewer's chat says it was sent.
+export type EscalationItem = { seq: number; studyId: string | null; message?: number; text: string; to: string; at: string };
+
 export const REPLAY = "agent:replay";
 
 export type Store = {
@@ -30,6 +34,7 @@ export type Store = {
   messages: Message[];
   subagents: Subagent[];
   documents: DocumentItem[];
+  escalations: EscalationItem[];
   reading: string | null;
   // Each study's, since the chat shows the open study's spend. Calls reported
   // without a cost are counted, so no dollar sum shows while one is missing.
@@ -54,6 +59,7 @@ export const initial: Store = {
   messages: [],
   subagents: [],
   documents: [],
+  escalations: [],
   reading: null,
   usage: {},
   openRuns: {},
@@ -92,7 +98,7 @@ function apply(store: Store, entry: LogEntry, live: boolean): Store {
   const focus = live && moves && entry.studyId ? entry.studyId : store.focus;
   if (entry.type !== "activity") return focus === store.focus ? store : { ...store, focus };
 
-  const activity = entry.data as Activity;
+  const activity = entry.data as LoggedActivity;
   const next = { ...store, focus };
   const replay = entry.actor === REPLAY;
   switch (activity.kind) {
@@ -106,6 +112,11 @@ function apply(store: Store, entry: LogEntry, live: boolean): Store {
       };
     case "reading":
       return { ...next, reading: activity.contextId };
+    case "escalation.sent": {
+      const sent: EscalationItem = { seq: entry.seq, studyId: entry.studyId, text: activity.text, to: activity.to, at: entry.at };
+      if (activity.message !== undefined) sent.message = activity.message;
+      return { ...next, escalations: [...store.escalations, sent] };
+    }
     case "subagent.started":
       return {
         ...next,
@@ -242,7 +253,7 @@ export function useStore(ready: boolean): Store {
         return heard === next.heard ? next : { ...next, heard };
       });
       if (REFRESHES.test(entry.type)) loadStudies();
-      if (entry.type === "activity" && (entry.data as Activity).kind === "reading") {
+      if (entry.type === "activity" && (entry.data as LoggedActivity).kind === "reading") {
         clearTimeout(idle);
         idle = window.setTimeout(() => setStore((s) => ({ ...s, reading: null })), READING_MS);
       }

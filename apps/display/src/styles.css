@@ -1356,6 +1356,110 @@ input[type="range"] {
   background: var(--accent-ink);
 }
 
+/* Under an answer that needs an executive's decision: the decision, and a
+   planner's button that pings the executive on Slack. */
+.exec-card {
+  align-self: flex-start;
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  max-width: 88%;
+  padding: 10px 12px 12px;
+  border-radius: 16px;
+  border-bottom-left-radius: 5px;
+  background: var(--bubble);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.exec-card p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.exec-label {
+  color: var(--accent-ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.exec-decision {
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.exec-offer,
+.exec-note {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.exec-ping {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  margin-top: 2px;
+  padding: 6px 14px 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.exec-ping:hover {
+  background: var(--accent-ink);
+}
+
+.exec-ping[aria-disabled="true"] {
+  cursor: progress;
+}
+
+.exec-ping:disabled {
+  background: #fff;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  cursor: default;
+}
+
+.exec-error {
+  color: var(--fail);
+  font-size: 13px;
+}
+
+.exec-sent {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.exec-sent:focus {
+  outline: none;
+}
+
+.exec-sent:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.exec-check {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--pass);
+  color: #fff;
+}
+
 .sub {
   display: grid;
   grid-template-columns: 18px 1fr;
@@ -2176,6 +2280,9 @@ input[type="range"] {
   .checks .label,
   .sub,
   .sub .question,
+  .exec-label,
+  .exec-offer,
+  .exec-note,
   .decision,
   .decision strong,
   .when .clock,

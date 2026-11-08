@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { describe, it } from "node:test";
-import { Activity, AUDIENCE, Role } from "./index.ts";
+import { Activity, AUDIENCE, Escalation, executiveDecision, EXECUTIVE, NewEscalation, Role } from "./index.ts";
 
 describe("AUDIENCE", () => {
   it("takes a guest or user id of 16 random bytes in base64url", () => {
@@ -88,5 +88,38 @@ describe("schemas agents are given", () => {
     assert.equal(point.safeParse([-79.34, 43.72]).success, true);
     assert.equal(point.safeParse([43.72, -79.34, 0]).success, false);
     assert.equal(point.safeParse([200, 43.7]).success, false);
+  });
+});
+
+describe("EXECUTIVE", () => {
+  it("marks an answer that needs an executive's decision, and names the decision", () => {
+    const answer = "Option A is longer (ibc p. 14).\n\nNot known yet:\n- Ridership.\n\nExecutive decision required: which alignment option to fund.";
+    assert.ok(EXECUTIVE.test(answer));
+    assert.equal(executiveDecision(answer), "Which alignment option to fund.");
+    assert.equal(executiveDecision("- Executive Decision Required — start the TPAP?"), "Start the TPAP?");
+  });
+
+  it("names none without the line, or without a decision after it", () => {
+    assert.equal(EXECUTIVE.test("For a planner to decide: adopt?"), false);
+    assert.equal(executiveDecision("For a planner to decide: adopt?"), null);
+    assert.equal(executiveDecision("Executive decision required."), null);
+  });
+});
+
+describe("Escalation", () => {
+  it("is no activity an agent can post", () => {
+    assert.throws(() => Activity.parse({ kind: "escalation.sent", text: "Fund option A?", to: "Jordan Lee" }));
+    assert.deepEqual(Escalation.parse({ kind: "escalation.sent", text: "Fund option A?", to: "Jordan Lee", message: 4 }), {
+      kind: "escalation.sent",
+      text: "Fund option A?",
+      to: "Jordan Lee",
+      message: 4,
+    });
+  });
+
+  it("takes a decision of at most 300 characters", () => {
+    assert.equal(NewEscalation.parse({ text: "  Fund option A?  " }).text, "Fund option A?");
+    assert.throws(() => NewEscalation.parse({ text: "x".repeat(301) }));
+    assert.throws(() => NewEscalation.parse({ text: " " }));
   });
 });

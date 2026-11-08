@@ -15,7 +15,7 @@ import { isTestBuild } from "./host.ts";
 import type { Notice } from "./notify.ts";
 import { shownStudy } from "./preview.ts";
 import { reveal } from "./reveal.ts";
-import { canAdd, canCreate, canPost, useSession } from "./session.ts";
+import { canAdd, canCreate, canDecide, canPost, useSession } from "./session.ts";
 import { Simulator } from "./simulator.ts";
 import { useStore } from "./store.ts";
 import { dateToMs } from "./time.ts";
@@ -219,7 +219,13 @@ export function App() {
         )}
         {trial && <TimeBar simulator={simulator} timeline={timeline} trialStart={trial.startedOn} />}
       </main>
-      <Chat store={store} studyId={studyId} canPost={canPost(session?.me ?? null)} onPage={openPage} />
+      <Chat
+        store={store}
+        studyId={studyId}
+        canPost={canPost(session?.me ?? null)}
+        ping={{ to: session?.config ? (session.config.executive ?? null) : undefined, can: canDecide(session?.me ?? null) }}
+        onPage={openPage}
+      />
       <Agents run={(studyId && store.runs[studyId]) || null} contexts={store.contexts} study={study?.title ?? studyId ?? ""} />
       {credit && (
         // The page's footer, so the credit sits in a landmark of its own.

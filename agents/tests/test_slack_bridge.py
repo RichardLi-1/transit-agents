@@ -148,9 +148,19 @@ class Form(unittest.TestCase):
 
 
 class FakeService:
-    def __init__(self, pages: list[list[dict[str, Any]]], fail: bool = False):
-        self.pages, self.fail = pages, fail
+    def __init__(self, pages: list[list[dict[str, Any]]], fail: bool = False, executive: str | None = "Jordan Lee"):
+        self.pages, self.fail, self.name = pages, fail, executive
         self.asked: list[tuple[str, str, str]] = []
+        self.escalated: list[tuple[str, str, int | None]] = []
+
+    def executive(self) -> str | None:
+        return self.name
+
+    def escalate(self, study: str, text: str, message: int | None) -> tuple[bool, str]:
+        if self.escalated:
+            return False, f"{self.name} was pinged about this just now."
+        self.escalated.append((study, text, message))
+        return True, self.name or ""
 
     def studies(self) -> dict[str, str]:
         if self.fail:
@@ -191,14 +201,19 @@ class FakeSlack:
         return {"ok": True}
 
 
+def make_bridge(service: FakeService) -> Bridge:
+    """A bridge on a fake clock, whose waits take no time."""
+    now = [0.0]
+
+    def sleep(seconds: float) -> None:
+        now[0] += seconds
+
+    return Bridge(service, "http://127.0.0.1:4580", wait_seconds=240, poll_seconds=2, sleep=sleep, clock=lambda: now[0])  # type: ignore[arg-type]
+
+
 class Handle(unittest.TestCase):
     def bridge(self, service: FakeService) -> Bridge:
-        now = [0.0]
-
-        def sleep(seconds: float) -> None:
-            now[0] += seconds
-
-        return Bridge(service, "http://127.0.0.1:4580", wait_seconds=240, poll_seconds=2, sleep=sleep, clock=lambda: now[0])  # type: ignore[arg-type]
+        return make_bridge(service)
 
     def test_asks_then_updates_working_with_the_answer(self):
         lawrence = "lawrence-sunnybrook"
@@ -273,6 +288,53 @@ class Handle(unittest.TestCase):
 
 
 SHA = "08f81de7bb5bc84819ba01532be976ab385b8389ef4dc3a27200cc6c86f67fe0"
+
+
+class Executive(unittest.TestCase):
+    ANSWER = "Option A is longer (ibc p. 14).\n\nExecutive decision required: which alignment option to fund."
+
+    def answered(self, executive: str | None = "Jordan Lee") -> tuple[FakeService, FakeSlack, Bridge]:
+        service = FakeService(
+            [[entry(11, "agent:lead", "run.started"), entry(12, "agent:lead", "message", self.ANSWER), entry(13, "agent:lead", "run.finished")]],
+            executive=executive,
+        )
+        slack, handler = FakeSlack(), make_bridge(service)
+        handler.handle({"channel": "C1", "ts": "1.5", "text": "<@U07BOT> which alignment should we fund?"}, slack)
+        return service, slack, handler
+
+    def test_an_answer_that_needs_an_executive_says_who_to_ping_and_how(self):
+        _, slack, _ = self.answered()
+        self.assertTrue(
+            slack.updates[0]["text"].endswith(
+                "|Open the study>\n\n*Executive decision required.* Ask a planner to ping Jordan Lee from the study, or reply `ping` here."
+            )
+        )
+
+    def test_ping_in_its_thread_pings_the_executive_once(self):
+        service, slack, handler = self.answered()
+        handler.handle({"channel": "C1", "ts": "1.7", "thread_ts": "1.5", "text": "<@U07BOT> ping"}, slack)
+        self.assertEqual(service.escalated, [(ONTARIO, "Which alignment option to fund.", 12)])
+        self.assertEqual(slack.posts[-1]["text"], "Pinged Jordan Lee on Slack.\n\n<http://127.0.0.1:4580/#ontario-line-don-mills|Open the study>")
+        self.assertEqual(slack.posts[-1]["thread_ts"], "1.5")
+        # A second ping is the service's to refuse, in its words.
+        handler.handle({"channel": "C1", "ts": "1.8", "thread_ts": "1.5", "text": "ping"}, slack)
+        self.assertEqual(slack.posts[-1]["text"], "Jordan Lee was pinged about this just now.")
+        self.assertEqual(len(service.asked), 1)
+
+    def test_ping_elsewhere_asks_nothing(self):
+        service, slack, handler = self.answered()
+        handler.handle({"channel": "C1", "ts": "2.1", "thread_ts": "2.0", "text": "<@U07BOT> ping"}, slack)
+        self.assertEqual(slack.posts[-1]["text"], bridge.NOTHING_TO_PING)
+        self.assertEqual(service.escalated, [])
+        self.assertEqual(len(service.asked), 1)
+
+    def test_without_slack_set_up_no_offer(self):
+        _, slack, _ = self.answered(executive=None)
+        self.assertNotIn("reply `ping`", slack.updates[0]["text"])
+
+    def test_the_decision_on_the_last_executive_line(self):
+        self.assertEqual(bridge.executive_decision(self.ANSWER), "Which alignment option to fund.")
+        self.assertIsNone(bridge.executive_decision("For a planner to decide: adopt?"))
 
 
 if __name__ == "__main__":

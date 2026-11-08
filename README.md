@@ -75,6 +75,13 @@ those calls used, with its CO2e. Use the browser's full screen.
 To hear about the shared record in Slack, set `SLACK_WEBHOOK_URL` to a Slack
 incoming webhook (`https://hooks.slack.com/services/...`) and `PUBLIC_URL` to
 the display's address. `npm run slack:demo` posts one sample of each notice.
+When the lead's answer ends "Executive decision required: ...", the chat offers
+a planner a button that pings the executive in that channel. Set
+`SLACK_EXECUTIVE="Jordan Lee <U0123ABCD>"`: their name, and their Slack member
+ID for an @-mention (in Slack, their profile › ⋮ › Copy member ID). A name
+alone is posted in bold, with no mention; unset, it's "the executive sponsor".
+Both are the service's settings, so set them in the shell that runs `npm run
+dev` (agents/.env doesn't reach the service), or with `fly secrets set` on Fly.
 See [Slack](docs/system.md#slack).
 
 Checks: `npm test` (535 tests), `npm run typecheck`, and `npm run agent:test`

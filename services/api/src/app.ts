@@ -12,6 +12,9 @@ import { createHash } from "node:crypto";
 import {
   Activity,
   ContentRemoval,
+  EXECUTIVE,
+  executiveDecision,
+  NewEscalation,
   FindingRating,
   MEDIA_MAX_BYTES,
   NeedClaim,
@@ -49,6 +52,7 @@ import { VisitorLimits } from "./limits.ts";
 import { checkOrigin, fixedAddress, mcp, rpcError } from "./mcp.ts";
 import { byteRange, formParts } from "./media.ts";
 import { ApiError, type MediaFile, type Service } from "./service.ts";
+import { DEFAULT_EXECUTIVE, escalation, gist, studyLink, type Executive, type Slack } from "./slack.ts";
 import type { Webhooks } from "./webhooks.ts";
 
 export type Actor = { role: Role; name: string };
@@ -92,6 +96,10 @@ export type AppOptions = {
   limits?: VisitorLimits;
   // The static agent tokens, by name, that may act for a visitor with X-On-Behalf-Of.
   visitorAgents?: string[];
+  // Slack, for a planner's ping about a decision above their authority, and who it
+  // goes to, from SLACK_EXECUTIVE. Without Slack, a ping is refused.
+  slack?: Pick<Slack, "sendAndWait"> | null;
+  executive?: Executive;
   clock?: () => Date;
 };
 
@@ -132,6 +140,10 @@ const UPLOADS_AT_ONCE = 2;
 
 // Why a visitor can't do something only planners and agents do.
 const SIGN_IN_AS_PLANNER = "Sign in as a planner to do this.";
+
+// A second ping about the same answer within this long is a repeat, and refused.
+const PING_REPEAT_MS = 10 * 60_000;
+const clockTime = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
 // A whole number from a query, kept within bounds. Anything else is the fallback.
 function whole(value: string | undefined, fallback: number, low: number, high: number): number {
@@ -257,6 +269,10 @@ function securityHeaders(signIn: SignIn | null): Record<string, string> {
 export function createApp(options: AppOptions) {
   const { service, webhooks, tokens, verifyToken, access, signIn = null, staticDir, live, timeline, webhookHosts = [] } = options;
   const { budget, visitorAgents = [], clock = () => new Date() } = options;
+  const slack = options.slack ?? null;
+  const executive = options.executive ?? { name: DEFAULT_EXECUTIVE };
+  // Each answer's last ping, by study and answer: when it went, or 0 while it's going.
+  const pinged = new Map<string, number>();
   // Guest passes are for a public demo. In token mode they would let anyone in.
   const guests = access === "demo" ? options.guests : undefined;
   const limits = options.limits ?? new VisitorLimits({ clock });
@@ -475,7 +491,7 @@ export function createApp(options: AppOptions) {
       summary: "How to sign in, what a request without a token may do, and whether visitors get guest passes. Needs no token",
       roles: anyone,
       public: true,
-      handler: (c) => c.json({ auth: access, signIn, guests: Boolean(guests) } satisfies ServiceConfig),
+      handler: (c) => c.json({ auth: access, signIn, guests: Boolean(guests), executive: slack ? executive.name : null } satisfies ServiceConfig),
     },
     {
       method: "post",
@@ -797,6 +813,61 @@ export function createApp(options: AppOptions) {
           return c.json({ seq: entry.seq, budgetLeftUsd: budget.left(audience) }, 201);
         }
         return c.json({ seq: entry.seq }, 201);
+      },
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/escalate",
+      summary:
+        "Ping the executive on Slack about a decision above a planner's authority, such as which option to fund: the decision, and the answer that asked for it. Once per answer in 10 minutes. Planners only",
+      roles: planners,
+      body: NewEscalation,
+      handler: async (c) => {
+        const studyId = c.req.param("id") as string;
+        const { text, message } = await bodyOf(c, NewEscalation);
+        const study = service.state.studies.get(studyId);
+        if (!study) throw new ApiError(404, "not_found", `No study "${studyId}"`);
+        let answer: string | undefined;
+        if (message !== undefined) {
+          const entry = service.log.get(message);
+          const data = entry?.data as { kind?: string; text?: unknown } | undefined;
+          if (!entry || entry.studyId !== studyId || entry.type !== "activity" || data?.kind !== "message" || typeof data.text !== "string") {
+            throw new ApiError(422, "unknown_message", `No message ${message} in this study's chat`);
+          }
+          answer = data.text;
+        }
+        if (!slack) throw new ApiError(503, "slack_off", "Slack isn't set up. Set SLACK_WEBHOOK_URL to ping the executive.");
+        const decision = (EXECUTIVE.test(text) ? executiveDecision(text) : text) ?? text;
+        // A double click, or a second planner, pings once.
+        const key = `${studyId}\n${message ?? decision}`;
+        const now = clock().getTime();
+        const last = pinged.get(key);
+        if (last !== undefined && (last === 0 || now - last < PING_REPEAT_MS)) {
+          const when = last === 0 ? "just now" : `at ${clockTime.format(last)}`;
+          throw new ApiError(409, "already_sent", `${executive.name} was pinged about this ${when}.`);
+        }
+        pinged.set(key, 0);
+        const reason = await slack.sendAndWait(
+          escalation(executive, {
+            decision,
+            summary: answer ? gist(answer) : undefined,
+            study: study.title,
+            link: studyLink(options.publicUrl, studyId),
+            raisedBy: c.get("actor").name,
+          }),
+        );
+        if (reason) {
+          pinged.delete(key);
+          throw new ApiError(502, "slack_failed", "Slack didn't take the message. Try again.");
+        }
+        pinged.set(key, now);
+        const entry = service.recordActivity(actorName(c), studyId, {
+          kind: "escalation.sent",
+          text: decision.slice(0, 300),
+          to: executive.name,
+          ...(message !== undefined ? { message } : {}),
+        });
+        return c.json({ seq: entry.seq, at: entry.at, to: executive.name }, 201);
       },
     },
     {
