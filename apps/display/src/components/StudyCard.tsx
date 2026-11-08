@@ -39,9 +39,6 @@ const KEYS: Record<string, [solid: string, dashed: string]> = {
 
 // Below this many departures, a percentage says more about chance than service.
 const MIN_SAMPLE = 20;
-// How many notes show. The rest are a click away, as the study's other figures
-// are, so a study with many notes keeps a short card.
-const NOTES_SHOWN = 3;
 const whole = new Intl.NumberFormat("en-CA", { maximumFractionDigits: 0 });
 
 // A test awaiting a planner is a hollow ring, as a note awaiting one is.
@@ -274,24 +271,66 @@ type Props = {
   onCitation: (item: CheckView | FindingView, element: Element) => void;
 };
 
+// How many figures the card leads with. Everything else is under Details.
+const LEADS = 2;
+
+// A test: its figure, which opens its working, against its rule.
+function Check({ check, opens, onFigure }: { check: CheckView; opens: string; onFigure: Props["onFigure"] }) {
+  return (
+    <li>
+      <Status status={check.status} />
+      <button type="button" class="figure" data-figure={check.figure} onClick={(event) => onFigure(check.figure, event.currentTarget)}>
+        {signed(check.actual)}
+        <span class="sr-only">{opens}</span>
+      </button>
+      <span class="label">{check.label}</span>
+      <span class="rule">
+        <span aria-hidden="true">{SYMBOL[check.op]}</span>
+        <span class="sr-only">{check.op.startsWith(">") ? "at least" : "under"}</span> {number.format(check.threshold)}
+      </span>
+    </li>
+  );
+}
+
+// One of the study's other figures, under Details.
+function Other({ figure, fresh, opens, onFigure }: { figure: FigureView; fresh: boolean; opens: string; onFigure: Props["onFigure"] }) {
+  return (
+    <li class={fresh ? "new" : undefined}>
+      <button type="button" class="figure" data-figure={figure.id} onClick={(event) => onFigure(figure.id, event.currentTarget)}>
+        {amount(figure)}
+        <span class="sr-only">{opens}</span>
+      </button>
+      <span class="label">
+        {figure.label}
+        {unitAfter(figure.unit) && <span class="unit">, {unitAfter(figure.unit)}</span>}
+      </span>
+    </li>
+  );
+}
+
 export function StudyCard({ study, session, studies, assumptions, since, timeline, onSelect, onPreview, onFigure, onCitation }: Props) {
   // What a figure's button opens: its pages, or, with none, how it's worked out.
   const opens = (id: string) => (citesAPage(id, study.figures, assumptions) ? ", show source" : ", show working");
   const { decision } = study;
-  // Beside any tests, so a test an agent adds never takes the headlines away.
-  const headlines = (HEADLINES[study.id] ?? []).flatMap(({ figure: id, caption }) => {
+  const all = (HEADLINES[study.id] ?? []).flatMap(({ figure: id, caption }) => {
     const figure = study.figures.find((f) => f.id === id);
     return figure ? [{ figure, caption }] : [];
   });
+  // The card leads with two figures: a study's chosen headlines, or else its first tests.
+  const headlines = all.slice(0, LEADS);
+  const checks = headlines.length ? [] : study.checks.slice(0, LEADS);
+  const foldedChecks = study.checks.filter((check) => !checks.includes(check));
   const key = KEYS[study.id];
   const card = useRef<HTMLElement>(null);
   const below = useMoreBelow(card);
   // Every other figure, so all an agent records can be opened here.
   const others = otherFigures(study.figures, [...study.checks.map((check) => check.figure), ...headlines.map(({ figure }) => figure.id)]);
   const awaiting = study.findings.some((finding) => finding.tone === "unrated") || study.checks.some((check) => check.status === "unverified");
-  const folded = study.findings.slice(NOTES_SHOWN);
-  const count = others.reduce((sum, group) => sum + group.figures.length, 0);
-  const fresh = since === null ? 0 : others.reduce((sum, group) => sum + group.figures.filter((figure) => figure.seq > since).length, 0);
+  const passed = study.checks.filter((check) => check.status === "pass").length;
+  const status = awaiting ? "Awaiting a planner" : study.checks.length ? `${passed} of ${study.checks.length} tests pass` : null;
+  const isFresh = (figure: FigureView) => since !== null && figure.seq > since;
+  const fresh = others.reduce((sum, group) => sum + group.figures.filter(isFresh).length, 0);
+  const details = foldedChecks.length + study.findings.length + others.length + (key ? 1 : 0);
 
   return (
     <section ref={card} class={below ? "card below" : "card"} data-study={study.id} aria-labelledby="study-heading">
@@ -314,37 +353,13 @@ export function StudyCard({ study, session, studies, assumptions, since, timelin
         <p class="title">{study.title}</p>
       )}
 
-      {key && (
-        <p class="key" style={{ "--line": `#${studyColor(study.line)}` }}>
-          <span>
-            <span class="swatch" aria-hidden="true" />
-            <span class="sr-only">Solid line: </span>
-            {key[0]}
-          </span>
-          <span>
-            <span class="swatch dashed" aria-hidden="true" />
-            <span class="sr-only">Dashed line: </span>
-            {key[1]}
-          </span>
-        </p>
+      {checks.length > 0 && (
+        <ul class="checks">
+          {checks.map((check) => (
+            <Check key={check.id} check={check} opens={opens(check.figure)} onFigure={onFigure} />
+          ))}
+        </ul>
       )}
-
-      <ul class="checks">
-        {study.checks.map((check) => (
-          <li key={check.id}>
-            <Status status={check.status} />
-            <button type="button" class="figure" data-figure={check.figure} onClick={(event) => onFigure(check.figure, event.currentTarget)}>
-              {signed(check.actual)}
-              <span class="sr-only">{opens(check.figure)}</span>
-            </button>
-            <span class="label">{check.label}</span>
-            <span class="rule">
-              <span aria-hidden="true">{SYMBOL[check.op]}</span>
-              <span class="sr-only">{check.op.startsWith(">") ? "at least" : "under"}</span> {number.format(check.threshold)}
-            </span>
-          </li>
-        ))}
-      </ul>
 
       {headlines.length > 0 && (
         <ul class="headlines">
@@ -363,33 +378,6 @@ export function StudyCard({ study, session, studies, assumptions, since, timelin
         </ul>
       )}
 
-      {/* The hollow rings' meaning, for sighted people. Each finding and test says it to a screen reader. */}
-      {awaiting && (
-        <p class="awaiting" aria-hidden="true">
-          <span class="dot" />
-          Awaiting a planner
-        </p>
-      )}
-      {study.findings.length > 0 && (
-        <ul class="findings">
-          {study.findings.slice(0, NOTES_SHOWN).map((finding) => (
-            <Note key={finding.id} finding={finding} onCitation={onCitation} />
-          ))}
-        </ul>
-      )}
-      {folded.length > 0 && (
-        <details class="notes">
-          <summary>
-            {folded.length} more {folded.length === 1 ? "note" : "notes"}
-          </summary>
-          <ul class="findings">
-            {folded.map((finding) => (
-              <Note key={finding.id} finding={finding} onCitation={onCitation} />
-            ))}
-          </ul>
-        </details>
-      )}
-
       {decision ? (
         <p class="decision">
           <span>{ANALYSIS[decision.analysis]}</span>
@@ -399,37 +387,70 @@ export function StudyCard({ study, session, studies, assumptions, since, timelin
           {decision.override && <span class="override">Override</span>}
         </p>
       ) : (
-        <Decide studyId={study.id} session={session} />
+        <>
+          {status && (
+            <p class={awaiting ? "awaiting" : "awaiting passed"}>
+              <span class="dot" aria-hidden="true" />
+              {status}
+            </p>
+          )}
+          <Decide studyId={study.id} session={session} />
+        </>
       )}
 
       <Results timeline={timeline} trialStart={study.trial?.startedOn} />
-      <Sliders study={study} onPreview={onPreview} />
 
-      {count > 0 && (
-        <details class="more">
+      {details > 0 && (
+        <details class="details">
           <summary>
-            {count} more {count === 1 ? "figure" : "figures"}
+            Details
             {fresh > 0 && <span class="fresh"> · {fresh} new</span>}
           </summary>
-          {others.map((group) => (
-            <div key={group.by}>
-              {others.length > 1 && <p class="by">{recordedBy(group.by)}</p>}
-              <ul>
-                {group.figures.map((figure) => (
-                  <li key={figure.id} class={since !== null && figure.seq > since ? "new" : undefined}>
-                    <button type="button" class="figure" data-figure={figure.id} onClick={(event) => onFigure(figure.id, event.currentTarget)}>
-                      {amount(figure)}
-                      <span class="sr-only">{opens(figure.id)}</span>
-                    </button>
-                    <span class="label">
-                      {figure.label}
-                      {unitAfter(figure.unit) && <span class="unit">, {unitAfter(figure.unit)}</span>}
-                    </span>
-                  </li>
+          <div class="details-body">
+            {key && (
+              <p class="key" style={{ "--line": `#${studyColor(study.line)}` }}>
+                <span>
+                  <span class="swatch" aria-hidden="true" />
+                  <span class="sr-only">Solid line: </span>
+                  {key[0]}
+                </span>
+                <span>
+                  <span class="swatch dashed" aria-hidden="true" />
+                  <span class="sr-only">Dashed line: </span>
+                  {key[1]}
+                </span>
+              </p>
+            )}
+            {foldedChecks.length > 0 && (
+              <ul class="checks">
+                {foldedChecks.map((check) => (
+                  <Check key={check.id} check={check} opens={opens(check.figure)} onFigure={onFigure} />
                 ))}
               </ul>
-            </div>
-          ))}
+            )}
+            {study.findings.length > 0 && (
+              <ul class="findings">
+                {study.findings.map((finding) => (
+                  <Note key={finding.id} finding={finding} onCitation={onCitation} />
+                ))}
+              </ul>
+            )}
+            {others.length > 0 && (
+              <div class="more">
+                {others.map((group) => (
+                  <div key={group.by}>
+                    {others.length > 1 && <p class="by">{recordedBy(group.by)}</p>}
+                    <ul>
+                      {group.figures.map((figure) => (
+                        <Other key={figure.id} figure={figure} fresh={isFresh(figure)} opens={opens(figure.id)} onFigure={onFigure} />
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+            <Sliders study={study} onPreview={onPreview} />
+          </div>
         </details>
       )}
     </section>

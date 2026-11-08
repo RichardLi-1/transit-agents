@@ -78,7 +78,7 @@ const actionOf = (status: NeedStatus) => (status === "failed" ? "Try again" : "C
 // The panels over the map, in the cards' coordinates: the folders, the map's
 // buttons, the study card and the time bar. A place under one can't be pointed at,
 // and a card keeps off them.
-const PANELS = ".shelf, .reset, .map-buttons, .stage > .card, .stage > .time";
+const PANELS = ".shelf, .map-buttons, .stage > .card, .stage > .time";
 
 function panels(list: HTMLElement): DOMRect[] {
   const origin = list.getBoundingClientRect();
@@ -90,6 +90,25 @@ function panels(list: HTMLElement): DOMRect[] {
 
 const covers = (rect: DOMRect, x: number, y: number) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 const overlap = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+// A card's size at rest: not pointed at, focused or opened, when it shows more.
+// Cards are placed by it, so a card growing under the pointer never moves the
+// others, and none flips between spots as it grows and shrinks.
+const rest = new WeakMap<HTMLElement, [number, number]>();
+function sizeOf(card: HTMLElement): [number, number] {
+  const known = rest.get(card);
+  if (known && card.matches(":hover, :focus-within, :has([aria-expanded='true'])")) return known;
+  const size: [number, number] = [card.offsetWidth, card.offsetHeight];
+  rest.set(card, size);
+  return size;
+}
+
+// How far a card's old spot may run into another, or off the map, before it moves:
+// it keeps its side or spot until it clearly can't.
+// A hair into another card, for rounding, but never visibly over it.
+const SLACK = 6;
+const TOUCH = 1;
+const shrink = (rect: DOMRect) => new DOMRect(rect.left + TOUCH, rect.top + TOUCH, Math.max(0, rect.width - 2 * TOUCH), Math.max(0, rect.height - 2 * TOUCH));
 
 // How long to wait for the map before listing the cards without it.
 const MAP_WAIT_MS = 3000;
@@ -123,8 +142,7 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
         const card = pin.querySelector<HTMLElement>(".need");
         if (!card) continue;
         const at = project?.(toPoint(Number(pin.dataset.lat), Number(pin.dataset.lon))) ?? null;
-        const cardWidth = card.offsetWidth;
-        const cardHeight = card.offsetHeight;
+        const [cardWidth, cardHeight] = sizeOf(card);
         pin.style.visibility = "visible";
         const shown = at && at[0] >= 0 && at[0] <= width && at[1] >= 0 && at[1] <= height && !over.some((rect) => covers(rect, at[0], at[1]));
         const [x, y] = at ?? [0, 0];
@@ -138,14 +156,21 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
           return new DOMRect(left, cardTop, cardWidth, cardHeight);
         };
         const clear = (rect: DOMRect) => ![...over, ...pinned].some((other) => overlap(rect, other));
-        let below = y - GAP - cardHeight < top;
-        let placed = beside(below ? y + GAP : y - GAP - cardHeight);
-        // Over a card already pinned, it goes below its place instead, where that's clear.
-        if (!below && pinned.some((other) => overlap(placed, other)) && y + GAP + cardHeight <= height - EDGE) {
-          const under = beside(y + GAP);
-          if (clear(under)) [below, placed] = [true, under];
-        }
-        if (!shown || !clear(placed)) {
+        // Clear but for a little, which a card already there is allowed, so it stays put.
+        const roughly = (rect: DOMRect) => clear(shrink(rect)) && rect.top >= top - SLACK && rect.bottom <= height - EDGE + SLACK;
+        const was = pin.dataset.side;
+        const above = beside(y - GAP - cardHeight);
+        const under = beside(y + GAP);
+        // Its last side while that still roughly fits; else above its place, then below.
+        let side: "above" | "below" | null;
+        if (was === "above" && roughly(above)) side = "above";
+        else if (was === "below" && roughly(under)) side = "below";
+        else if (above.top >= top && clear(above)) side = "above";
+        else if (under.bottom <= height - EDGE && clear(under)) side = "below";
+        else side = null;
+        const below = side === "below";
+        const placed = below ? under : above;
+        if (!shown || !side) {
           unpinned.push({ pin, card, size: [cardWidth, cardHeight] });
           continue;
         }
@@ -162,6 +187,17 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
         Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
       for (const { pin, card, size } of unpinned) {
         const [cardWidth, cardHeight] = size;
+        // Its last spot in the list, while that's still clear of the panels and cards.
+        const last = pin.dataset.side === "listed" ? pin.dataset.spot?.split(",").map(Number) : undefined;
+        if (last && last.length === 2) {
+          const kept = new DOMRect(last[0], last[1], cardWidth, cardHeight);
+          if (kept.bottom <= height - EDGE && kept.right <= right && ![...over, ...pinned].some((other) => overlap(shrink(kept), other))) {
+            pinned.push(kept);
+            pin.style.transform = `translate(${kept.left}px, ${kept.top}px)`;
+            card.style.transform = "translate(0, 0)";
+            continue;
+          }
+        }
         let spot: DOMRect | undefined;
         let least = Infinity;
         for (let y = top; least > 0 && y + cardHeight <= height - EDGE; y += 12) {
@@ -176,6 +212,7 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
         spot ??= new DOMRect(EDGE * 3, top, cardWidth, cardHeight);
         pinned.push(spot);
         pin.dataset.side = "listed";
+        pin.dataset.spot = `${spot.left},${spot.top}`;
         pin.style.transform = `translate(${spot.left}px, ${spot.top}px)`;
         card.style.transform = "translate(0, 0)";
       }

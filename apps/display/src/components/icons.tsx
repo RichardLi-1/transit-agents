@@ -31,6 +31,20 @@ export function FileIcon({ label }: { label: string }) {
   );
 }
 
+// A macOS-style document: a white page with a folded corner and a coloured band
+// for its kind, for a source that is one document rather than several. The band
+// has no letters, so the source's name is all the text its link shows.
+export function DocumentIcon({ color }: { color: string }) {
+  return (
+    <svg viewBox="0 0 56 66" width="56" height="66" aria-hidden="true">
+      <path d="M5 .5h30l20.5 20.5V61a4.500 4.500 0 0 1-4.500 4.500H5A4.500 4.500 0 0 1 .5 61V5A4.500 4.500 0 0 1 5 .5z" fill="#fff" stroke="#d2d2d7" />
+      <path d="M35 .5V16a5 5 0 0 0 5 5h15.500" fill="#f2f2f7" stroke="#d2d2d7" />
+      <path d="M10 30h26M10 35h36M10 40h30" stroke="#e5e5ea" stroke-width="2" stroke-linecap="round" />
+      <rect x="6" y="48" width="44" height="9" rx="3" fill={color} />
+    </svg>
+  );
+}
+
 const glyph = { fill: "none", stroke: "currentColor", "stroke-width": 2.2, "stroke-linecap": "round", "stroke-linejoin": "round" } as const;
 
 export const PlayIcon = () => (

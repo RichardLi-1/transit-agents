@@ -1,24 +1,48 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { api } from "../api.ts";
 import { spentUsd } from "../money.ts";
 import { withCites } from "../cites.ts";
 import { refusal, setNotice, unsaid, useNotice } from "../notice.ts";
 import { plain } from "../plain.ts";
 import { EMPTY_USAGE, type Store } from "../store.ts";
-import { typing } from "../typing.ts";
+import { foldAt, waiting } from "../typing.ts";
 import { CheckIcon, SendIcon, StaleIcon } from "./icons.tsx";
 
 const number = new Intl.NumberFormat("en-CA");
 
-// Offered until the viewer says something, so a first look isn't a wall of text.
+// Offered in each study until the viewer says something there, so a first look
+// isn't a wall of text. Four at most.
 const SUGGESTIONS = [
   "What would it cost to extend the Ontario Line up Don Mills to Sheppard?",
-  "How often does the 25 Don Mills bus run at peak?",
   "Compare the two alignment options",
   "What changes if it ends at Lawrence?",
-  "What's a QCRA, and does this estimate have one?",
   "Who needs to hear about this?",
 ];
+
+// The studies the viewer has said something in, kept for the tab, so a reload
+// doesn't offer the suggestions again.
+const SENT_KEY = "chat.sent";
+function readSent(): ReadonlySet<string> {
+  try {
+    return new Set(JSON.parse(sessionStorage.getItem(SENT_KEY) ?? "[]") as string[]);
+  } catch {
+    return new Set();
+  }
+}
+function keepSent(sent: Set<string>): Set<string> {
+  try {
+    sessionStorage.setItem(SENT_KEY, JSON.stringify([...sent]));
+  } catch {
+    // Kept for the page only.
+  }
+  return sent;
+}
+
+// With the agent at work and nothing new from it for this long, it's taken to
+// have stopped, and the chat says so rather than showing the dots for ever.
+const STALL_MS = 60_000;
+// Within this of the foot, the log follows new messages; further up, it stays put.
+const FOOT_PX = 48;
 const money = new Intl.NumberFormat("en-CA", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 
 type Props = {
@@ -51,18 +75,22 @@ const STREAM_CPS = 320;
 const still = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // A new agent answer, typed out as it arrives. Screen readers get the whole text once;
-// the typing is for the eye only. `onGrow` keeps the log's foot in view as it grows.
-function Streamed({ text, ids, onPage, onGrow }: { text: string; ids: string[]; onPage: Props["onPage"]; onGrow: () => void }) {
+// the typing is for the eye only.
+// `onDone` says it has shown whole, or gone, so it never types out again.
+function Streamed({ text, ids, onPage, onDone }: { text: string; ids: string[]; onPage: Props["onPage"]; onDone: () => void }) {
   const full = plain(text);
   const [shown, setShown] = useState(() => (still() ? full.length : 0));
+  useEffect(() => () => onDone(), []);
   useEffect(() => {
-    if (shown >= full.length) return;
+    if (shown >= full.length) {
+      onDone();
+      return;
+    }
     const started = performance.now() - (shown / STREAM_CPS) * 1000;
     let frame = 0;
     const tick = (now: number) => {
       const next = Math.min(full.length, Math.ceil(((now - started) / 1000) * STREAM_CPS));
       setShown(next);
-      onGrow();
       if (next < full.length) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -85,13 +113,26 @@ function Streamed({ text, ids, onPage, onGrow }: { text: string; ids: string[]; 
 export function Chat({ store, studyId, canPost, onPage }: Props) {
   const ids = store.contexts.map((context) => context.id);
   const [text, setText] = useState("");
-  // Whether the earlier messages show, and whether the viewer has said anything yet.
+  // Whether the earlier messages show, and the studies the viewer has said something in.
   const [expanded, setExpanded] = useState(false);
-  const [sent, setSent] = useState(false);
-  useEffect(() => setExpanded(false), [studyId]);
+  const [sentIn, setSentIn] = useState<ReadonlySet<string>>(readSent);
+  const [sending, setSending] = useState(false);
   const log = useRef<HTMLDivElement>(null);
-  // Answers already in the log when the chat first drew show whole; later ones type out.
-  const firstSeen = useRef<number | null>(null);
+  // Whether the log is at its foot, so it follows what comes next.
+  const atFoot = useRef(true);
+  useEffect(() => {
+    setExpanded(false);
+    atFoot.current = true;
+  }, [studyId]);
+  // Each agent answer, as the chat first sees it: whether it types out. Only one that
+  // arrives while its study shows, after the log has loaded, does, and only once:
+  // never what the log held, nor what shows on expanding Earlier or opening a study.
+  const streams = useRef(new Map<number, boolean>());
+  for (const m of store.messages) {
+    if (!streams.current.has(m.seq)) {
+      streams.current.set(m.seq, m.from === "agent" && !m.replay && store.since !== null && m.seq > store.since && m.studyId === studyId);
+    }
+  }
   const messages = store.messages.filter((m) => m.studyId === studyId);
   const subagents = store.subagents.filter((s) => s.studyId === studyId);
   // Messages and sub-agents in the order the log has them.
@@ -102,51 +143,78 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
   const usage = (studyId && store.usage[studyId]) || EMPTY_USAGE;
   const spent = spentUsd(usage);
   const notice = useNotice();
-  // The agent is at work: a run has started, and nothing has answered it yet.
-  const working = typing(studyId ? store.openRuns[studyId] : undefined, items);
-  // What the log held when the page opened folds away behind one line.
-  const since = store.since ?? Infinity;
+  const run = studyId ? store.openRuns[studyId] : undefined;
+  // The agent is at work: a run has started and not answered, or a question is waiting for one.
+  const working = waiting(run, items, store.since);
+  // Anything the agent does: a word, a sub-agent's step, a run starting or ending,
+  // a model call or a page read. Each puts off saying it has stopped.
+  const pulse = [studyId, items.length, subagents.filter((s) => s.summary !== undefined).length, run, usage.calls, store.reading].join("|");
+  const [stalled, setStalled] = useState(false);
+  useEffect(() => {
+    setStalled(false);
+    if (!working) return;
+    const timer = window.setTimeout(() => setStalled(true), STALL_MS);
+    return () => window.clearTimeout(timer);
+  }, [pulse, working]);
+  // What the log held when the page opened folds away behind one line, except a
+  // question still being answered.
+  const since = foldAt(store.since, run, items);
   const earlier = items.filter((item) => item.seq <= since).length;
   const shown = expanded ? items : items.filter((item) => item.seq > since);
-  if (firstSeen.current === null) firstSeen.current = Math.max(since === Infinity ? 0 : since, ...items.map((item) => item.seq), 0);
+  const question = messages.filter((m) => m.from === "planner").at(-1)?.text;
+
   const toFoot = () => {
     const element = log.current;
-    if (element) element.scrollTop = element.scrollHeight;
+    if (element && atFoot.current) element.scrollTop = element.scrollHeight;
   };
-
-  // The notice takes room from the foot of the log, so the last message is kept in view.
+  const onScroll = () => {
+    const element = log.current;
+    if (element) atFoot.current = element.scrollHeight - element.scrollTop - element.clientHeight < FOOT_PX;
+  };
+  // Whatever changes in the log, such as a message, an answer typing out or
+  // showing whole, or the dots, keeps the last message in view, unless the viewer
+  // has scrolled up to read. So does the notice, which takes room from its foot.
+  useLayoutEffect(toFoot, [studyId, notice]);
   useEffect(() => {
     const element = log.current;
-    if (element) element.scrollTop = element.scrollHeight;
-  }, [messages.length, subagents, notice, working]);
+    if (!element) return;
+    const observer = new MutationObserver(toFoot);
+    observer.observe(element, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, []);
 
   const send = (event: Event) => {
     event.preventDefault();
     void post(text, true);
   };
 
-  // `typed`: the words came from the box, so they go back in it if not sent.
+  // `typed`: the words came from the box, which empties as they go. Not sent, they
+  // come back to it, unless more has been typed since, with the service's reason.
   const post = async (words: string, typed: boolean) => {
     const trimmed = words.trim();
-    if (!trimmed || !studyId) return;
-    setSent(true);
+    if (!trimmed || !studyId || sending) return;
+    setSending(true);
     if (typed) setText("");
+    atFoot.current = true;
     const response = await api(`/v1/studies/${studyId}/activity`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ kind: "message", text: trimmed }),
     }).catch(() => undefined);
-    if (response?.ok) return setNotice(null);
-    // Not sent: the words come back, unless more has been typed since, and the service says
-    // why, unless the chat has just said it.
-    if (typed) setText((now) => now || words);
-    setNotice(unsaid(await refusal(response), messages.at(-1)?.text));
+    setSending(false);
+    if (response?.ok) {
+      setSentIn((now) => keepSent(new Set(now).add(studyId)));
+      return setNotice(null);
+    }
+    setText((now) => now || trimmed);
+    const reason = response ? ((await refusal(response)) ?? "Not sent. Try again.") : "Not sent: the service can't be reached. Try again.";
+    setNotice(unsaid(reason, messages.at(-1)?.text));
   };
 
   return (
     <aside class="chat" aria-label="Agent">
       {replay && <p class="tag">Replay</p>}
-      <div class="log" ref={log} role="log" aria-live="polite" tabIndex={0} aria-label="Agent activity">
+      <div class="log" ref={log} role="log" aria-live="polite" tabIndex={0} aria-label="Agent activity" onScroll={onScroll}>
         {earlier > 0 && (
           <button type="button" class="earlier" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
             {expanded ? "Hide earlier messages" : `Earlier: ${number.format(earlier)} ${earlier === 1 ? "message" : "messages"}`}
@@ -156,8 +224,8 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
           "text" in item ? (
             <p key={`m${item.seq}`} class={`bubble ${item.from}`} data-seq={item.seq}>
               {item.replay && <span class="sr-only">Replay: </span>}
-              {item.from === "agent" && !item.replay && item.seq > (firstSeen.current ?? Infinity) ? (
-                <Streamed text={item.text} ids={ids} onPage={onPage} onGrow={toFoot} />
+              {streams.current.get(item.seq) ? (
+                <Streamed text={item.text} ids={ids} onPage={onPage} onDone={() => void streams.current.set(item.seq, false)} />
               ) : (
                 <Text text={item.text} ids={ids} onPage={onPage} />
               )}
@@ -179,7 +247,17 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
           ),
         )}
         {/* Added once as a run starts, so the log says it once; the dots move, the words don't. */}
-        {working && (
+        {working && stalled && (
+          <p class="bubble agent stalled">
+            No agent answered.{" "}
+            {canPost && question && (
+              <button type="button" class="retry" disabled={sending} onClick={() => void post(question, false)}>
+                Try again
+              </button>
+            )}
+          </p>
+        )}
+        {working && !stalled && (
           <p class="bubble agent typing">
             <span class="dots" aria-hidden="true">
               <span />
@@ -190,13 +268,13 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
           </p>
         )}
       </div>
-      {canPost && !sent && studyId && (
+      {canPost && studyId && !sentIn.has(studyId) && (
         <div class="suggestions">
           <p id="suggestions-title">Some things I can do</p>
           <ul aria-labelledby="suggestions-title">
             {SUGGESTIONS.map((suggestion) => (
               <li key={suggestion}>
-                <button type="button" onClick={() => void post(suggestion, false)}>
+                <button type="button" disabled={sending} onClick={() => void post(suggestion, false)}>
                   {suggestion}
                 </button>
               </li>
@@ -224,7 +302,7 @@ export function Chat({ store, studyId, canPost, onPage }: Props) {
             autocomplete="off"
             onInput={(event) => setText(event.currentTarget.value)}
           />
-          <button type="submit" aria-label="Send" disabled={!text.trim() || !studyId}>
+          <button type="submit" aria-label="Send" disabled={!text.trim() || !studyId || sending}>
             <SendIcon />
           </button>
         </form>

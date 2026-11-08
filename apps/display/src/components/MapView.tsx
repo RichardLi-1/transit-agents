@@ -249,12 +249,7 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
         {moved && "You have moved the map. Home or Reset view goes back. "}
         Drag, scroll or use the arrow keys to move. Pinch, or plus and minus, to zoom. Shift with a drag or the arrow keys turns and tilts. Home goes back to the study.
       </p>
-      {moved && (
-        <button type="button" class="reset" onClick={resetView}>
-          Reset view
-        </button>
-      )}
-      <MapButtons controls={controls} flat={flat} />
+      <MapButtons controls={controls} onReset={resetView} />
       <div class="fade" aria-hidden="true" />
       <Needs study={study} feed={feed} canCreate={canCreate} onDetails={onNeed} onViewer={onViewer} />
     </>

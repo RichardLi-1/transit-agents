@@ -114,50 +114,16 @@ button {
   visibility: hidden;
 }
 
-/* Once the map has been moved, above the map's buttons. Over the cards on the
-   map, unless one has focus. */
-.reset {
-  position: fixed;
-  z-index: 1;
-  bottom: calc(var(--map-foot) + 144px);
-  right: calc(var(--map-right) + 16px);
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid var(--hairline);
-  border-radius: 999px;
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: var(--shadow);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.reset:hover {
-  color: var(--accent-ink);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .reset {
-    animation: appear 0.2s ease-out;
-  }
-}
-
-/* Zoom, pan, turn and tilt a step at a time, under Reset view, at the foot of the
-   map's clear part: clear of the notices, which come down its top corner. */
+/* Zoom in, zoom out and Reset view, stacked at the foot of the map's clear part:
+   clear of the notices, which come down its top corner. */
 .map-buttons {
   position: fixed;
   z-index: 1;
   bottom: var(--map-foot);
   right: calc(var(--map-right) + 16px);
   display: grid;
-  grid-template-columns: repeat(6, 15px);
-  grid-template-rows: repeat(4, 30px);
-  grid-template-areas:
-    "in in in out out out"
-    "turn-left turn-left up up turn-right turn-right"
-    "left left . . right right"
-    "tilt-up tilt-up down down tilt-down tilt-down";
+  grid-template-columns: 32px;
+  grid-auto-rows: 32px;
   gap: 2px;
   padding: 4px;
   border: 1px solid var(--hairline);
@@ -872,21 +838,26 @@ button {
   text-wrap: balance;
 }
 
-/* Every other figure in the study, and every note past the first few, a click
-   away. */
-.more summary,
-.notes summary {
+/* Everything past the lead figures, the status and the decision: the line's
+   legend, the notes and every other figure, a click away. */
+.details summary {
   padding: 4px 0;
   color: var(--muted);
+  font-weight: 600;
   cursor: pointer;
 }
 
-/* Under the notes, as far from the last as each note is from the next. */
-.notes {
-  margin-top: calc(0px - var(--part-gap));
+.details-body {
+  display: grid;
+  gap: var(--part-gap);
+  margin-top: 8px;
 }
 
-.more .fresh {
+.details-body .key {
+  margin: 0;
+}
+
+.details .fresh {
   color: var(--accent-ink);
   font-weight: 600;
 }
@@ -1000,14 +971,18 @@ button {
   background: #b25e09;
 }
 
-/* A label, set apart from the notes by weight, close above them: as far from
-   the first as each note is from the next. */
+/* The study's status, over the decision: awaiting a planner, or its tests. */
 .awaiting {
   position: relative;
-  margin: 0 0 calc(4px - var(--part-gap));
+  margin: 0;
   padding-left: 24px;
   color: var(--muted);
   font-weight: 600;
+}
+
+.awaiting.passed .dot {
+  background: var(--pass);
+  border-color: var(--pass);
 }
 
 /* A ring drawn by its border, which forced colours keep. */
@@ -1386,6 +1361,37 @@ input[type="range"] {
   align-items: center;
   gap: 8px;
   color: var(--muted);
+}
+
+/* The agent has gone quiet: said once, with a way to ask again. */
+.bubble.stalled {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.stalled .retry {
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.stalled .retry:hover {
+  border-color: var(--accent);
+}
+
+.suggestions button:disabled,
+.stalled .retry:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .typing .dots {
@@ -1982,19 +1988,10 @@ input[type="range"] {
     height: 62vh;
   }
 
-  .reset,
+  /* At the foot of the map, clear of the cards listed at its top. */
   .map-buttons {
     position: absolute;
-  }
-
-  /* At the foot of the map, clear of the cards listed at its top. */
-  .reset {
-    top: calc(62vh - 196px);
-    bottom: auto;
-  }
-
-  .map-buttons {
-    top: calc(62vh - 152px);
+    top: calc(62vh - 128px);
     bottom: auto;
   }
 
@@ -2893,9 +2890,26 @@ input[type="range"] {
   }
 }
 
-/* A card listed at the map's top left, with no room by its place, shows only its
-   title until it's pointed at, focused or opened, so the corner doesn't fill up. */
-.pin[data-side="listed"] .need:not(:hover):not(:focus-within) .words:not([aria-expanded="true"]) .place,
-.pin[data-side="listed"] .need:not(:hover):not(:focus-within) .words:not([aria-expanded="true"]) .state {
+/* A draft option and what isn't known yet show only their title until pointed
+   at, focused or opened, wherever they sit, so the map stays clear and a card's
+   size never depends on where it is placed. */
+.need.option:not(:hover):not(:focus-within) .words:not([aria-expanded="true"]) .place,
+.need.option:not(:hover):not(:focus-within) .words:not([aria-expanded="true"]) .state,
+.need.gap:not(:hover):not(:focus-within) .place {
   display: none;
+}
+
+/* A need's Create shows when its card is pointed at or focused: still in the tab
+   order, out of the card's size, and in its details for touch. */
+@media (hover: hover) {
+  .need:not(:hover):not(:focus-within) .create {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+/* A card pointed at lies over its neighbours while it shows more. */
+.pin:hover {
+  z-index: 1;
 }

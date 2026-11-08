@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { Context } from "@transit-agents/contracts";
 import { api } from "../api.ts";
 import { webUrl } from "../host.ts";
-import { FileIcon, FolderIcon, PlusIcon } from "./icons.tsx";
+import { DocumentIcon, FileIcon, FolderIcon, PlusIcon } from "./icons.tsx";
 
 async function upload(file: File) {
   const form = new FormData();
@@ -11,6 +11,10 @@ async function upload(file: File) {
 }
 
 const extension = (title: string) => /\.(\w{1,4})$/.exec(title)?.[1]?.toUpperCase() ?? "";
+
+// A one-document source's kind and band: a PDF's red, or an open data set's green.
+const kind = (context: Context | undefined) =>
+  context && /\.pdf(\?|$)/i.test(context.url ?? "") ? { name: "PDF", color: "#d93a32" } : { name: "open data", color: "#2f8f5b" };
 
 // With no folders yet, how long to wait for them before showing the add button
 // on its own. Shown before they arrive, it would jump along the shelf as they do.
@@ -75,8 +79,14 @@ export function Shelf({ contexts, reading, highlight, canAdd }: Props) {
           const first = items[0];
           return (
             <li key={name} data-folder={name} class={isReading ? "item reading" : "item"}>
-              <a href={webUrl(first?.url) ?? "#"} target="_blank" rel="noopener noreferrer" aria-label={`${name}, ${items.length} ${items.length === 1 ? "item" : "items"}, opens source`}>
-                <FolderIcon />
+              <a
+                href={webUrl(first?.url) ?? "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${name}, ${items.length > 1 ? `${items.length} items` : kind(first).name}, opens source`}
+              >
+                {/* A folder only where it holds several documents; one document shows as itself. */}
+                {items.length > 1 ? <FolderIcon /> : <DocumentIcon color={kind(first).color} />}
                 <span>{name}</span>
               </a>
             </li>
