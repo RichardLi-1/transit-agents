@@ -1,13 +1,18 @@
 """Computer use: Gemini works a legacy desktop app by sight, as a planner would.
 
-Agencies still schedule service in old desktop tools that have no API. This agent works
-one through its screen: it shows Gemini a screenshot, Gemini's computer use tool picks
-the next click or keystroke, the agent does it, and it shows Gemini the result, until
-the task is done. The app here is apps/legacy-mock, a mock of an old trip scheduler
-with sample data, which computer_use_browser.mjs shows in Chrome for Testing with
-Playwright. The agent can touch nothing else.
+Agencies still schedule service and time signals in old desktop tools that have no API.
+This agent works one through its screen: it shows Gemini a screenshot, Gemini's computer
+use tool picks the next click or keystroke, the agent does it, and it shows Gemini the
+result, until the task is done. There are two apps, both mocks with sample data, which
+computer_use_browser.mjs shows in Chrome for Testing with Playwright, each at its own
+address. The agent can touch nothing else.
+
+  scheduler  apps/legacy-mock, an old trip scheduler (the default)
+  microsim   apps/microsim-mock, an old traffic microsimulator for one signalized
+             intersection, a stand-in for tools like Vissim or Synchro
 
     python computer_use.py                     change route 605 Elm's weekday peak headway from 8 to 6 minutes, and save
+    python computer_use.py --app microsim      lengthen a left-turn phase, run the simulation, and save if it helps
     python computer_use.py "<task>"            another task in the mock app
     python computer_use.py --record run.mp4    also record the screen at 1920x1080, with a caption for each step
     python computer_use.py --study <id>        report each model call's tokens and cost to that study
@@ -43,6 +48,7 @@ from core import SetupError, _final_text, _generate, tokens_and_cost
 
 HERE = Path(__file__).parent
 PAGE = HERE.parent / "apps" / "legacy-mock" / "index.html"
+MICROSIM_PAGE = HERE.parent / "apps" / "microsim-mock" / "index.html"
 BRIDGE = HERE / "computer_use_browser.mjs"
 
 # Google's pick for computer use, priced in prices.py.
@@ -67,6 +73,25 @@ A planner has decided the change in the task. Make exactly that change, nothing 
 save it. Look at each screenshot before the next step. Typing into a field replaces what it \
 holds. Once it's saved, stop, and say in one plain sentence what you changed. If you can't \
 do it, or the task is unclear, stop and say why rather than guess."""
+
+# Said as an edit to a simulation model: Gemini's safety filter refused the same change
+# said as if to a real intersection's signals.
+MICROSIM_TASK = (
+    "In this simulation model of Don Mills & Eglinton, with sample data, the northbound left queue is too long. "
+    "In the model's signal plan, lengthen phase 2's green time from 12 to 20 seconds, run the simulation, "
+    "and save the model if the northbound left delay improves."
+)
+
+MICROSIM_INSTRUCTIONS = """You work one desktop app through its screen: Intersection Simulator, an \
+old traffic simulation tool. It is a mock with sample data. Use only this app.
+
+A planner has decided the change in the task. Make exactly that change, nothing else. Look at \
+each screenshot before the next step. Typing into a field replaces what it holds. A simulation \
+run takes about 10 seconds: wait until the status bar says it is complete, then compare the \
+Before and After columns of the evaluation results. Save only if the task's condition holds; if \
+it doesn't, stop without saving and say so. Once it's saved, stop, and say in one plain sentence \
+what you changed and what the results showed. If you can't do it, or the task is unclear, stop \
+and say why rather than guess."""
 
 CLICKS = {
     "click": ("left", 1),
@@ -109,6 +134,28 @@ class Result:
     cost_usd: float = 0.0
     saved: list[dict[str, Any]] = field(default_factory=list)  # what the app saved, oldest first
     unsaved: list[dict[str, Any]] = field(default_factory=list)  # changes left unsaved
+    evaluation: dict[str, Any] | None = None  # the microsim's runs: before (Run 1) and after (the latest)
+
+
+@dataclass(frozen=True)
+class App:
+    """A mock app the agent can work: its page, the address it's served at, and its own task.
+
+    The browser refuses every address but the app's own. `describe` puts a saved change
+    in words, `outcome` sums up the result in a sentence, if the app has more to say than
+    what it saved, and `did_task` says whether a run did the default task.
+    """
+
+    name: str
+    page: Path
+    origin: str
+    noun: str  # what Gemini is told is open, when it tries to leave
+    task: str
+    instructions: str
+    describe: Callable[[dict[str, Any]], str]
+    did_task: Callable[[Result], bool]
+    missed: str  # what the terminal says when a run of the default task didn't do it
+    outcome: Callable[[Result], str] = lambda result: ""
 
 
 class Screen:
@@ -121,15 +168,18 @@ class Screen:
     def __init__(
         self,
         *,
-        page: Path = PAGE,
+        app: App | None = None,
+        page: Path | None = None,
         record: Path | None = None,
         captions: bool = True,
         headed: bool = False,
         pace: bool | None = None,
         size: tuple[int, int] = SCREEN,
     ):
+        self.app = app or SCHEDULER
         self.options = {
-            "page": str(Path(page).resolve()),
+            "page": str(Path(page or self.app.page).resolve()),
+            "origin": self.app.origin,
             "width": size[0],
             "height": size[1],
             "headed": headed,
@@ -306,7 +356,7 @@ async def act(screen: Screen, name: str, args: dict[str, Any]) -> dict[str, Any]
             seconds = 1.0 if args.get("seconds") is None else float(args["seconds"])
             await asyncio.sleep(min(max(seconds, 0.0), MAX_WAIT_SECONDS))
         elif name != "take_screenshot":  # every result has a screenshot
-            return {"error": f"{name} isn't available here: only the scheduling app is open, and it can't be left."}
+            return {"error": f"{name} isn't available here: only the {screen.app.noun} is open, and it can't be left."}
     except (KeyError, TypeError, ValueError) as error:
         return {"error": f"{name} is missing or has a wrong argument: {error}"}
     except ScreenError as error:
@@ -376,10 +426,83 @@ def describe(change: dict[str, Any]) -> str:
     return f"{where} {change['field']} {change['from']} → {change['to']} min"
 
 
+def headway_changed(result: Result) -> bool:
+    """Whether the scheduler saved the default task's change: 605 Elm's weekday peak headway, 8 → 6 minutes."""
+    return any(
+        (c["route"], c["day"], c["period"], c["from"], c["to"]) == ("605 Elm", "Weekday", "Peak", 8, 6)
+        for c in result.saved
+    )
+
+
+def describe_timing(change: dict[str, Any]) -> str:
+    """One saved signal timing change, in words: "SC1 AM peak: phase 2 (NB/SB left) green 12 → 20 s"."""
+    field_name = "all-red" if change["field"] == "red" else change["field"]
+    where = f"{change['controller']} {change['plan']}: phase {change['phase']} ({change['movements']})"
+    return f"{where} {field_name} {change['from']} → {change['to']} s"
+
+
+def los_outcome(result: Result) -> str:
+    """The microsim's before and after, in a sentence: the northbound left's delay and LOS, and the intersection's."""
+    evaluation = result.evaluation or {}
+    before, after = evaluation.get("before"), evaluation.get("after")
+    if not before:
+        return ""
+    if not after:
+        return "The simulation wasn't run after the change."
+    def change(key: str) -> str:
+        was, now = before[key], after[key]
+        return f"{was['delay']:.1f} → {now['delay']:.1f} s/veh, LOS {was['los']} → {now['los']}"
+
+    stale = "" if evaluation.get("afterMatchesSaved") else " The last run wasn't on the plan as saved."
+    runs = f"(Run {before['run']} → Run {after['run']})"
+    return f"Northbound left: {change('northboundLeft')}. Intersection: {change('intersection')} {runs}.{stale}"
+
+
+def left_turn_fixed(result: Result) -> bool:
+    """Whether the microsim did the default task: saved phase 2's green at 20 s, and nothing else,
+    after a run on that plan that lowered the northbound left's delay."""
+    wanted = [("SC1", "AM peak", 2, "green", 12, 20)]
+    keys = ("controller", "plan", "phase", "field", "from", "to")
+    saved = [tuple(change.get(key) for key in keys) for change in result.saved]
+    evaluation = result.evaluation or {}
+    before, after = evaluation.get("before"), evaluation.get("after")
+    if saved != wanted or not before or not after or not evaluation.get("afterMatchesSaved"):
+        return False
+    return after["northboundLeft"]["delay"] < before["northboundLeft"]["delay"]
+
+
+SCHEDULER = App(
+    name="scheduler",
+    page=PAGE,
+    origin="http://legacy-app.test",
+    noun="scheduling app",
+    task=TASK,
+    instructions=INSTRUCTIONS,
+    describe=describe,
+    did_task=headway_changed,
+    missed="The app didn't save the change the task asks for.",
+)
+
+MICROSIM = App(
+    name="microsim",
+    page=MICROSIM_PAGE,
+    origin="http://intersection-sim.test",
+    noun="simulation app",
+    task=MICROSIM_TASK,
+    instructions=MICROSIM_INSTRUCTIONS,
+    describe=describe_timing,
+    did_task=left_turn_fixed,
+    missed="The app didn't save phase 2's green at 20 s after a run that lowered the northbound left's delay.",
+    outcome=los_outcome,
+)
+
+APPS = {app.name: app for app in (SCHEDULER, MICROSIM)}
+
+
 async def run(
     screen: Screen,
     client: Any,
-    task: str = TASK,
+    task: str | None = None,
     *,
     model: str | None = None,
     max_steps: int = MAX_STEPS,
@@ -390,18 +513,20 @@ async def run(
 ) -> Result:
     """Carry out a task in the app on `screen`, with Gemini's computer use, and say how it went.
 
-    `client` is Gemini's async client. Each model call's tokens and cost go to `report`,
-    if given. A step Gemini wants confirmed runs only if `confirm` says yes. A model with
-    no price is refused before anything starts. The run stops before a call that would
+    The task is the app's own unless given. `client` is Gemini's async client. Each model
+    call's tokens and cost go to `report`, if given. A step Gemini wants confirmed runs
+    only if `confirm` says yes. A model with no price is refused before anything starts. The run stops before a call that would
     likely pass `max_usd`, judged by what the last call cost: an estimate, not a bound.
     A try Gemini didn't answer in time takes one of `max_steps`, and counts from an estimate.
     """
     model = model or os.environ.get("COMPUTER_USE_MODEL") or MODEL
     priced(model)
+    app = screen.app
+    task = task or app.task
     who = f"{display_name(model)} · computer use"
     computer = types.ComputerUse(environment=ENVIRONMENT, excluded_predefined_functions=EXCLUDED)
     settings = types.GenerateContentConfig(
-        system_instruction=INSTRUCTIONS,
+        system_instruction=app.instructions,
         tools=[types.Tool(computer_use=computer)],
         max_output_tokens=MAX_OUTPUT_TOKENS,
     )
@@ -488,9 +613,12 @@ async def run(
     state = await screen.state()
     result.saved = state.get("changes", [])
     result.unsaved = state.get("unsaved", [])
-    ending = "; ".join(describe(change) for change in result.saved) or "nothing saved"
+    result.evaluation = state.get("evaluation")
+    ending = "; ".join(app.describe(change) for change in result.saved) or "nothing saved"
+    outcome = app.outcome(result)
     meta = f"{result.steps} steps · US${result.cost_usd:.3f}"
-    await screen.caption(who, f"{'Done' if result.finished else 'Stopped'}. Saved in the app: {ending}.", meta)
+    said = f"{'Done' if result.finished else 'Stopped'}. Saved in the app: {ending}."
+    await screen.caption(who, f"{said} {outcome}" if outcome else said, meta)
     await screen.pause(4)
     return result
 
@@ -522,8 +650,16 @@ CONFIRMATIONS = {
 
 
 async def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Gemini works the mock legacy scheduling app by sight.")
-    parser.add_argument("task", nargs="?", default=TASK, help="what to do in the app, as a planner would say it")
+    parser = argparse.ArgumentParser(description="Gemini works a mock legacy app by sight.")
+    parser.add_argument(
+        "task", nargs="?", help="what to do in the app, as a planner would say it (default: the app's own task)"
+    )
+    parser.add_argument(
+        "--app",
+        choices=list(APPS),
+        default=SCHEDULER.name,
+        help="the mock app: scheduler, a trip scheduler (the default), or microsim, a traffic microsimulator",
+    )
     parser.add_argument("--record", type=Path, help="record the screen to this .mp4, at 1920x1080")
     parser.add_argument("--no-captions", action="store_true", help="record without the captions under the screen")
     parser.add_argument("--headed", action="store_true", help="show the browser window")
@@ -543,6 +679,8 @@ async def main(argv: list[str] | None = None) -> int:
         help=f"stop before a call likely to pass this, in US dollars (default {MAX_USD:.2f})",
     )
     args = parser.parse_args(argv)
+    app = APPS[args.app]
+    task = args.task or app.task
     model = args.model or os.environ.get("COMPUTER_USE_MODEL") or MODEL
     if args.record and args.record.suffix.lower() != ".mp4":
         parser.error("--record takes a path ending in .mp4")
@@ -560,13 +698,13 @@ async def main(argv: list[str] | None = None) -> int:
 
         aio = await stack.enter_async_context(core.gemini().aio)
         screen = await stack.enter_async_context(
-            Screen(record=args.record, captions=not args.no_captions, headed=args.headed)
+            Screen(app=app, record=args.record, captions=not args.no_captions, headed=args.headed)
         )
-        print(f"{display_name(model)} works the mock app: {args.task}")
+        print(f"{display_name(model)} works the mock {app.noun}: {task}")
         result = await run(
             screen,
             aio,
-            args.task,
+            task,
             model=model,
             max_steps=args.steps,
             max_usd=args.max_usd,
@@ -576,22 +714,21 @@ async def main(argv: list[str] | None = None) -> int:
         video = await screen.close()
 
     print(f"\nGemini: {result.text}")
-    print("The app saved: " + ("; ".join(describe(change) for change in result.saved) or "nothing") + ".")
+    print("The app saved: " + ("; ".join(app.describe(change) for change in result.saved) or "nothing") + ".")
     if result.unsaved:
-        print("Left unsaved: " + "; ".join(describe(change) for change in result.unsaved) + ".")
+        print("Left unsaved: " + "; ".join(app.describe(change) for change in result.unsaved) + ".")
+    if outcome := app.outcome(result):
+        print(outcome)
     print(
         f"{result.steps} model calls, {result.input_tokens:,} tokens in and {result.output_tokens:,} out, "
         f"US${result.cost_usd:.4f}{f', reported to {args.study}' if args.study else ''}."
     )
     if video:
         print(f"Recording: {video}")
-    if args.task == TASK:
-        wanted = any(
-            (c["route"], c["day"], c["period"], c["from"], c["to"]) == ("605 Elm", "Weekday", "Peak", 8, 6)
-            for c in result.saved
-        )
+    if task == app.task:
+        wanted = app.did_task(result)
         if not wanted:
-            print("The app didn't save the change the task asks for.")
+            print(app.missed)
         return 0 if result.finished and wanted else 1
     return 0 if result.finished else 1
 

@@ -28,8 +28,9 @@ number traces to the page it came from, and planners make every decision.
   The replay's work is scripted, and the display labels it so.
 - **Visitors:** anyone can do everything but decide, in a sandbox only they
   see, sharing $10 of Gemini a day. See [Visitors](docs/system.md#visitors).
-- **Computer use:** built, on a mock. Gemini works a mock legacy scheduling app
-  through its screen; the app and its data are made up (see Computer use).
+- **Computer use:** built, on mocks. Gemini works a mock legacy scheduling app,
+  or a mock traffic microsimulator, through its screen; the apps and their data
+  are made up (see Computer use).
 
 ## Run it
 
@@ -213,13 +214,26 @@ npm run agent:test                              # with a stand-in for Gemini
 
 ## Computer use
 
-Many agencies still schedule service in old desktop tools with no API.
-`agents/computer_use.py` works one by sight with Gemini's computer use tool: it
-sends Gemini 3.8 Flash a screenshot, does the click or keystroke Gemini picks,
-and sends the next screenshot, until the task is done. The app is
-`apps/legacy-mock`, a mock of an old trip scheduler with sample data, shown in
-Chrome for Testing through Playwright. The agent can't leave it: the browser
-refuses every other address, and Gemini isn't offered navigation.
+Many agencies still schedule service and time signals in old desktop tools
+with no API. `agents/computer_use.py` works one by sight with Gemini's computer
+use tool: it sends Gemini 3.8 Flash a screenshot, does the click or keystroke
+Gemini picks, and sends the next screenshot, until the task is done. `--app`
+picks the app, shown in Chrome for Testing through Playwright:
+
+- `scheduler` (the default): `apps/legacy-mock`, a mock of an old trip
+  scheduler with sample data.
+- `microsim`: `apps/microsim-mock`, "Intersection Simulator 4.2", a mock traffic
+  microsimulator for one signalized intersection, Don Mills Rd & Eglinton Ave E,
+  with made-up volumes and signal plan. It stands in for tools like Vissim or
+  Synchro, and copies none of them. It draws the intersection with its lanes,
+  left-turn bays and signals, and runs 15 minutes of AM peak with a seeded
+  car-following model, so a plan always gives the same results. Its results
+  give each movement's delay, longest queue and LOS (HCM thresholds), before and
+  after the change.
+
+Each app has its own address, and the agent can't leave it: the browser refuses
+every other address, the other app's included, and Gemini isn't offered
+navigation.
 
 It needs the agents set up as in Run it, with `GEMINI_API_KEY` in
 `agents/.env`, and Node 24 or later. Recording needs ffmpeg. The service needn't
@@ -230,11 +244,28 @@ npx playwright-core install chromium   # once: Chrome for Testing, or set CHROME
 agents/.venv/bin/python agents/computer_use.py --confirm                   # the default task
 agents/.venv/bin/python agents/computer_use.py --confirm --record run.mp4  # and a video of it
 agents/.venv/bin/python agents/computer_use.py "<task>" --headed           # another task, in a window
+agents/.venv/bin/python agents/computer_use.py --app microsim --confirm --record microsim.mp4  # the microsim
 ```
 
-By default it changes route 605 Elm's weekday peak headway from 8 to 6 minutes
-and saves. The mock's routes and headways are made up, so they match no
-agency's. A planner decides the change; the agent only carries it out.
+In the scheduler, by default it changes route 605 Elm's weekday peak headway
+from 8 to 6 minutes and saves. The mock's routes and headways are made up, so
+they match no agency's. A planner decides the change; the agent only carries it
+out.
+
+In the microsim, by default it lengthens phase 2 (NB/SB left) from 12 to 20 s
+of green, runs the simulation, and saves if the northbound left's delay drops.
+The sample data starts with that left over capacity: its queue spills out of the
+bay and blocks a through lane. The run takes about 10 s at 120×, and the
+terminal ends with the before and after:
+
+```text
+The app saved: SC1 AM peak: phase 2 (NB/SB left) green 12 → 20 s.
+Northbound left: 221.3 → 43.9 s/veh, LOS F → D. Intersection: 63.2 → 44.4 s/veh, LOS E → D (Run 1 → Run 2).
+```
+
+Gemini's safety filter refused the task when it read as changing a real
+intersection's signals, so it says it is an edit to a simulation model with
+sample data. Ours took 7 calls, about a minute and US$0.02.
 
 The agent asks, and the planner confirms. In our runs, Gemini's safety check
 asked a person to confirm before it pressed OK and Save. Without `--confirm`,
@@ -257,6 +288,7 @@ Testing.
 - `services/api`: the service and the collector (`collect.ts`)
 - `apps/display`: the display, Preact with a WebGL map in a worker
 - `apps/legacy-mock`: a mock legacy trip scheduler, for computer use
+- `apps/microsim-mock`: a mock traffic microsimulator, for computer use
 - `packages/contracts`: types and schemas shared by every client
 - `agents`: the Gemini lead and specialists, their skills, the media and computer-use agents, and the eval runner
 - `clients`: seed, replay and decide, via the public API

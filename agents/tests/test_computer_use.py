@@ -20,7 +20,12 @@ from tests import support
 from tests.support import FakeGemini, reply
 
 HOME = "http://legacy-app.test/"
+SIM_HOME = "http://intersection-sim.test/"
 SAVED = [{"route": "605 Elm", "day": "Weekday", "period": "Peak", "field": "headway", "from": 8, "to": 6}]
+TIMING = {
+    "intersection": "Don Mills Rd & Eglinton Ave E", "controller": "SC1", "plan": "AM peak",
+    "phase": 2, "movements": "NB/SB left", "field": "green", "from": 12, "to": 20,
+}  # fmt: skip
 PNG = b"\x89PNG\r\n\x1a\n"
 
 
@@ -52,6 +57,40 @@ def planner(screen: Screen):
         return reply(text="I changed route 605 Elm's weekday peak headway from 8 to 6 minutes and saved it.")
 
     return respond
+
+
+def engineer(screen: Screen, *, save: bool = True):
+    """A fake Gemini that does the microsim's task as a person would: open Signal Timing,
+    type 20 for phase 2's green, press Enter for OK, pick Quick, run, then save with Control+S."""
+
+    async def respond(request):
+        steps = [
+            ("click", "#timing-button", {"intent": "Open Signal Timing"}),
+            ("type", "#p2-green", {"text": "20", "press_enter": True, "intent": "Phase 2 green 20 s, OK"}),
+            ("click", "#speed-quick", {"intent": "Quick mode"}),
+            ("click", "#run-button", {"intent": "Run the simulation"}),
+        ]
+        if save:
+            steps.append(("hotkey", None, {"keys": ["Control", "s"], "intent": "Save"}))
+        if request.turn < len(steps):
+            name, selector, args = steps[request.turn]
+            return reply((name, {**(await at(screen, selector) if selector else {}), **args}))
+        return reply(text="I lengthened phase 2's green from 12 to 20 s; the northbound left went from LOS F to D.")
+
+    return respond
+
+
+def evaluation(before_delay=221.3, after_delay=43.9, *, matches=True, ran=True):
+    """The microsim's evaluation, as its page reports it, with the northbound left's and intersection's delays."""
+
+    def summary(run, delay, los, node, node_los):
+        return {"run": run, "northboundLeft": {"delay": delay, "queue": 100, "los": los}, "intersection": {"delay": node, "los": node_los}}
+
+    return {
+        "before": summary(1, before_delay, "F", 63.2, "E"),
+        "after": summary(2, after_delay, "D", 44.4, "D") if ran else None,
+        "afterMatchesSaved": matches and ran,
+    }
 
 
 def quiet(_line: str) -> None:
@@ -119,6 +158,88 @@ class ActionTest(unittest.IsolatedAsyncioTestCase):
         result = await computer_use.run(screen, FakeGemini(respond), model="test-model", log=quiet)
         self.assertFalse(result.finished)
         self.assertEqual(screen.captions[1:], ["The agent asks. The planner confirms.", "Stopped. Saved in the app: nothing saved."])
+
+    def test_the_microsims_task_is_done_only_by_a_saved_phase_2_green_of_20_after_a_better_run(self):
+        done = computer_use.MICROSIM.did_task
+        good = computer_use.Result(True, "", 6, saved=[TIMING], evaluation=evaluation())
+        self.assertTrue(done(good))
+        self.assertEqual(
+            computer_use.MICROSIM.outcome(good),
+            "Northbound left: 221.3 → 43.9 s/veh, LOS F → D. Intersection: 63.2 → 44.4 s/veh, LOS E → D (Run 1 → Run 2).",
+        )
+        self.assertEqual(computer_use.describe_timing(TIMING), "SC1 AM peak: phase 2 (NB/SB left) green 12 → 20 s")
+        cases = {
+            "nothing saved": dict(saved=[], evaluation=evaluation()),
+            "another green": dict(saved=[{**TIMING, "to": 18}], evaluation=evaluation()),
+            "another change too": dict(saved=[TIMING, {**TIMING, "phase": 3, "from": 36, "to": 30}], evaluation=evaluation()),
+            "never run": dict(saved=[TIMING], evaluation=evaluation(ran=False)),
+            "run on another plan": dict(saved=[TIMING], evaluation=evaluation(matches=False)),
+            "no better": dict(saved=[TIMING], evaluation=evaluation(after_delay=230.0)),
+            "no evaluation": dict(saved=[TIMING], evaluation=None),
+        }
+        for name, fields in cases.items():
+            with self.subTest(name):
+                self.assertFalse(done(computer_use.Result(True, "", 6, **fields)))
+        never = computer_use.Result(True, "", 6, saved=[TIMING], evaluation=evaluation(ran=False))
+        self.assertEqual(computer_use.MICROSIM.outcome(never), "The simulation wasn't run after the change.")
+        stale = computer_use.Result(True, "", 6, saved=[TIMING], evaluation=evaluation(matches=False))
+        self.assertTrue(computer_use.MICROSIM.outcome(stale).endswith("The last run wasn't on the plan as saved."))
+        # The scheduler's check is as it was, and says nothing more than what was saved.
+        self.assertTrue(computer_use.SCHEDULER.did_task(computer_use.Result(True, "", 6, saved=SAVED)))
+        self.assertEqual(computer_use.SCHEDULER.outcome(computer_use.Result(True, "", 6, saved=SAVED)), "")
+
+    async def test_app_picks_the_page_its_address_task_and_instructions(self):
+        opened = []
+
+        class Offline(Screen):
+            """A screen with no browser: it keeps what it was opened with, and shows nothing."""
+
+            async def __aenter__(self):
+                opened.append(self)
+                return self
+
+            async def __aexit__(self, *exc):
+                pass
+
+            async def send(self, command, **args):
+                if command == "screenshot":
+                    return {"ok": True, "png": base64.b64encode(PNG).decode(), "url": self.app.origin + "/"}
+                if command == "state":
+                    return {"ok": True, "changes": [], "unsaved": [], "evaluation": evaluation(ran=False)}
+                return {"ok": True}
+
+        fake = FakeGemini(lambda request: reply(text="Nothing to do."))
+
+        class Client:
+            @property
+            def aio(self):
+                @contextlib.asynccontextmanager
+                async def given():
+                    yield fake
+
+                return given()
+
+        self.enterContext(mock.patch.dict(os.environ, {"COMPUTER_USE_MODEL": "test-model"}))
+        self.enterContext(mock.patch.object(core, "gemini", Client))
+        self.enterContext(mock.patch.object(computer_use, "Screen", Offline))
+        for name, app in (("microsim", computer_use.MICROSIM), (None, computer_use.SCHEDULER)):
+            with self.subTest(name):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    code = await computer_use.main(["--confirm", *(["--app", name] if name else [])])
+                screen, request = opened[-1], fake.requests[-1]
+                self.assertIs(screen.app, app)
+                self.assertEqual(screen.options["page"], str(app.page.resolve()))
+                self.assertEqual(screen.options["origin"], app.origin)
+                self.assertEqual((request.task, request.config.system_instruction), (app.task, app.instructions))
+                # Nothing was saved, so the default task wasn't done.
+                self.assertEqual(code, 1)
+                self.assertIn(app.missed, output.getvalue())
+                # Only the microsim has an evaluation to report.
+                self.assertEqual("The simulation wasn't run after the change." in output.getvalue(), app is computer_use.MICROSIM)
+        self.assertEqual(computer_use.MICROSIM.page.parent.name, "microsim-mock")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            await computer_use.main(["--app", "vissim"])
 
     def test_points_go_from_0_to_999_across_the_screen(self):
         self.assertEqual(pixel(0, 1920), 0)
@@ -262,6 +383,40 @@ class BrowserTest(unittest.IsolatedAsyncioTestCase):
         probe = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", fields, "-of", "csv=p=0"]
         found = subprocess.run([*probe, str(video)], capture_output=True, text=True, check=True).stdout.strip()
         self.assertEqual(found, "h264,1920,1080,yuv420p")
+
+    async def test_a_fake_gemini_lengthens_phase_2_runs_the_simulation_and_saves(self):
+        async with Screen(app=computer_use.MICROSIM) as screen:
+            fake = FakeGemini(engineer(screen))
+            result = await computer_use.run(screen, fake, model="test-model", log=quiet)
+            state = await screen.state()
+        self.assertTrue(result.finished, result.text)
+        self.assertEqual(result.saved, [TIMING])
+        self.assertEqual(result.unsaved, [])
+        self.assertEqual(fake.requests[0].task, computer_use.MICROSIM_TASK)
+        self.assertEqual(fake.requests[1].results[0][1], {"url": SIM_HOME})
+        self.assertEqual((state["url"], state["blocked"], state["left"]), (SIM_HOME, [], 0))
+        # The run is repeatable: the sample data's northbound left goes from F to D.
+        self.assertTrue(computer_use.MICROSIM.did_task(result))
+        before, after = result.evaluation["before"], result.evaluation["after"]
+        self.assertEqual((before["run"], before["cycle"], after["run"], after["cycle"]), (1, 116, 2, 124))
+        self.assertEqual((before["northboundLeft"]["los"], after["northboundLeft"]["los"]), ("F", "D"))
+        self.assertLess(after["intersection"]["delay"], before["intersection"]["delay"])
+
+        # Run but not saved: the change is left unsaved, and the task isn't done.
+        async with Screen(app=computer_use.MICROSIM) as screen:
+            result = await computer_use.run(screen, FakeGemini(engineer(screen, save=False)), model="test-model", log=quiet)
+        self.assertEqual((result.saved, result.unsaved), ([], [TIMING]))
+        self.assertTrue(result.evaluation["afterMatchesCurrent"])
+        self.assertFalse(computer_use.MICROSIM.did_task(result))
+
+    async def test_each_app_reaches_only_its_own_address(self):
+        page = Path(self.enterContext(tempfile.TemporaryDirectory())) / "other.html"
+        page.write_text('<!doctype html><title>Other</title><img src="http://legacy-app.test/logo.png" alt="">')
+        async with Screen(app=computer_use.MICROSIM, page=page) as screen:
+            await screen.screenshot()
+            state = await screen.state()
+        # The scheduler's address is another app's, so the microsim's browser refuses it.
+        self.assertEqual((state["url"], state["blocked"]), (SIM_HOME, ["http://legacy-app.test/logo.png"]))
 
     async def test_stops_after_15_model_calls(self):
         async with Screen() as screen:

@@ -6,9 +6,10 @@
 // stdout, starting with {"ready": true, "screen": {...}} once the page is up.
 // Coordinates are CSS pixels on the screen the model sees.
 //
-// The page is served at http://legacy-app.test/ from its file, and nothing else
-// loads: every request to another origin is refused, a new window is closed, and
-// the page is put back if it's ever left. Options: page, width, height (1920x1080),
+// The page is served at its app's own origin, http://legacy-app.test/ unless
+// options.origin says another, from its file, and nothing else loads: every request
+// to another origin is refused, a new window is closed, and the page is put back if
+// it's ever left. Options: page, origin, width, height (1920x1080),
 // headed, pace (move and type at a speed people can follow), record (an .mp4 path,
 // written with ffmpeg) and captions (a strip under the screen, kept out of the
 // screenshots). CHROME_PATH picks the browser; otherwise it's Playwright's Chrome
@@ -21,13 +22,13 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { chromium } from "playwright-core";
 
-const ORIGIN = "http://legacy-app.test";
-const HOME = `${ORIGIN}/`;
 const FPS = 25;
 const CAPTION_HEIGHT = 72;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const options = JSON.parse(process.argv[2] ?? "{}");
+const ORIGIN = new URL(options.origin ?? "http://legacy-app.test").origin;
+const HOME = `${ORIGIN}/`;
 const width = options.width ?? 1920;
 const height = options.height ?? 1080;
 const pace = Boolean(options.pace);
@@ -263,13 +264,18 @@ const commands = {
   async caption(caption) {
     await page.evaluate((shown) => window.__computerUseCaption?.(shown), caption);
   },
-  // For the harness and tests, never the model: what the app saved, and what was refused.
+  // For the harness and tests, never the model: what the app saved, its evaluation if
+  // it has one, and what was refused. Each mock app reports through its own object.
   async state() {
     await restoring;
-    await page.waitForFunction(() => !window.tripScheduler?.busy?.(), null, { timeout: 5000 }).catch(() => {});
-    const app = await page.evaluate(() =>
-      window.tripScheduler ? { changes: window.tripScheduler.changes(), unsaved: window.tripScheduler.unsaved() } : {},
-    );
+    await page
+      .waitForFunction(() => !(window.tripScheduler ?? window.signalSim)?.busy?.(), null, { timeout: 5000 })
+      .catch(() => {});
+    const app = await page.evaluate(() => {
+      const mock = window.tripScheduler ?? window.signalSim;
+      if (!mock) return {};
+      return { changes: mock.changes(), unsaved: mock.unsaved(), ...(mock.evaluation ? { evaluation: mock.evaluation() } : {}) };
+    });
     return { url: page.url(), blocked, left, ...app };
   },
   async box({ selector }) {

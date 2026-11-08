@@ -7,8 +7,10 @@ export const VIEWS: Record<string, Camera> = {
   "sherbourne-castle-frank": { x: 2300, y: -4300, distance: 6200, pitch: 1.18, bearing: -0.25 },
   // Looking north from downtown: the whole Ontario Line in front, rising to the
   // proposed extension up Don Mills Road. Looking south from Don Mills instead put
-  // the line itself on the horizon, a hairline under the folders.
-  "ontario-line-don-mills": { x: 1200, y: -300, distance: 27000, pitch: 0.8, bearing: 0.35 },
+  // the line itself on the horizon, a hairline under the folders. It faces
+  // "Toronto north", about 17° west of true north, so the street grid, Yonge and
+  // Don Mills Road run straight up the screen rather than across it.
+  "ontario-line-don-mills": { x: 1200, y: -300, distance: 27000, pitch: 0.8, bearing: -0.29 },
 };
 export const OVERVIEW: Camera = { x: -1500, y: 1500, distance: 26000, pitch: 1.15, bearing: -0.3 };
 

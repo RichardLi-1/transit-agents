@@ -1,0 +1,1393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Intersection Simulator 4.2</title>
+<!--
+  A mock of an old desktop traffic microsimulation tool, for agents/computer_use.py to
+  drive. It is generic: no real product's name, logo, colours or screens. The place is
+  real; its volumes and signal plan are made-up sample data. It saves only in memory.
+  window.signalSim reports what was saved and the before and after evaluations.
+  The model, in the script with id "model", is plain JavaScript with no page access, so
+  model.test.ts can run it in Node.
+-->
+<style>
+  :root {
+    --face: #d4d0c8;
+    --light: #ffffff;
+    --shadow: #808080;
+    --dark: #404040;
+    --select: #0a246a;
+    --select-text: #ffffff;
+    --text: #000000;
+    --grey-text: #808080;
+    --field: #ffffff;
+    /* A harness can keep the bottom of the screen for its own captions. */
+    --reserved-bottom: 0px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #3a6ea5; overflow: hidden; }
+  body { font: 16px Tahoma, Verdana, "Segoe UI", sans-serif; color: var(--text); }
+  button, input { font: inherit; color: inherit; }
+
+  .raised { background: var(--face); box-shadow: inset -1px -1px var(--dark), inset 1px 1px var(--light), inset -2px -2px var(--shadow), inset 2px 2px var(--face); }
+  .sunken { box-shadow: inset 1px 1px var(--shadow), inset -1px -1px var(--light), inset 2px 2px var(--dark), inset -2px -2px var(--face); }
+  .thin-sunken { box-shadow: inset 1px 1px var(--shadow), inset -1px -1px var(--light); }
+
+  .window { position: fixed; inset: 0 0 var(--reserved-bottom) 0; display: flex; flex-direction: column; padding: 3px; }
+  .titlebar { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 4px 0 6px; color: #fff; font-weight: bold;
+    background: linear-gradient(90deg, #0a246a, #3a6ea5 55%, #a6caf0); flex: none; }
+  .titlebar.inactive { background: linear-gradient(90deg, #808080, #b5b5b5); color: #d4d0c8; }
+  .titlebar svg { flex: none; }
+  .titlebar .title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .caption-buttons { display: flex; gap: 2px; }
+  .caption-buttons button { width: 26px; height: 22px; padding: 0; border: 0; display: grid; place-items: center; }
+
+  .menubar { display: flex; height: 30px; align-items: stretch; padding: 1px 2px; flex: none; position: relative; z-index: 25; }
+  .menubar > div { position: relative; }
+  .menubar > div > button { height: 100%; padding: 0 10px; border: 0; background: none; }
+  .menubar > div > button[aria-expanded="true"] { background: var(--select); color: var(--select-text); }
+  .menu { position: absolute; top: 100%; left: 0; min-width: 280px; padding: 3px; z-index: 20; display: none; }
+  .menu.open { display: block; }
+  .menu button { display: flex; justify-content: space-between; gap: 24px; width: 100%; padding: 5px 22px; border: 0; background: none; text-align: left; }
+  .menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--select); color: var(--select-text); outline: none; }
+  .menu button:disabled { color: var(--grey-text); text-shadow: 1px 1px var(--light); }
+  .menu hr { border: 0; border-top: 1px solid var(--shadow); border-bottom: 1px solid var(--light); margin: 3px 2px; }
+  u { text-decoration: underline; }
+
+  .toolbar { display: flex; align-items: center; gap: 2px; height: 52px; padding: 3px 4px; flex: none; border-top: 1px solid var(--light); border-bottom: 1px solid var(--shadow); }
+  .toolbar button { display: flex; align-items: center; gap: 7px; height: 44px; padding: 0 12px; border: 0; background: none; white-space: nowrap; }
+  .toolbar button:hover:not(:disabled) { box-shadow: inset -1px -1px var(--shadow), inset 1px 1px var(--light); }
+  .toolbar button:active:not(:disabled), .toolbar button[aria-pressed="true"] { box-shadow: inset 1px 1px var(--shadow), inset -1px -1px var(--light); }
+  .toolbar button[aria-pressed="true"] { background: #e8e6e0; font-weight: bold; }
+  .toolbar button:disabled { color: var(--grey-text); }
+  .toolbar button:disabled svg { opacity: 0.45; filter: grayscale(1); }
+  .toolbar .sep { width: 2px; height: 36px; margin: 0 6px; border-left: 1px solid var(--shadow); border-right: 1px solid var(--light); }
+  .toolbar .label { padding: 0 4px 0 6px; }
+  .toolbar .speed button { padding: 0 12px; min-width: 52px; justify-content: center; }
+
+  .main { flex: 1; display: flex; gap: 6px; padding: 6px 4px; min-height: 0; }
+  fieldset { margin: 0; padding: 10px; border: 0; box-shadow: inset 1px 1px var(--shadow), inset -1px -1px var(--light), inset 2px 2px var(--light), inset -2px -2px var(--shadow); }
+  legend { padding: 0 4px; }
+
+  .side { width: 340px; flex: none; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+  .tree { flex: 1; margin: 0; padding: 6px 4px; background: var(--field); overflow: auto; list-style: none; min-height: 0; }
+  .tree ul { list-style: none; margin: 0; padding-left: 22px; }
+  .tree li > span { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 5px; white-space: nowrap; cursor: default; }
+  .tree li > span .twisty { width: 11px; height: 11px; border: 1px solid #808080; font-size: 10px; line-height: 9px; text-align: center; background: #fff; flex: none; }
+  .tree li > span .twisty.none { visibility: hidden; }
+  .tree li > span.selected { background: var(--select); color: var(--select-text); }
+  .tree .count { color: #555; }
+  .tree li > span.selected .count { color: #dfe6f5; }
+  .props { flex: none; }
+  .props table { width: 100%; border-collapse: collapse; background: var(--field); }
+  .props td, .props th { height: 30px; padding: 0 8px; border-bottom: 1px solid #e4e2dc; text-align: left; font-weight: normal; white-space: nowrap; }
+  .props th { background: var(--face); box-shadow: inset -1px -1px var(--shadow), inset 1px 1px var(--light); }
+  .props td.number, .props th.number { text-align: right; }
+  .props .cycle { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; gap: 8px; }
+  .props .cycle strong { font-size: 17px; }
+
+  .network { flex: 1; display: flex; flex-direction: column; min-width: 0; gap: 4px; }
+  .pane-head { display: flex; justify-content: space-between; align-items: center; height: 30px; padding: 0 8px; color: #fff; background: #808080; font-weight: bold; flex: none; }
+  .pane-head.active { background: linear-gradient(90deg, #0a246a, #3a6ea5); }
+  .canvas-wrap { flex: 1; min-height: 0; position: relative; background: #fff; }
+  canvas { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); }
+
+  .results { width: 610px; flex: none; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+  .results fieldset.eval { flex: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .summary > div { padding: 8px 10px; background: var(--field); min-height: 92px; }
+  .summary .which { font-weight: bold; }
+  .summary .sub { color: #333; font-size: 14px; }
+  .summary .big { font-size: 20px; margin-top: 4px; display: flex; align-items: center; gap: 10px; }
+  .grid-wrap { background: var(--field); overflow: auto; min-height: 0; }
+  table.eval-table { border-collapse: collapse; width: 100%; background: var(--field); font-size: 15px; table-layout: fixed; }
+  .eval-table th { font-size: 14px; height: 30px; padding: 0 6px; font-weight: normal; background: var(--face); white-space: nowrap;
+    box-shadow: inset -1px -1px var(--dark), inset 1px 1px var(--light), inset -2px -2px var(--shadow); }
+  .eval-table td { height: 33px; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid #e4e2dc; border-right: 1px solid #e4e2dc; white-space: nowrap; }
+  .eval-table td.number, .eval-table th.number { text-align: right; }
+  .eval-table td.los, .eval-table th.los { text-align: center; width: 46px; }
+  .eval-table tr.total td { font-weight: bold; border-top: 2px solid #808080; }
+  .eval-table td.after-start, .eval-table th.after-start { border-left: 2px solid #808080; }
+  .los-badge { display: inline-block; min-width: 30px; padding: 1px 6px; text-align: center; font-weight: bold; border: 1px solid #555; }
+  .los-A, .los-B { background: #9fd89f; }
+  .los-C { background: #d6ec8e; }
+  .los-D { background: #ffe066; }
+  .los-E { background: #ffb15c; }
+  .los-F { background: #f26b5b; color: #fff; }
+  .note { padding: 6px 10px; background: #ffffe1; border: 1px solid #a0a080; }
+  .note.hidden { display: none; }
+  .meter { height: 18px; padding: 2px; background: var(--field); }
+  .meter span { display: block; height: 100%; width: 0; background: repeating-linear-gradient(90deg, var(--select) 0 12px, transparent 12px 15px); }
+  .changes { flex: none; max-height: 190px; overflow: auto; }
+  .changes ul { margin: 0; padding-left: 22px; }
+  .changes li { margin: 2px 0; }
+  .muted { color: #444; }
+
+  .button { min-width: 110px; height: 34px; padding: 0 14px; border: 0; }
+  .button:active:not(:disabled) { box-shadow: inset 1px 1px var(--dark), inset -1px -1px var(--light); }
+  .button:disabled { color: var(--grey-text); text-shadow: 1px 1px var(--light); }
+  .button.default { outline: 1px solid #000; outline-offset: -1px; }
+  .button:focus-visible { outline: 1px dotted #000; outline-offset: -5px; }
+
+  .statusbar { display: flex; gap: 3px; height: 30px; padding-top: 3px; flex: none; }
+  .statusbar > div { padding: 0 8px; line-height: 27px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .statusbar .message { flex: 1; }
+  .progress { width: 180px; height: 20px; margin-top: 4px; padding: 2px; display: none; }
+  .progress.on { display: block; }
+  .progress span { display: block; height: 100%; width: 0; background: repeating-linear-gradient(90deg, var(--select) 0 12px, transparent 12px 15px); }
+
+  .modal-cover { position: fixed; inset: 0 0 var(--reserved-bottom) 0; z-index: 30; display: none; }
+  .modal-cover.open { display: block; }
+  .dialog { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: 1000px; padding: 3px; }
+  .dialog .titlebar { height: 32px; }
+  .dialog-body { padding: 14px 18px 6px; display: flex; flex-direction: column; gap: 12px; }
+  .dialog-facts { display: flex; gap: 28px; }
+  table.phases { border-collapse: collapse; width: 100%; background: var(--field); }
+  .phases th { height: 32px; padding: 0 10px; font-weight: normal; text-align: left; background: var(--face); white-space: nowrap;
+    box-shadow: inset -1px -1px var(--dark), inset 1px 1px var(--light), inset -2px -2px var(--shadow); }
+  .phases td { height: 48px; padding: 0 10px; border-bottom: 1px solid #e4e2dc; white-space: nowrap; }
+  .phases td.number, .phases th.number { text-align: right; }
+  .phases input { width: 86px; height: 36px; padding: 2px 8px; border: 0; background: var(--field); text-align: right; font-size: 18px; }
+  .phases input.changed { font-weight: bold; background: #fff8d0; }
+  .phases input.bad { background: #ffd8d8; }
+  .phases .swatch { display: inline-block; width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px; border: 1px solid #333; }
+  .cycle-line { display: flex; align-items: baseline; gap: 18px; }
+  .cycle-line strong { font-size: 22px; }
+  .chart { background: var(--field); padding: 6px 8px; }
+  .error { color: #a00000; min-height: 22px; }
+  .dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; padding: 6px 18px 16px; }
+</style>
+</head>
+<body>
+<div class="window raised">
+  <div class="titlebar" id="titlebar">
+    <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+      <rect x="6" y="1" width="10" height="20" rx="2" fill="#333" stroke="#000"/>
+      <circle cx="11" cy="5.5" r="2.4" fill="#e74c3c"/><circle cx="11" cy="11" r="2.4" fill="#f1c40f"/><circle cx="11" cy="16.5" r="2.4" fill="#2ecc71"/>
+    </svg>
+    <span class="title" id="title">Intersection Simulator 4.2 - [Don Mills-Eglinton AM.isim]</span>
+    <div class="caption-buttons">
+      <button class="raised" type="button" aria-label="Minimize" data-off="Minimize"><svg width="10" height="10" aria-hidden="true"><rect x="1" y="7" width="7" height="2"/></svg></button>
+      <button class="raised" type="button" aria-label="Maximize" data-off="Maximize"><svg width="10" height="10" aria-hidden="true"><rect x="0.5" y="0.5" width="8" height="8" fill="none" stroke="#000"/><rect x="0.5" y="0.5" width="8" height="2"/></svg></button>
+      <button class="raised" type="button" aria-label="Close" data-off="Exit"><svg width="10" height="10" aria-hidden="true"><path d="M1 1l7 7M8 1L1 8" stroke="#000" stroke-width="1.6"/></svg></button>
+    </div>
+  </div>
+
+  <div class="menubar" role="menubar" aria-label="Menu" id="menubar">
+    <div><button type="button" role="menuitem" aria-haspopup="true" aria-expanded="false" data-menu="file"><u>F</u>ile</button>
+      <div class="menu raised" role="menu" id="menu-file" aria-label="File">
+        <button type="button" role="menuitem" disabled><span>New network</span><span>Ctrl+N</span></button>
+        <button type="button" role="menuitem" disabled><span>Open network...</span><span>Ctrl+O</span></button>
+        <button type="button" role="menuitem" data-action="save"><span>Save</span><span>Ctrl+S</span></button>
+        <hr>
+        <button type="button" role="menuitem" data-action="exit"><span>Exit</span><span></span></button>
+      </div>
+    </div>
+    <div><button type="button" role="menuitem" aria-haspopup="true" aria-expanded="false" data-menu="edit"><u>E</u>dit</button>
+      <div class="menu raised" role="menu" id="menu-edit" aria-label="Edit">
+        <button type="button" role="menuitem" disabled><span>Undo</span><span>Ctrl+Z</span></button>
+      </div>
+    </div>
+    <div><button type="button" role="menuitem" aria-haspopup="true" aria-expanded="false" data-menu="signal"><u>S</u>ignal control</button>
+      <div class="menu raised" role="menu" id="menu-signal" aria-label="Signal control">
+        <button type="button" role="menuitem" data-action="timing"><span>Edit signal timing...</span><span>Ctrl+T</span></button>
+        <button type="button" role="menuitem" disabled><span>Detectors...</span><span></span></button>
+      </div>
+    </div>
+    <div><button type="button" role="menuitem" aria-haspopup="true" aria-expanded="false" data-menu="simulation">Si<u>m</u>ulation</button>
+      <div class="menu raised" role="menu" id="menu-simulation" aria-label="Simulation">
+        <button type="button" role="menuitem" data-action="run"><span>Run simulation</span><span>F5</span></button>
+        <button type="button" role="menuitem" data-action="pause"><span>Pause</span><span></span></button>
+        <button type="button" role="menuitem" data-action="stop"><span>Stop</span><span></span></button>
+        <hr>
+        <button type="button" role="menuitem" disabled><span>Parameters...</span><span></span></button>
+      </div>
+    </div>
+    <div><button type="button" role="menuitem" aria-haspopup="true" aria-expanded="false" data-menu="evaluation">E<u>v</u>aluation</button>
+      <div class="menu raised" role="menu" id="menu-evaluation" aria-label="Evaluation">
+        <button type="button" role="menuitem" disabled><span>Node results</span><span></span></button>
+        <button type="button" role="menuitem" disabled><span>Export...</span><span></span></button>
+      </div>
+    </div>
+    <div><button type="button" role="menuitem" aria-haspopup="true" aria-expanded="false" data-menu="help"><u>H</u>elp</button>
+      <div class="menu raised" role="menu" id="menu-help" aria-label="Help">
+        <button type="button" role="menuitem" data-action="about"><span>About Intersection Simulator</span><span></span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar" role="toolbar" aria-label="Tools">
+    <button type="button" disabled aria-label="Open network">
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 6h7l2 2h10v12H2z" fill="#f2c94c" stroke="#5a4500"/><path d="M2 20l4-9h17l-4 9z" fill="#ffe08a" stroke="#5a4500"/></svg>Open</button>
+    <button type="button" id="save-button" aria-label="Save">
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h15l3 3v15H3z" fill="#3c64b4" stroke="#0c2050"/><rect x="7" y="3" width="10" height="7" fill="#e8e8e8" stroke="#0c2050"/><rect x="13" y="4.5" width="2.5" height="4" fill="#3c64b4"/><rect x="6" y="13" width="12" height="8" fill="#fff" stroke="#0c2050"/></svg>Save</button>
+    <span class="sep" aria-hidden="true"></span>
+    <button type="button" id="timing-button" aria-label="Signal Timing">
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="1" width="10" height="22" rx="2" fill="#333" stroke="#000"/><circle cx="12" cy="6" r="2.6" fill="#e74c3c"/><circle cx="12" cy="12" r="2.6" fill="#f1c40f"/><circle cx="12" cy="18" r="2.6" fill="#2ecc71"/></svg>Signal Timing...</button>
+    <span class="sep" aria-hidden="true"></span>
+    <button type="button" id="run-button" aria-label="Run simulation">
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3l15 9-15 9z" fill="#1f9d3a" stroke="#0b4a18"/></svg>Run simulation</button>
+    <button type="button" id="pause-button" aria-label="Pause" disabled>
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="5" height="16" fill="#3c64b4" stroke="#0c2050"/><rect x="14" y="4" width="5" height="16" fill="#3c64b4" stroke="#0c2050"/></svg>Pause</button>
+    <button type="button" id="stop-button" aria-label="Stop" disabled>
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" fill="#c0392b" stroke="#5a1008"/></svg>Stop</button>
+    <span class="sep" aria-hidden="true"></span>
+    <span class="label">Speed:</span>
+    <div class="speed" style="display:flex;gap:2px" role="group" aria-label="Simulation speed">
+      <button type="button" id="speed-10" data-speed="10" aria-pressed="false">10&times;</button>
+      <button type="button" id="speed-60" data-speed="60" aria-pressed="false">60&times;</button>
+      <button type="button" id="speed-120" data-speed="120" aria-pressed="true">120&times;</button>
+      <button type="button" id="speed-quick" data-speed="0" aria-pressed="false">Quick (no animation)</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="side">
+      <fieldset style="flex:1;display:flex;flex-direction:column;min-height:0">
+        <legend>Network</legend>
+        <ul class="tree sunken" id="tree" aria-label="Network">
+          <li><span data-node="network"><span class="twisty">&minus;</span>Network: Don Mills-Eglinton AM</span>
+            <ul>
+              <li><span data-node="intersections"><span class="twisty">&minus;</span>Intersections</span>
+                <ul>
+                  <li><span data-node="node"><span class="twisty">&minus;</span>Don Mills Rd &amp; Eglinton Ave E</span>
+                    <ul>
+                      <li><span data-node="controller"><span class="twisty">&minus;</span>Signal controller SC1</span>
+                        <ul><li><span data-node="plan" id="tree-plan"><span class="twisty none"></span>Signal plan "AM peak"</span></li></ul>
+                      </li>
+                    </ul>
+                  </li>
+                </ul>
+              </li>
+              <li><span data-node="inputs"><span class="twisty">&minus;</span>Vehicle inputs (veh/h)</span>
+                <ul id="tree-inputs"></ul>
+              </li>
+              <li><span data-node="evaluations"><span class="twisty">&minus;</span>Evaluations</span>
+                <ul>
+                  <li><span data-node="eval-node"><span class="twisty none"></span>Node results</span></li>
+                  <li><span data-node="eval-queues"><span class="twisty none"></span>Queue counters <span class="count">(8)</span></span></li>
+                  <li><span data-node="eval-runs"><span class="twisty none"></span>Runs <span class="count" id="tree-runs">(1)</span></span></li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </fieldset>
+      <fieldset class="props">
+        <legend>Signal plan "AM peak" (SC1)</legend>
+        <table aria-label="Signal plan AM peak">
+          <thead><tr><th>Phase</th><th>Movements</th><th class="number">Green (s)</th></tr></thead>
+          <tbody id="props-phases"></tbody>
+        </table>
+        <div class="cycle"><span>Cycle length: <strong id="props-cycle"></strong></span>
+          <button type="button" class="button raised" id="edit-timing">Edit timing...</button></div>
+      </fieldset>
+    </div>
+
+    <div class="network">
+      <div class="pane-head active"><span>Network view - Don Mills Rd &amp; Eglinton Ave E (plan view)</span><span id="view-clock"></span></div>
+      <div class="canvas-wrap sunken"><canvas id="view" aria-label="Plan view of the intersection with moving vehicles"></canvas></div>
+    </div>
+
+    <div class="results">
+      <fieldset class="eval">
+        <legend>Evaluation results - Node results</legend>
+        <div class="summary">
+          <div class="sunken" id="sum-before"></div>
+          <div class="sunken" id="sum-after"></div>
+        </div>
+        <div class="note hidden" id="stale">The signal plan has changed since the last run. Run the simulation to see its effect.</div>
+        <div class="meter sunken" id="meter" hidden><span></span></div>
+        <div class="grid-wrap sunken">
+          <table class="eval-table" aria-label="Delay, queue and level of service by movement">
+            <thead>
+              <tr><th rowspan="2" style="text-align:left;width:186px">Movement</th><th colspan="3" id="head-before">Before</th><th colspan="3" class="after-start" id="head-after">After</th></tr>
+              <tr><th class="number">Delay (s)</th><th class="number">Queue (m)</th><th class="los">LOS</th>
+                  <th class="number after-start">Delay (s)</th><th class="number">Queue (m)</th><th class="los">LOS</th></tr>
+            </thead>
+            <tbody id="eval-body"></tbody>
+          </table>
+        </div>
+        <div class="muted" style="font-size:14px">Delay: average control delay, s/veh, 08:00-08:15 after a 2 min warm-up. Queue: longest, m. LOS by HCM signalized thresholds: A &le;10, B &le;20, C &le;35, D &le;55, E &le;80, F &gt;80 s.</div>
+      </fieldset>
+      <fieldset class="changes">
+        <legend>Changes</legend>
+        <div id="changes"></div>
+      </fieldset>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <div class="message thin-sunken" role="status" id="status">Ready</div>
+    <div class="progress thin-sunken" id="progress" aria-hidden="true"><span></span></div>
+    <div class="thin-sunken" id="clock">Sim time 08:15:00</div>
+    <div class="thin-sunken" id="unsaved">No unsaved changes</div>
+    <div class="thin-sunken">Mock legacy app &middot; sample data</div>
+  </div>
+</div>
+
+<div class="modal-cover" id="cover">
+  <div class="dialog raised" role="dialog" aria-modal="true" aria-labelledby="dialog-title" id="dialog">
+    <div class="titlebar" id="dialog-bar">
+      <span class="title" id="dialog-title">Signal Timing - SC1 Don Mills Rd &amp; Eglinton Ave E</span>
+      <div class="caption-buttons"><button class="raised" type="button" aria-label="Close" id="dialog-close"><svg width="10" height="10" aria-hidden="true"><path d="M1 1l7 7M8 1L1 8" stroke="#000" stroke-width="1.6"/></svg></button></div>
+    </div>
+    <form id="timing-form" novalidate>
+      <div class="dialog-body">
+        <div class="dialog-facts"><span>Signal plan: <b>AM peak</b></span><span>Control: fixed time</span><span>Offset: 0 s</span><span>Phase order: 1, 2, 3, 4</span></div>
+        <div class="sunken" style="padding:2px">
+          <table class="phases" aria-label="Phases">
+            <thead><tr><th>Phase</th><th>Movements</th><th class="number">Green (s)</th><th class="number">Amber (s)</th><th class="number">All-red (s)</th><th class="number">Phase length (s)</th></tr></thead>
+            <tbody id="phase-rows"></tbody>
+          </table>
+        </div>
+        <div class="cycle-line"><span>Cycle length: <strong id="d-cycle"></strong></span><span class="muted">Limits: green 5 s or more, amber 3-6 s, all-red 0-5 s, cycle 180 s or less.</span></div>
+        <div class="chart sunken"><svg id="band" width="944" height="168" role="img" aria-label="Green band chart for one cycle"></svg></div>
+        <div class="error" id="d-error" role="alert"></div>
+      </div>
+      <div class="dialog-buttons">
+        <button type="submit" class="button raised default" id="dialog-ok">OK</button>
+        <button type="button" class="button raised" id="dialog-cancel">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script id="model">
+"use strict";
+// The model: a fixed-time signal and an Intelligent Driver Model car-following
+// simulation, at a fixed 0.25 s step, with seeded random arrivals. The same plan
+// and seed always give the same results. Arrivals don't depend on the plan, so
+// two plans are compared on the same traffic.
+var SignalModel = (() => {
+  const DT = 0.25;
+  const WARMUP = 120; // s before 08:00, not counted
+  const PERIOD = 900; // 08:00-08:15
+  const W = 3.5; // lane width, m
+  const MEDIAN = 1; // half the median, m
+  const STOP = 14; // stop bar, m from the centre
+  const LINK = 250; // approach, m to the stop bar
+  const EXIT = 70; // m after the intersection
+  const BAY = 70; // left-turn bay, m before the stop bar; a 10 m taper before it
+  const V0 = 14; // desired speed, m/s (50 km/h)
+  const TURN_V0 = { L: 10, R: 7 };
+  const ARMS = ["NB", "SB", "EB", "WB"];
+  const HEADING = { NB: [0, 1], SB: [0, -1], EB: [1, 0], WB: [-1, 0] };
+  const NAMES = { NB: "Northbound", SB: "Southbound", EB: "Eastbound", WB: "Westbound" };
+  // Made-up AM peak volumes, veh/h, by approach and turn.
+  const INPUTS = {
+    NB: { L: 200, T: 660, R: 80 },
+    SB: { L: 120, T: 600, R: 70 },
+    EB: { L: 90, T: 660, R: 80 },
+    WB: { L: 80, T: 680, R: 90 },
+  };
+  const PLAN = {
+    name: "AM peak",
+    phases: [
+      { n: 1, movements: "NB/SB through", green: 34, amber: 4, red: 2 },
+      { n: 2, movements: "NB/SB left", green: 12, amber: 3, red: 2 },
+      { n: 3, movements: "EB/WB through", green: 36, amber: 4, red: 2 },
+      { n: 4, movements: "EB/WB left", green: 12, amber: 3, red: 2 },
+    ],
+  };
+  const SEED = 1;
+
+  const right = ([x, y]) => [y, -x];
+  const left = ([x, y]) => [-y, x];
+  const add = (a, b, k = 1) => [a[0] + b[0] * k, a[1] + b[1] * k];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
+
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const phaseOf = (arm, turn) => {
+    const ns = arm === "NB" || arm === "SB";
+    return turn === "L" ? (ns ? 2 : 4) : ns ? 1 : 3;
+  };
+  const groupOf = (arm, turn) => `${arm}-${turn === "L" ? "L" : "TR"}`;
+  const GROUPS = ARMS.flatMap((arm) => [`${arm}-L`, `${arm}-TR`]);
+  const groupName = (g) => `${NAMES[g.slice(0, 2)]} ${g.endsWith("-L") ? "left" : "thru/right"}`;
+
+  function cycle(plan) {
+    return plan.phases.reduce((sum, p) => sum + p.green + p.amber + p.red, 0);
+  }
+
+  // Where the controller is at time t: the phase running, its state and what's left of it.
+  function controllerAt(plan, t) {
+    const c = cycle(plan);
+    const tc = ((t % c) + c) % c;
+    let start = 0;
+    for (const p of plan.phases) {
+      const x = tc - start;
+      const len = p.green + p.amber + p.red;
+      if (x < len) {
+        const state = x < p.green ? "G" : x < p.green + p.amber ? "A" : "R";
+        const left = state === "G" ? p.green - x : state === "A" ? p.green + p.amber - x : len - x;
+        return { phase: p.n, movements: p.movements, state, left, inCycle: tc, cycle: c };
+      }
+      start += len;
+    }
+    return { phase: plan.phases[0].n, movements: "", state: "R", left: 0, inCycle: tc, cycle: c };
+  }
+
+  function signal(plan, t, n) {
+    const now = controllerAt(plan, t);
+    return now.phase === n && now.state !== "R" ? now.state : "R";
+  }
+
+  // A point in an approach lane, u metres upstream of the stop bar. Lane 0 is the left lane.
+  function lanePoint(arm, lane, u) {
+    const d = HEADING[arm];
+    return add(add([0, 0], d, -(STOP + u)), right(d), MEDIAN + W * (lane + 0.5));
+  }
+
+  const routes = new Map();
+  function route(arm, lane, turn) {
+    const key = `${arm}${lane}${turn}`;
+    if (routes.has(key)) return routes.get(key);
+    const d = HEADING[arm];
+    const e = turn === "T" ? d : turn === "L" ? left(d) : right(d);
+    const j = turn === "T" ? lane - 1 : turn === "L" ? 0 : 1;
+    const A = lanePoint(arm, lane, 0);
+    const B = add(add([0, 0], e, STOP), right(e), MEDIAN + W * (j + 0.5));
+    // A left turn comes up the inside through lane and moves into the bay.
+    const pts = turn === "L" ? [lanePoint(arm, 1, LINK), lanePoint(arm, 1, BAY + 10), lanePoint(arm, 0, BAY), A] : [lanePoint(arm, lane, LINK), A];
+    const atStop = pts.length - 1;
+    if (turn === "T") pts.push(B);
+    else {
+      const C = add(A, d, dot([B[0] - A[0], B[1] - A[1]], d));
+      for (let i = 1; i <= 16; i++) {
+        const k = i / 16;
+        pts.push([
+          (1 - k) ** 2 * A[0] + 2 * (1 - k) * k * C[0] + k * k * B[0],
+          (1 - k) ** 2 * A[1] + 2 * (1 - k) * k * C[1] + k * k * B[1],
+        ]);
+      }
+    }
+    pts.push(add(B, e, EXIT));
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    const r = { key, arm, lane, turn, pts, cum, stop: cum[atStop], bay: turn === "L" ? cum[1] : null, boxEnd: cum[pts.length - 2], total: cum[pts.length - 1] };
+    routes.set(key, r);
+    return r;
+  }
+
+  // Where a vehicle s metres along its route is, and which way it faces.
+  function pose(r, s) {
+    const { pts, cum } = r;
+    let i = 1;
+    while (i < cum.length - 1 && cum[i] < s) i++;
+    const k = cum[i] === cum[i - 1] ? 0 : Math.min(1, Math.max(0, (s - cum[i - 1]) / (cum[i] - cum[i - 1])));
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+    return { x: x0 + (x1 - x0) * k, y: y0 + (y1 - y0) * k, angle: Math.atan2(y1 - y0, x1 - x0) };
+  }
+
+  function desiredSpeed(veh) {
+    if (veh.turn !== "T" && veh.s > veh.route.stop - 35 && veh.s < veh.route.boxEnd + 2) return TURN_V0[veh.turn];
+    return V0;
+  }
+
+  // Intelligent Driver Model acceleration, m/s².
+  function idm(veh, gap, dv) {
+    const b = 2.5, T = 1.2, s0 = 2;
+    const v = veh.v;
+    const free = Math.max(-3, veh.a * (1 - (v / desiredSpeed(veh)) ** 4));
+    if (gap === Infinity) return free;
+    const wanted = s0 + Math.max(0, v * T + (v * dv) / (2 * Math.sqrt(veh.a * b)));
+    return Math.max(-9, free - veh.a * (wanted / Math.max(gap, 0.1)) ** 2);
+  }
+
+  // Free-flow time to s metres along a route: one vehicle alone, every light green.
+  const freeFlow = new Map();
+  function freeTime(r, s) {
+    if (!freeFlow.has(r.key)) {
+      const veh = { route: r, turn: r.turn, s: 0, v: V0, a: 1.6 };
+      const times = [[0, 0]];
+      let t = 0;
+      while (veh.s < r.total) {
+        const acc = idm(veh, Infinity, 0);
+        const v = Math.max(0, veh.v + acc * DT);
+        veh.s += ((veh.v + v) / 2) * DT;
+        veh.v = v;
+        t += DT;
+        times.push([veh.s, t]);
+      }
+      freeFlow.set(r.key, times);
+    }
+    const times = freeFlow.get(r.key);
+    if (s <= 0) return 0;
+    let i = 1;
+    while (i < times.length - 1 && times[i][0] < s) i++;
+    const [s0, t0] = times[i - 1], [s1, t1] = times[i];
+    return t0 + (t1 - t0) * Math.min(1, (s - s0) / Math.max(s1 - s0, 1e-9));
+  }
+
+  const COLORS = ["#2f5fb3", "#c9cdd3", "#b23b3b", "#3a3a3a", "#f0f0f0", "#3f7f4a", "#d9a520", "#7a5aa6", "#8b9098", "#1f7a92", "#a0522d"];
+
+  // Every vehicle that arrives, in time order, by movement: the same for any plan.
+  function arrivals(inputs, seed) {
+    const list = [];
+    let index = 0;
+    for (const arm of ARMS) {
+      for (const turn of ["L", "T", "R"]) {
+        const rng = mulberry32(seed * 131 + index++ * 7919);
+        const volume = inputs[arm][turn];
+        if (!volume) continue;
+        const mean = 3600 / volume;
+        let t = -WARMUP;
+        for (;;) {
+          t += 1.2 + -Math.log(1 - rng()) * Math.max(mean - 1.2, 0.1);
+          if (t >= PERIOD) break;
+          const heavy = turn === "T" && rng() < 0.03;
+          list.push({
+            t, arm, turn, heavy,
+            len: heavy ? 12 : 4.4 + rng() * 0.8,
+            color: heavy ? "#e9e4d4" : COLORS[Math.floor(rng() * COLORS.length)],
+            pick: rng(),
+          });
+        }
+      }
+    }
+    return list.sort((a, b) => a.t - b.t);
+  }
+
+  function los(delay) {
+    return delay <= 10 ? "A" : delay <= 20 ? "B" : delay <= 35 ? "C" : delay <= 55 ? "D" : delay <= 80 ? "E" : "F";
+  }
+
+  function createSim(plan, inputs = INPUTS, seed = SEED) {
+    const queue = arrivals(inputs, seed);
+    const lanes = {}; // "NB0": { vehicles: [front first], waiting: [] }
+    for (const arm of ARMS) for (let l = 0; l < 3; l++) lanes[`${arm}${l}`] = { arm, lane: l, vehicles: [], waiting: [] };
+    const done = [];
+    const maxQueue = Object.fromEntries(GROUPS.map((g) => [g, 0]));
+    const sim = { plan, t: -WARMUP, next: 0, lanes, done, maxQueue, id: 0, finished: false, queueNow: {} };
+
+    function laneFor(a) {
+      if (a.turn === "L") return 1;
+      if (a.turn === "R") return 2;
+      const load = (l) => {
+        const lane = lanes[`${a.arm}${l}`];
+        return lane.waiting.length + lane.vehicles.filter((v) => v.s < v.route.stop).length;
+      };
+      const one = load(1), two = load(2);
+      return one < two ? 1 : two < one ? 2 : a.pick < 0.5 ? 1 : 2;
+    }
+
+    sim.step = () => {
+      if (sim.finished) return;
+      const t = sim.t;
+      while (sim.next < queue.length && queue[sim.next].t <= t) {
+        const a = queue[sim.next++];
+        lanes[`${a.arm}${laneFor(a)}`].waiting.push(a);
+      }
+      for (const lane of Object.values(lanes)) {
+        if (!lane.waiting.length) continue;
+        const last = lane.vehicles.at(-1);
+        const gap = last ? last.s - last.len : Infinity;
+        if (gap < 7) continue;
+        const a = lane.waiting.shift();
+        lane.vehicles.push({
+          id: ++sim.id, arm: a.arm, turn: a.turn, lane: lane.lane, route: route(a.arm, a.turn === "L" ? 0 : lane.lane, a.turn),
+          s: 0, v: gap > 60 ? V0 : Math.min(V0, Math.max(0, last.v + (gap - 7) * 0.25)),
+          a: a.heavy ? 0.9 : 1.6, len: a.len, heavy: a.heavy, color: a.color, born: a.t, exit: null,
+        });
+      }
+      for (const lane of Object.values(lanes)) {
+        const list = lane.vehicles;
+        for (let i = 0; i < list.length; i++) {
+          const veh = list[i];
+          let gap = Infinity, dv = 0;
+          const lead = list[i - 1];
+          // A leader on another path, clear of the stop bar, no longer holds this one back.
+          if (lead && !(lead.turn !== veh.turn && lead.s - lead.len > LINK + 6)) {
+            gap = lead.s - lead.len - veh.s;
+            dv = veh.v - lead.v;
+          }
+          let stopping = false;
+          const stop = veh.route.stop;
+          // A left turn still in the through lane waits at the bay's start until the bay has room.
+          let blocked = false;
+          if (veh.turn === "L" && lane.lane === 1) {
+            const bay = lanes[`${veh.arm}0`].vehicles.at(-1);
+            const room = bay ? bay.s - bay.len - 2 : Infinity;
+            const entry = veh.route.bay;
+            if (veh.s >= entry - 1 && room >= entry) {
+              list.splice(i, 1);
+              i -= 1;
+              veh.lane = 0;
+              lanes[`${veh.arm}0`].vehicles.push(veh);
+              continue;
+            }
+            if (room < entry && entry - veh.s < gap) {
+              blocked = true;
+              gap = Math.max(0, entry - veh.s);
+              dv = veh.v;
+            }
+          }
+          if (veh.s < stop) {
+            const light = signal(plan, t, phaseOf(veh.arm, veh.turn));
+            const room = stop - veh.s;
+            stopping = light === "R" || (light === "A" && (veh.v * veh.v) / 7 < room - 0.5);
+            if (stopping && room < gap) {
+              gap = room;
+              dv = veh.v;
+            }
+          }
+          const acc = idm(veh, gap, dv);
+          const v = Math.max(0, veh.v + acc * DT);
+          let s = veh.s + ((veh.v + v) / 2) * DT;
+          let speed = v;
+          if (lead && gap !== Infinity && s > lead.s - lead.len - 0.5 && lead.turn === veh.turn) {
+            s = Math.max(veh.s, lead.s - lead.len - 0.5);
+            speed = Math.min(speed, lead.v);
+          }
+          if (stopping && s > stop - 0.05) {
+            s = Math.max(veh.s, stop - 0.05);
+            speed = 0;
+          }
+          if (blocked && s > veh.route.bay - 0.5) {
+            s = Math.max(veh.s, veh.route.bay - 0.5);
+            speed = 0;
+          }
+          veh.s = s;
+          veh.v = speed;
+        }
+        for (let i = list.length - 1; i >= 0; i--) {
+          if (list[i].s >= list[i].route.total) {
+            list[i].exit = t + DT;
+            done.push(list[i]);
+            list.splice(i, 1);
+          }
+        }
+      }
+      // Queues: back of the last slow vehicle before the stop bar, and any waiting to enter.
+      const now = sim.queueNow;
+      for (const g of GROUPS) now[g] = 0;
+      for (const lane of Object.values(lanes)) {
+        for (const veh of lane.vehicles) {
+          if (veh.s >= veh.route.stop || veh.v >= 1.5) continue;
+          const g = groupOf(veh.arm, veh.turn);
+          now[g] = Math.max(now[g], veh.route.stop - veh.s + veh.len);
+        }
+        const last = lane.vehicles.at(-1);
+        if (lane.waiting.length && last && last.v < 1.5 && last.s < 20) {
+          for (const a of lane.waiting) now[groupOf(a.arm, a.turn)] = Math.max(now[groupOf(a.arm, a.turn)], LINK + lane.waiting.length * 7);
+        }
+      }
+      if (t >= 0) for (const g of GROUPS) maxQueue[g] = Math.max(maxQueue[g], now[g]);
+      sim.t = t + DT;
+      if (sim.t >= PERIOD - 1e-9) sim.finished = true;
+    };
+
+    sim.vehicles = () => Object.values(lanes).flatMap((lane) => lane.vehicles);
+
+    sim.results = () => {
+      const end = PERIOD;
+      const sum = Object.fromEntries(GROUPS.map((g) => [g, { n: 0, delay: 0 }]));
+      const count = (veh, delay) => {
+        if (veh.born < 0) return;
+        const g = sum[groupOf(veh.arm, veh.turn)];
+        g.n += 1;
+        g.delay += Math.max(0, delay);
+      };
+      for (const veh of done) count(veh, veh.exit - veh.born - freeTime(veh.route, veh.route.total));
+      for (const veh of sim.vehicles()) count(veh, end - veh.born - freeTime(veh.route, veh.s));
+      for (const lane of Object.values(lanes)) for (const a of lane.waiting) count(a, end - a.t);
+      for (let i = sim.next; i < queue.length; i++) if (queue[i].t <= end) count(queue[i], end - queue[i].t);
+      const groups = GROUPS.map((g) => {
+        const delay = sum[g].n ? sum[g].delay / sum[g].n : 0;
+        return { id: g, name: groupName(g), vehicles: sum[g].n, delay: Math.round(delay * 10) / 10, queue: Math.round(maxQueue[g]), los: los(delay) };
+      });
+      const n = GROUPS.reduce((total, g) => total + sum[g].n, 0);
+      const delay = GROUPS.reduce((total, g) => total + sum[g].delay, 0) / Math.max(n, 1);
+      return { groups, overall: { vehicles: n, delay: Math.round(delay * 10) / 10, los: los(delay) }, cycle: cycle(plan) };
+    };
+    return sim;
+  }
+
+  function simulate(plan, inputs = INPUTS, seed = SEED) {
+    const sim = createSim(plan, inputs, seed);
+    while (!sim.finished) sim.step();
+    return { sim, results: sim.results() };
+  }
+
+  return {
+    DT, WARMUP, PERIOD, W, MEDIAN, STOP, LINK, BAY, ARMS, HEADING, NAMES, INPUTS, PLAN, SEED, GROUPS,
+    cycle, controllerAt, signal, phaseOf, groupOf, groupName, route, pose, lanePoint, los, createSim, simulate, right, left, add,
+  };
+})();
+</script>
+
+<script>
+"use strict";
+(() => {
+  const M = SignalModel;
+  const BASE_TITLE = "Intersection Simulator 4.2 - [Don Mills-Eglinton AM.isim]";
+  const NODE = "Don Mills Rd & Eglinton Ave E";
+  const copy = (value) => JSON.parse(JSON.stringify(value));
+  const $ = (id) => document.getElementById(id);
+  const status = $("status");
+  const say = (text) => { status.textContent = text; };
+  const clockText = (t) => {
+    const total = Math.round(8 * 3600 + t);
+    const two = (n) => String(n).padStart(2, "0");
+    return `${two(Math.floor(total / 3600))}:${two(Math.floor(total / 60) % 60)}:${two(total % 60)}`;
+  };
+
+  let plan = copy(M.PLAN);
+  let savedPlan = copy(M.PLAN);
+  const savedLog = [];
+  const log = []; // what the Changes panel lists, besides unsaved edits
+  let saving = false;
+  let speed = 120;
+  let runs = 0;
+  let current = null; // the run being animated: { n, plan, sim, last, paused }
+  let shown = null; // the sim the view draws
+
+  // Run 1: the saved plan, already run when the network was opened.
+  const first = M.simulate(copy(savedPlan));
+  runs = 1;
+  const before = { n: 1, plan: copy(savedPlan), results: first.results };
+  let after = null;
+  shown = first.sim;
+
+  const samePlan = (a, b) => a.phases.every((p, i) => ["green", "amber", "red"].every((f) => p[f] === b.phases[i][f]));
+
+  function pending() {
+    const changes = [];
+    plan.phases.forEach((p, i) => {
+      for (const field of ["green", "amber", "red"]) {
+        const was = savedPlan.phases[i][field];
+        if (p[field] !== was) changes.push({ intersection: NODE, controller: "SC1", plan: plan.name, phase: p.n, movements: p.movements, field, from: was, to: p[field] });
+      }
+    });
+    return changes;
+  }
+
+  const FIELD = { green: "green", amber: "amber", red: "all-red" };
+  const changeText = (c) => `Phase ${c.phase} (${c.movements}) ${FIELD[c.field]}: ${c.from} → ${c.to} s`;
+
+  // --- Rendering: title, tree, plan box, results, changes ----------------------------
+  function renderTitle() {
+    const n = pending().length;
+    $("title").textContent = n ? `${BASE_TITLE} *` : BASE_TITLE;
+    $("unsaved").textContent = n === 0 ? "No unsaved changes" : n === 1 ? "1 unsaved change" : `${n} unsaved changes`;
+  }
+
+  function renderPlanBox() {
+    $("props-phases").innerHTML = plan.phases.map((p) =>
+      `<tr><td>${p.n}</td><td>${p.movements}</td><td class="number">${p.green}</td></tr>`).join("");
+    $("props-cycle").textContent = `${M.cycle(plan)} s`;
+    $("tree-runs").textContent = `(${runs})`;
+  }
+
+  const badge = (grade) => `<span class="los-badge los-${grade}">${grade}</span>`;
+  const fmt = (x) => x.toFixed(1);
+
+  function renderResults() {
+    const r0 = before.results;
+    const r1 = after && after.results;
+    const running = current !== null;
+    $("sum-before").innerHTML = `<div class="which">Before: Run ${before.n} (saved plan)</div>
+      <div class="sub">Phase 2 green ${before.plan.phases[1].green} s, cycle ${r0.cycle} s</div>
+      <div class="big">Intersection ${fmt(r0.overall.delay)} s/veh ${badge(r0.overall.los)}</div>`;
+    if (running) {
+      $("sum-after").innerHTML = `<div class="which">After: Run ${current.n} (running)</div>
+        <div class="sub">Phase 2 green ${current.plan.phases[1].green} s, cycle ${M.cycle(current.plan)} s</div>
+        <div class="big">Simulating ${clockText(Math.max(0, current.sim.t))}...</div>`;
+    } else if (r1) {
+      $("sum-after").innerHTML = `<div class="which">After: Run ${after.n}</div>
+        <div class="sub">Phase 2 green ${after.plan.phases[1].green} s, cycle ${r1.cycle} s</div>
+        <div class="big">Intersection ${fmt(r1.overall.delay)} s/veh ${badge(r1.overall.los)}</div>`;
+    } else {
+      $("sum-after").innerHTML = `<div class="which">After: no run yet</div>
+        <div class="sub">Change the signal timing, then click Run simulation.</div>`;
+    }
+    $("head-before").textContent = `Before (Run ${before.n})`;
+    $("head-after").textContent = running ? `After (Run ${current.n}, running)` : after ? `After (Run ${after.n})` : "After";
+    const rows = r0.groups.map((g, i) => {
+      const a = !running && r1 ? r1.groups[i] : null;
+      return `<tr><td>${g.name}</td><td class="number">${fmt(g.delay)}</td><td class="number">${g.queue}</td><td class="los">${badge(g.los)}</td>` +
+        (a ? `<td class="number after-start">${fmt(a.delay)}</td><td class="number">${a.queue}</td><td class="los">${badge(a.los)}</td>`
+           : `<td class="number after-start">-</td><td class="number">-</td><td class="los">-</td>`) + "</tr>";
+    });
+    const o1 = !running && r1 ? r1.overall : null;
+    rows.push(`<tr class="total"><td>Intersection</td><td class="number">${fmt(r0.overall.delay)}</td><td class="number"></td><td class="los">${badge(r0.overall.los)}</td>` +
+      (o1 ? `<td class="number after-start">${fmt(o1.delay)}</td><td class="number"></td><td class="los">${badge(o1.los)}</td>` : `<td class="number after-start">-</td><td></td><td class="los">-</td>`) + "</tr>");
+    $("eval-body").innerHTML = rows.join("");
+    const latestPlan = after ? after.plan : before.plan;
+    $("stale").classList.toggle("hidden", running || samePlan(plan, latestPlan));
+    $("meter").hidden = !running;
+  }
+
+  function renderChanges() {
+    const items = [...log.map((text) => `<li>${text}</li>`), ...pending().map((c) => `<li><b>${changeText(c)}</b> (not saved)</li>`)];
+    $("changes").innerHTML = items.length ? `<ul>${items.join("")}</ul>` : `<span class="muted">No changes.</span>`;
+    const box = $("changes").parentElement;
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function renderToolbar() {
+    const running = current !== null;
+    $("run-button").disabled = running;
+    $("pause-button").disabled = !running;
+    $("stop-button").disabled = !running;
+    $("pause-button").lastChild.textContent = running && current.paused ? "Resume" : "Pause";
+    for (const b of document.querySelectorAll("[data-speed]")) b.setAttribute("aria-pressed", String(Number(b.dataset.speed) === speed));
+  }
+
+  function render() { renderTitle(); renderPlanBox(); renderResults(); renderChanges(); renderToolbar(); }
+
+  // --- The network view ------------------------------------------------------
+  const canvas = $("view");
+  const ctx = canvas.getContext("2d");
+  let view = { w: 0, h: 0, k: 3, cx: 0, cy: 0 };
+  function resize() {
+    const box = canvas.getBoundingClientRect();
+    canvas.width = Math.max(1, Math.round(box.width));
+    canvas.height = Math.max(1, Math.round(box.height));
+    const k = Math.min(canvas.width, canvas.height) / 2 / 100;
+    view = { w: canvas.width, h: canvas.height, k, cx: canvas.width / 2, cy: canvas.height / 2 };
+    draw();
+  }
+  const X = (x) => view.cx + x * view.k;
+  const Y = (y) => view.cy - y * view.k;
+
+  // A rectangle along an arm: dist1..dist2 metres from the centre, off1..off2 metres to the right of travel.
+  function armRect(arm, dist1, dist2, off1, off2) {
+    const d = M.HEADING[arm], r = M.right(d);
+    const p = (dist, off) => M.add(M.add([0, 0], d, -dist), r, off);
+    const pts = [p(dist1, off1), p(dist2, off1), p(dist2, off2), p(dist1, off2)];
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
+    ctx.closePath();
+  }
+  // A path along an arm through [dist, off] points.
+  function armPath(arm, points, close = true) {
+    const d = M.HEADING[arm], r = M.right(d);
+    ctx.beginPath();
+    points.forEach(([dist, off], i) => {
+      const [x, y] = M.add(M.add([0, 0], d, -dist), r, off);
+      if (i) ctx.lineTo(X(x), Y(y)); else ctx.moveTo(X(x), Y(y));
+    });
+    if (close) ctx.closePath();
+  }
+  function armLine(arm, dist1, dist2, off) {
+    const d = M.HEADING[arm], r = M.right(d);
+    const [x1, y1] = M.add(M.add([0, 0], d, -dist1), r, off);
+    const [x2, y2] = M.add(M.add([0, 0], d, -dist2), r, off);
+    ctx.beginPath();
+    ctx.moveTo(X(x1), Y(y1));
+    ctx.lineTo(X(x2), Y(y2));
+    ctx.stroke();
+  }
+
+  const LAMP = { R: "#e8392b", A: "#f5b400", G: "#25b345" };
+  const IN = M.MEDIAN + 3 * M.W, OUT = M.MEDIAN + 2 * M.W;
+
+  function draw() {
+    if (!view.w) return;
+    const sim = shown;
+    const t = sim ? sim.t : 0;
+    const activePlan = current ? current.plan : after && sim === after.sim ? after.plan : sim === first.sim ? before.plan : plan;
+    const far = Math.max(view.w, view.h) / view.k;
+    ctx.fillStyle = "#eef0e6";
+    ctx.fillRect(0, 0, view.w, view.h);
+    ctx.strokeStyle = "#e0e3d6";
+    ctx.lineWidth = 1;
+    for (let m = -300; m <= 300; m += 10) {
+      ctx.beginPath(); ctx.moveTo(X(m), 0); ctx.lineTo(X(m), view.h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, Y(m)); ctx.lineTo(view.w, Y(m)); ctx.stroke();
+    }
+    // Asphalt.
+    ctx.fillStyle = "#5d6064";
+    for (const arm of M.ARMS) { armRect(arm, 0, far, -OUT, IN); ctx.fill(); }
+    ctx.fillRect(X(-M.STOP), Y(M.STOP), 2 * M.STOP * view.k, 2 * M.STOP * view.k);
+    // Medians, lane lines, crosswalks, stop bars.
+    for (const arm of M.ARMS) {
+      // The median, which widens past the left-turn bay, with its taper.
+      const bayEnd = M.STOP + M.BAY, taper = bayEnd + 10;
+      ctx.fillStyle = "#c8c6b8";
+      armRect(arm, M.STOP + 3, far, -M.MEDIAN, M.MEDIAN); ctx.fill();
+      armRect(arm, taper, far, M.MEDIAN - 0.1, M.MEDIAN + M.W); ctx.fill();
+      armPath(arm, [[bayEnd, M.MEDIAN - 0.1], [taper, M.MEDIAN + M.W], [taper, M.MEDIAN - 0.1]]); ctx.fill();
+      ctx.strokeStyle = "#f2c230"; ctx.lineWidth = 2; ctx.setLineDash([]);
+      armLine(arm, M.STOP + 3, far, -M.MEDIAN);
+      armLine(arm, M.STOP + 3, bayEnd, M.MEDIAN);
+      armPath(arm, [[bayEnd, M.MEDIAN], [taper, M.MEDIAN + M.W], [far, M.MEDIAN + M.W]], false); ctx.stroke();
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2;
+      armLine(arm, M.STOP, far, IN); armLine(arm, M.STOP, far, -OUT);
+      ctx.setLineDash([]); armLine(arm, M.STOP, bayEnd, M.MEDIAN + M.W);
+      armLine(arm, M.STOP, M.STOP + 30, M.MEDIAN + 2 * M.W);
+      ctx.setLineDash([3 * view.k, 6 * view.k]); armLine(arm, M.STOP + 30, far, M.MEDIAN + 2 * M.W);
+      ctx.setLineDash([3 * view.k, 6 * view.k]); armLine(arm, M.STOP, far, -(M.MEDIAN + M.W)); ctx.setLineDash([]);
+      ctx.fillStyle = "#f4f4f0";
+      for (let off = -OUT + 0.4; off < IN - 0.4; off += 1.4) { armRect(arm, M.STOP - 3.2, M.STOP - 0.8, off, off + 0.7); ctx.fill(); }
+      armRect(arm, M.STOP, M.STOP + 0.6, M.MEDIAN, IN); ctx.fill();
+      // Lane arrows, 22 m before the stop bar.
+      for (let lane = 0; lane < 3; lane++) drawArrow(arm, lane);
+    }
+    // Vehicles.
+    if (sim) {
+      for (const veh of sim.vehicles()) {
+        const at = M.pose(veh.route, veh.s - veh.len / 2);
+        ctx.save();
+        ctx.translate(X(at.x), Y(at.y));
+        ctx.rotate(-at.angle);
+        const w = (veh.heavy ? 2.5 : 1.9) * view.k, l = veh.len * view.k;
+        ctx.fillStyle = veh.color;
+        ctx.strokeStyle = "#111";
+        ctx.lineWidth = 1;
+        ctx.fillRect(-l / 2, -w / 2, l, w);
+        ctx.strokeRect(-l / 2, -w / 2, l, w);
+        ctx.fillStyle = "rgba(20,30,50,0.55)";
+        ctx.fillRect(l / 2 - Math.min(l * 0.35, 1.6 * view.k), -w / 2 + 2, Math.min(l * 0.18, 0.8 * view.k), w - 4);
+        ctx.restore();
+      }
+    }
+    // Signal state on each lane's stop bar, and the heads beside each approach.
+    for (const arm of M.ARMS) {
+      for (let lane = 0; lane < 3; lane++) {
+        const light = M.signal(activePlan, t, M.phaseOf(arm, lane === 0 ? "L" : "T"));
+        ctx.fillStyle = LAMP[light];
+        armRect(arm, M.STOP - 0.7, M.STOP + 0.9, M.MEDIAN + M.W * lane + 0.4, M.MEDIAN + M.W * (lane + 1) - 0.4); ctx.fill();
+      }
+      drawHeads(arm, activePlan, t);
+    }
+    drawLabels(sim);
+    drawOverlay(activePlan, t, sim);
+  }
+
+  function drawArrow(arm, lane) {
+    const d = M.HEADING[arm];
+    const [x, y] = M.lanePoint(arm, lane, 22);
+    ctx.save();
+    ctx.translate(X(x), Y(y));
+    ctx.rotate(-Math.atan2(d[1], d[0]));
+    ctx.strokeStyle = "#f4f4f0"; ctx.fillStyle = "#f4f4f0"; ctx.lineWidth = Math.max(2, 0.35 * view.k);
+    const k = view.k;
+    const head = (hx, hy, ang) => {
+      ctx.save(); ctx.translate(hx, hy); ctx.rotate(ang);
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-1.6 * k, -0.9 * k); ctx.lineTo(-1.6 * k, 0.9 * k); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    };
+    ctx.beginPath(); ctx.moveTo(-3 * k, 0);
+    if (lane === 0) { ctx.lineTo(0.5 * k, 0); ctx.lineTo(0.5 * k, -1.6 * k); ctx.stroke(); head(0.5 * k, -2.6 * k, -Math.PI / 2); }
+    else { ctx.lineTo(1.5 * k, 0); ctx.stroke(); head(3 * k, 0, 0);
+      if (lane === 2) { ctx.beginPath(); ctx.moveTo(-0.5 * k, 0); ctx.lineTo(-0.5 * k, 1.4 * k); ctx.stroke(); head(-0.5 * k, 2.4 * k, Math.PI / 2); } }
+    ctx.restore();
+  }
+
+  function drawHeads(arm, activePlan, t) {
+    const d = M.HEADING[arm], r = M.right(d);
+    const [cx, cy] = M.add(M.add([0, 0], d, -M.STOP), r, IN);
+    const bw = 64, bh = 84;
+    const left = cx > 0 ? X(cx) + 10 : X(cx) - 10 - bw;
+    const top = cy < 0 ? Y(cy) + 10 : Y(cy) - 10 - bh;
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.strokeStyle = "#555"; ctx.lineWidth = 1;
+    ctx.fillRect(left, top, bw, bh); ctx.strokeRect(left + 0.5, top + 0.5, bw, bh);
+    ctx.fillStyle = "#000"; ctx.font = "bold 14px Tahoma, sans-serif"; ctx.textAlign = "center";
+    ctx.fillText(arm, left + bw / 2, top + 15);
+    for (const [turn, glyph, dx] of [["L", "\u2190", 18], ["T", "\u2191", 46]]) {
+      const light = M.signal(activePlan, t, M.phaseOf(arm, turn));
+      ctx.fillStyle = "#222";
+      ctx.fillRect(left + dx - 10, top + 20, 20, 50);
+      ["R", "A", "G"].forEach((which, i) => {
+        ctx.beginPath(); ctx.arc(left + dx, top + 29 + i * 16, 6.5, 0, Math.PI * 2);
+        ctx.fillStyle = light === which ? LAMP[which] : "#4a4a4a"; ctx.fill();
+      });
+      ctx.fillStyle = "#000"; ctx.font = "bold 12px Tahoma, sans-serif";
+      ctx.fillText(glyph, left + dx, top + 82);
+    }
+  }
+
+  function drawLabels(sim) {
+    ctx.fillStyle = "#3b3b3b"; ctx.font = "bold 16px Tahoma, sans-serif"; ctx.textAlign = "center";
+    ctx.save(); ctx.translate(X(12), Y(62)); ctx.rotate(-Math.PI / 2); ctx.fillText("Don Mills Rd", 0, 6); ctx.restore();
+    ctx.save(); ctx.translate(X(17), Y(-62)); ctx.rotate(-Math.PI / 2); ctx.fillText("Don Mills Rd", 0, 6); ctx.restore();
+    ctx.fillText("Eglinton Ave E", X(-62), Y(-15) + 12);
+    ctx.fillText("Eglinton Ave E", X(62), Y(15) - 2);
+    // Queues longer than the view shows.
+    if (!sim) return;
+    const visible = Math.min(view.w, view.h) / 2 / view.k - M.STOP - 3;
+    ctx.font = "bold 14px Tahoma, sans-serif";
+    for (const arm of M.ARMS) {
+      let stack = 0;
+      for (const g of [`${arm}-L`, `${arm}-TR`]) {
+        const q = sim.queueNow[g] || 0;
+        if (q <= visible) continue;
+        const text = `${M.NAMES[arm]} ${g.endsWith("-L") ? "left" : "through"} queue: ${Math.round(q)} m`;
+        const w = ctx.measureText(text).width + 14, h = 24;
+        const [x, y] = M.lanePoint(arm, 1, visible - 4);
+        let bx, by;
+        if (arm === "NB") { bx = X(x) + 36; by = Y(y) - h - stack * (h + 4); }
+        else if (arm === "SB") { bx = X(x) - 36 - w; by = Y(y) + stack * (h + 4); }
+        else if (arm === "EB") { bx = X(x); by = Y(y) + 34 + stack * (h + 4); }
+        else { bx = X(x) - w; by = Y(y) - 34 - h - stack * (h + 4); }
+        ctx.fillStyle = "#b3261e"; ctx.fillRect(bx, by, w, h);
+        ctx.fillStyle = "#fff"; ctx.textAlign = "left"; ctx.fillText(text, bx + 7, by + 17);
+        stack += 1;
+      }
+    }
+  }
+
+  function drawOverlay(activePlan, t, sim) {
+    const now = M.controllerAt(activePlan, t);
+    const x = 12, y = 12, w = 430, h = 104;
+    ctx.fillStyle = "rgba(255,255,255,0.94)"; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = "#555"; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+    ctx.fillStyle = "#000"; ctx.textAlign = "left";
+    ctx.font = "bold 18px Tahoma, sans-serif";
+    ctx.fillText(`Sim time ${clockText(t)}`, x + 10, y + 24);
+    ctx.font = "15px Tahoma, sans-serif";
+    const label = current ? `Run ${current.n} · ${speed ? speed + "×" : "quick"}${current.paused ? " · paused" : ""}` : after && sim === after.sim ? `Run ${after.n} · end` : `Run 1 · end`;
+    ctx.textAlign = "right"; ctx.fillText(label, x + w - 10, y + 24); ctx.textAlign = "left";
+    ctx.fillText(`SC1 · AM peak · cycle ${now.cycle} s · ${Math.floor(now.inCycle)} s in cycle`, x + 10, y + 46);
+    const word = { G: "GREEN", A: "AMBER", R: "ALL-RED" }[now.state];
+    ctx.font = "bold 15px Tahoma, sans-serif";
+    ctx.fillStyle = now.state === "G" ? "#16803a" : now.state === "A" ? "#a36a00" : "#b3261e";
+    ctx.fillText(`Phase ${now.phase} ${now.movements}: ${word}`, x + 10, y + 68);
+    // The cycle as a strip, with where the controller is.
+    let at = x + 10;
+    const span = w - 20;
+    for (const p of activePlan.phases) {
+      for (const [len, color] of [[p.green, "#25b345"], [p.amber, "#f5b400"], [p.red, "#e8392b"]]) {
+        const pw = (len / now.cycle) * span;
+        ctx.fillStyle = color; ctx.fillRect(at, y + 78, pw, 14);
+        at += pw;
+      }
+      ctx.fillStyle = "#000"; ctx.fillRect(at - 1, y + 76, 1, 18);
+    }
+    const cursor = x + 10 + (now.inCycle / now.cycle) * span;
+    ctx.fillStyle = "#000"; ctx.beginPath(); ctx.moveTo(cursor, y + 76); ctx.lineTo(cursor - 5, y + 70); ctx.lineTo(cursor + 5, y + 70); ctx.fill();
+    ctx.fillRect(cursor - 1, y + 76, 2, 18);
+    // Scale bar and north arrow.
+    const sb = 20 * view.k;
+    ctx.fillStyle = "#000"; ctx.fillRect(14, view.h - 22, sb, 4);
+    ctx.font = "13px Tahoma, sans-serif"; ctx.fillText("20 m", 18 + sb, view.h - 16);
+    ctx.textAlign = "center"; ctx.font = "bold 16px Tahoma, sans-serif";
+    ctx.fillText("N", view.w - 30, 30);
+    ctx.beginPath(); ctx.moveTo(view.w - 30, 36); ctx.lineTo(view.w - 38, 58); ctx.lineTo(view.w - 22, 58); ctx.closePath(); ctx.fill();
+    $("clock").textContent = `Sim time ${clockText(t)}`;
+    $("view-clock").textContent = `${clockText(t)}`;
+  }
+
+  // --- Running ---------------------------------------------------------------
+  function startRun() {
+    closeMenus();
+    if (timing) { say("Close the Signal Timing window first."); return; }
+    if (current) return;
+    runs += 1;
+    current = { n: runs, plan: copy(plan), sim: M.createSim(copy(plan)), last: performance.now(), paused: false };
+    shown = current.sim;
+    log.push(`Run ${current.n} started (cycle ${M.cycle(current.plan)} s).`);
+    $("progress").classList.add("on");
+    if (speed === 0) {
+      while (!current.sim.finished) current.sim.step();
+      finishRun();
+      return;
+    }
+    say(`Simulating Run ${current.n} at ${speed}×...`);
+    render();
+    draw();
+    setTimeout(tick, 33);
+  }
+
+  function tick() {
+    if (!current) return;
+    const nowMs = performance.now();
+    const wall = Math.min(0.1, (nowMs - current.last) / 1000);
+    current.last = nowMs;
+    if (!current.paused) {
+      let todo = wall * speed;
+      while (todo > 0 && !current.sim.finished) { current.sim.step(); todo -= M.DT; }
+    }
+    const share = (current.sim.t + M.WARMUP) / (M.PERIOD + M.WARMUP);
+    $("progress").firstElementChild.style.width = `${Math.round(share * 100)}%`;
+    $("meter").firstElementChild.style.width = `${Math.round(share * 100)}%`;
+    if (current.sim.finished) { finishRun(); return; }
+    if (!current.paused) say(`Simulating Run ${current.n} at ${speed}×: ${clockText(current.sim.t)} (${Math.round(share * 100)}%)`);
+    renderResults();
+    draw();
+    setTimeout(tick, 33);
+  }
+
+  function finishRun() {
+    const done = current;
+    after = { n: done.n, plan: done.plan, results: done.sim.results(), sim: done.sim };
+    current = null;
+    shown = done.sim;
+    $("progress").classList.remove("on");
+    log.push(`Run ${done.n} complete: intersection ${fmt(after.results.overall.delay)} s/veh, LOS ${after.results.overall.los}.`);
+    render();
+    draw();
+    say(`Simulation complete: Run ${done.n}, 08:00-08:15. Results are in Evaluation results.`);
+  }
+
+  function pauseRun() {
+    closeMenus();
+    if (!current) return;
+    current.paused = !current.paused;
+    current.last = performance.now();
+    say(current.paused ? `Run ${current.n} paused at ${clockText(current.sim.t)}.` : `Simulating Run ${current.n}...`);
+    renderToolbar();
+  }
+
+  function stopRun() {
+    closeMenus();
+    if (!current) return;
+    log.push(`Run ${current.n} stopped at ${clockText(current.sim.t)}; no results.`);
+    current = null;
+    shown = after ? after.sim : first.sim;
+    $("progress").classList.remove("on");
+    render();
+    draw();
+    say("Simulation stopped.");
+  }
+
+  // --- The signal timing dialog ------------------------------------------------
+  const cover = $("cover"), error = $("d-error");
+  let timing = null; // the plan being edited
+  const SWATCH = ["#3c78d8", "#e69138", "#6aa84f", "#a64d79"];
+  function openTiming() {
+    closeMenus();
+    if (current) { say("Stop the simulation before changing the signal timing."); return; }
+    timing = copy(plan);
+    $("phase-rows").innerHTML = timing.phases.map((p, i) => `<tr>
+      <td><span class="swatch" style="background:${SWATCH[i]}"></span>Phase ${p.n}</td><td>${p.movements}</td>
+      <td class="number"><input class="sunken" id="p${p.n}-green" data-phase="${i}" data-field="green" inputmode="numeric" autocomplete="off" aria-label="Phase ${p.n} green (s)" value="${p.green}"></td>
+      <td class="number"><input class="sunken" id="p${p.n}-amber" data-phase="${i}" data-field="amber" inputmode="numeric" autocomplete="off" aria-label="Phase ${p.n} amber (s)" value="${p.amber}"></td>
+      <td class="number"><input class="sunken" id="p${p.n}-red" data-phase="${i}" data-field="red" inputmode="numeric" autocomplete="off" aria-label="Phase ${p.n} all-red (s)" value="${p.red}"></td>
+      <td class="number" id="p${p.n}-length"></td></tr>`).join("");
+    error.textContent = "";
+    cover.classList.add("open");
+    $("titlebar").classList.add("inactive");
+    updateTiming();
+    const field = $("p1-green");
+    field.focus();
+    field.select();
+    say("Signal Timing: edit the phase times, then click OK.");
+  }
+  function closeTiming() {
+    timing = null;
+    cover.classList.remove("open");
+    $("titlebar").classList.remove("inactive");
+  }
+  function readTiming() {
+    const problems = [];
+    for (const input of document.querySelectorAll("#phase-rows input")) {
+      const p = timing.phases[Number(input.dataset.phase)];
+      const field = input.dataset.field;
+      const text = input.value.trim();
+      const value = /^\d+$/.test(text) ? Number(text) : NaN;
+      const [low, high] = field === "green" ? [5, 120] : field === "amber" ? [3, 6] : [0, 5];
+      const bad = !(value >= low && value <= high);
+      input.classList.toggle("bad", bad);
+      input.classList.toggle("changed", !bad && value !== plan.phases[Number(input.dataset.phase)][field]);
+      if (bad) problems.push(field === "green" ? `Phase ${p.n} green must be a whole number from 5 to 120 s.`
+        : field === "amber" ? `Phase ${p.n} amber must be 3 to 6 s.` : `Phase ${p.n} all-red must be 0 to 5 s.`);
+      else p[field] = value;
+    }
+    const c = M.cycle(timing);
+    if (!problems.length && c > 180) problems.push(`The cycle would be ${c} s. It can be at most 180 s.`);
+    return problems;
+  }
+  function updateTiming() {
+    if (!timing) return [];
+    const problems = readTiming();
+    const c = M.cycle(timing);
+    $("d-cycle").textContent = `${c} s`;
+    timing.phases.forEach((p) => { $(`p${p.n}-length`).textContent = String(p.green + p.amber + p.red); });
+    drawBand(timing, c);
+    return problems;
+  }
+  function drawBand(t, c) {
+    const svg = $("band");
+    const W0 = 170, W1 = 930, top = 6, row = 30;
+    const x = (s) => W0 + (s / Math.max(c, 1)) * (W1 - W0);
+    const parts = [];
+    for (let s = 0; s <= c; s += 10) {
+      parts.push(`<line x1="${x(s)}" y1="${top}" x2="${x(s)}" y2="${top + row * 4 + 4}" stroke="#ddd"/>`);
+      parts.push(`<text x="${x(s)}" y="${top + row * 4 + 22}" font-size="12" text-anchor="middle">${s}</text>`);
+    }
+    let start = 0;
+    t.phases.forEach((p, i) => {
+      const y = top + i * row + 4;
+      parts.push(`<text x="4" y="${y + 17}" font-size="14">Phase ${p.n} ${p.movements}</text>`);
+      parts.push(`<rect x="${W0}" y="${y}" width="${W1 - W0}" height="20" fill="#e8392b"/>`);
+      parts.push(`<rect x="${x(start)}" y="${y}" width="${x(start + p.green) - x(start)}" height="20" fill="#25b345"/>`);
+      parts.push(`<rect x="${x(start + p.green)}" y="${y}" width="${x(start + p.green + p.amber) - x(start + p.green)}" height="20" fill="#f5b400"/>`);
+      parts.push(`<text x="${(x(start) + x(start + p.green)) / 2}" y="${y + 15}" font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">${p.green}</text>`);
+      start += p.green + p.amber + p.red;
+    });
+    parts.push(`<text x="${W1}" y="${top + row * 4 + 38}" font-size="12" text-anchor="end">seconds in cycle (cycle ${c} s)</text>`);
+    svg.setAttribute("height", String(top + row * 4 + 44));
+    svg.innerHTML = parts.join("");
+  }
+  function commitTiming() {
+    const problems = updateTiming();
+    if (problems.length) {
+      error.textContent = problems[0];
+      const bad = document.querySelector("#phase-rows input.bad");
+      if (bad) { bad.focus(); bad.select(); }
+      return;
+    }
+    const changed = timing.phases.flatMap((p, i) => ["green", "amber", "red"].filter((f) => p[f] !== plan.phases[i][f]).map((f) => ({ p, f, from: plan.phases[i][f] })));
+    plan = timing;
+    closeTiming();
+    render();
+    draw();
+    say(changed.length
+      ? `${changed.map(({ p, f, from }) => `Phase ${p.n} ${FIELD[f]} ${from} → ${p[f]} s`).join("; ")}. Cycle ${M.cycle(plan)} s. Not saved yet.`
+      : "Signal timing unchanged.");
+  }
+  $("timing-form").addEventListener("submit", (event) => { event.preventDefault(); commitTiming(); });
+  $("phase-rows").addEventListener("input", () => { error.textContent = ""; updateTiming(); });
+  $("dialog-cancel").addEventListener("click", () => { closeTiming(); say("Signal timing unchanged."); });
+  $("dialog-close").addEventListener("click", () => { closeTiming(); say("Signal timing unchanged."); });
+  cover.addEventListener("mousedown", (event) => {
+    if (event.target !== cover) return;
+    event.preventDefault();
+    const bar = $("dialog-bar");
+    bar.classList.add("inactive");
+    setTimeout(() => bar.classList.remove("inactive"), 120);
+  });
+
+  // --- Saving ----------------------------------------------------------------
+  function save() {
+    closeMenus();
+    if (timing) { say("Close the Signal Timing window first."); return; }
+    if (saving) return;
+    const changes = pending();
+    if (!changes.length) { say("No changes to save."); return; }
+    saving = true;
+    say("Saving...");
+    setTimeout(() => {
+      savedPlan = copy(plan);
+      savedLog.push(...changes);
+      for (const c of changes) log.push(`Saved: ${changeText(c)}.`);
+      saving = false;
+      render();
+      say("Saved. " + changes.map((c) => `${changeText(c)}.`).join(" "));
+    }, 600);
+  }
+
+  // --- Menus, toolbar, tree, keys ------------------------------------------------
+  function closeMenus() {
+    for (const button of document.querySelectorAll("[data-menu]")) button.setAttribute("aria-expanded", "false");
+    for (const menu of document.querySelectorAll(".menu")) menu.classList.remove("open");
+  }
+  for (const button of document.querySelectorAll("[data-menu]")) {
+    button.addEventListener("click", () => {
+      const open = button.getAttribute("aria-expanded") === "true";
+      closeMenus();
+      if (!open) {
+        button.setAttribute("aria-expanded", "true");
+        $(`menu-${button.dataset.menu}`).classList.add("open");
+      }
+    });
+  }
+  document.addEventListener("mousedown", (event) => { if (!event.target.closest(".menubar")) closeMenus(); });
+  const ACTIONS = {
+    save,
+    timing: openTiming,
+    run: startRun,
+    pause: pauseRun,
+    stop: stopRun,
+    exit: () => { closeMenus(); say("Exit is turned off in this mock."); },
+    about: () => { closeMenus(); say("Intersection Simulator 4.2: a mock legacy app with sample data, for a computer-use demo."); },
+  };
+  for (const item of document.querySelectorAll(".menu [data-action]")) item.addEventListener("click", () => ACTIONS[item.dataset.action]());
+  $("save-button").addEventListener("click", save);
+  $("timing-button").addEventListener("click", openTiming);
+  $("edit-timing").addEventListener("click", openTiming);
+  $("run-button").addEventListener("click", startRun);
+  $("pause-button").addEventListener("click", pauseRun);
+  $("stop-button").addEventListener("click", stopRun);
+  for (const b of document.querySelectorAll("[data-speed]")) {
+    b.addEventListener("click", () => {
+      speed = Number(b.dataset.speed);
+      renderToolbar();
+      say(speed ? `Speed ${speed}×: a run takes about ${Math.round((M.PERIOD + M.WARMUP) / speed)} s.` : "Quick: a run finishes at once, without animation.");
+    });
+  }
+  document.addEventListener("click", (event) => {
+    const off = event.target.closest("[data-off]");
+    if (off) say(`${off.dataset.off} is not part of this mock.`);
+  });
+
+  const tree = $("tree");
+  $("tree-inputs").innerHTML = M.ARMS.map((arm) => {
+    const v = M.INPUTS[arm];
+    return `<li><span data-node="input-${arm}" data-volumes="L ${v.L}, T ${v.T}, R ${v.R}"><span class="twisty none"></span>${M.NAMES[arm]} <span class="count">${(v.L + v.T + v.R).toLocaleString("en-CA")}</span></span></li>`;
+  }).join("");
+  function selectNode(node) {
+    for (const span of tree.querySelectorAll("[data-node]")) span.classList.toggle("selected", span === node);
+  }
+  tree.addEventListener("mousedown", (event) => {
+    const node = event.target.closest("[data-node]");
+    if (!node) return;
+    selectNode(node);
+    const kind = node.dataset.node;
+    if (kind === "plan" || kind === "controller") say(`Signal controller SC1, plan AM peak: cycle ${M.cycle(plan)} s. Double-click to edit its timing.`);
+    else if (kind.startsWith("input-")) say(`${node.firstElementChild.nextSibling.textContent.trim()}: ${node.dataset.volumes} veh/h. Vehicle inputs are read-only in this mock.`);
+    else if (kind.startsWith("eval")) say("Evaluation results are on the right.");
+  });
+  tree.addEventListener("dblclick", (event) => {
+    const node = event.target.closest("[data-node]");
+    if (node && (node.dataset.node === "plan" || node.dataset.node === "controller")) openTiming();
+  });
+  selectNode($("tree-plan"));
+
+  document.addEventListener("keydown", (event) => {
+    const key = event.key.toLowerCase();
+    if ((event.ctrlKey || event.metaKey) && key === "s") { event.preventDefault(); save(); return; }
+    if ((event.ctrlKey || event.metaKey) && key === "t") { event.preventDefault(); openTiming(); return; }
+    if (event.key === "F5") { event.preventDefault(); startRun(); return; }
+    if (event.key === "Escape") { if (timing) { closeTiming(); say("Signal timing unchanged."); } else closeMenus(); }
+  });
+
+  // For the harness that drives this page: what was saved (oldest first), what's
+  // unsaved, and the evaluations. before is Run 1, on the plan as it was opened;
+  // after is the latest finished run. busy is true while saving.
+  const summary = (run) => run && {
+    run: run.n,
+    cycle: run.results.cycle,
+    phases: run.plan.phases.map((p) => ({ phase: p.n, green: p.green, amber: p.amber, red: p.red })),
+    northboundLeft: (({ delay, queue, los }) => ({ delay, queue, los }))(run.results.groups.find((g) => g.id === "NB-L")),
+    intersection: { delay: run.results.overall.delay, los: run.results.overall.los },
+    movements: run.results.groups.map(({ id, delay, queue, los }) => ({ id, delay, queue, los })),
+  };
+  window.signalSim = Object.freeze({
+    changes: () => copy(savedLog),
+    unsaved: () => pending(),
+    busy: () => saving,
+    evaluation: () => copy({
+      before: summary(before),
+      after: summary(after),
+      running: current !== null,
+      afterMatchesSaved: Boolean(after && samePlan(after.plan, savedPlan)),
+      afterMatchesCurrent: Boolean(after && samePlan(after.plan, plan)),
+    }),
+  });
+
+  new ResizeObserver(resize).observe(canvas);
+  render();
+  resize();
+  say("Ready. Run 1 (saved plan) results are loaded.");
+})();
+</script>
+</body>
+</html>
