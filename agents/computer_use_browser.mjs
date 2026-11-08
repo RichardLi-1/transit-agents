@@ -90,16 +90,16 @@ function decorate({ reserved, side, x, y }) {
       .text { flex: 1; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
       .meta { color: #b6bdc6; white-space: nowrap; font-variant-numeric: tabular-nums; }
       .side { position: fixed; top: 0; right: 0; bottom: 0; width: ${side}px; display: ${side ? "flex" : "none"}; flex-direction: column;
-        background: #101317; color: #f4f6f8; font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-      .side h2 { margin: 0; padding: 16px 18px 12px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #9fb4ff; border-bottom: 1px solid #262b33; }
+        background: #ffffff; color: #111111; border-left: 1px solid #d0d0d6; font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+      .side h2 { margin: 0; padding: 16px 18px 12px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #111111; border-bottom: 1px solid #e2e2e6; }
       .log { flex: 1; overflow-y: auto; padding: 10px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
       .line { display: grid; gap: 2px; }
-      .line .m { color: #8f98a3; font-size: 12px; font-variant-numeric: tabular-nums; }
+      .line .m { color: #5f5f66; font-size: 12px; font-variant-numeric: tabular-nums; }
       .line.new { animation: in .35s ease-out; }
-      .line.ask { color: #ffd479; }
+      .line.ask { color: #8a4b00; font-weight: 600; }
       @keyframes in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
     </style>
-    <div class="side"><h2>Gemini, live</h2><div class="log"></div></div>
+    <div class="side"><h2>Gemini</h2><div class="log"></div></div>
     <div class="strip"><span class="who"></span><span class="text"></span><span class="meta"></span></div>
     <div class="ring"></div>
     <svg class="pointer" viewBox="0 0 26 26" aria-hidden="true"><path d="M3 2 L3 21 L8.2 16.4 L11.6 24 L15 22.5 L11.7 15 L18.6 15 Z" fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
