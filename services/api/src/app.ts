@@ -24,6 +24,7 @@ import {
 } from "@transit-agents/contracts";
 import { extractPages } from "./extract.ts";
 import type { Entry } from "./log.ts";
+import { mcp, rpcError } from "./mcp.ts";
 import { ApiError, type Service } from "./service.ts";
 import type { Webhooks } from "./webhooks.ts";
 
@@ -43,6 +44,9 @@ export type AppOptions = {
   staticDir?: string;
   live?: { vehicles: (routes: string[]) => unknown };
   timeline?: (studyId: string) => unknown;
+  // The address people reach the service at, when it differs from the one it
+  // serves on. MCP accepts browser requests from it.
+  publicUrl?: string;
 };
 
 type Env = { Variables: { actor: Actor } };
@@ -102,11 +106,11 @@ export function createApp(options: AppOptions) {
   });
 
   app.onError((error, c) => {
-    if (error instanceof ApiError) {
-      return c.json({ error: { code: error.code, message: error.message } }, error.status as 400);
-    }
-    console.error(error);
-    return c.json({ error: { code: "internal", message: "Something went wrong" } }, 500);
+    if (!(error instanceof ApiError)) console.error(error);
+    const { status, code, message } = error instanceof ApiError ? error : new ApiError(500, "internal", "Something went wrong");
+    // MCP clients read only JSON-RPC errors.
+    if (c.req.path === "/v1/mcp") return c.json(rpcError(status, code, message), status as 400);
+    return c.json({ error: { code, message } }, status as 400);
   });
 
   app.use("/v1/*", async (c, next) => {
@@ -139,7 +143,9 @@ export function createApp(options: AppOptions) {
   `);
   app.use("/v1/*", async (c, next) => {
     const key = c.req.header("idempotency-key");
-    if (!key || c.req.method === "GET") return next();
+    // Not on /v1/mcp: a client sends its headers with every message there, so one
+    // key would answer each later message with the first one's reply.
+    if (!key || c.req.method === "GET" || c.req.path === "/v1/mcp") return next();
     const actor = actorName(c);
     const seen = service.log.db.prepare("SELECT status, body FROM idempotency WHERE actor = ? AND key = ?").get(actor, key) as
       | { status: number; body: string }
@@ -414,6 +420,9 @@ export function createApp(options: AppOptions) {
       return route.handler(c);
     });
   }
+
+  // Agents can connect over MCP instead. Each tool call runs one route above, as the caller.
+  app.all("/v1/mcp", mcp(app, routes, { publicUrl: options.publicUrl }));
 
   // Everything that happens, live. Resume with Last-Event-ID or ?after=.
   app.get("/v1/events", (c) => {

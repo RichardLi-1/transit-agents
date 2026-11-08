@@ -38,7 +38,7 @@ Space plays time; the speed button steps from real time to a week a second.
 Vehicles are live at the present moment, and scheduled otherwise until the
 published timetable ends.
 
-Checks: `npm test` (120 tests) and `npm run typecheck`.
+Checks: `npm test` (140 tests) and `npm run typecheck`.
 
 ## Plug in your agents
 
@@ -71,6 +71,76 @@ curl -X POST localhost:4100/v1/studies/my-study/figures -H 'authorization: Beare
 
 # Hear about everything, live
 curl -N 'localhost:4100/v1/events?access_token=SECRET1'
+```
+
+Python agents can connect over MCP instead, at `/v1/mcp`. Every route except
+the event stream, webhook subscriptions and file upload is a tool, and an agent
+sees only the tools its role may call. With `pip install mcp google-genai`
+(mcp 2.3, google-genai 3.0), and `TRANSIT_TOKEN_AGENT` and `GEMINI_API_KEY` set:
+
+```python
+import asyncio
+import os
+
+import httpx2
+from google import genai
+from google.genai import types
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+MODEL = "gemini-3.8-flash"
+STUDY = "route-52"
+
+
+async def main():
+    token = os.environ["TRANSIT_TOKEN_AGENT"]
+    async with (
+        httpx2.AsyncClient(headers={"authorization": f"Bearer {token}"}) as http,
+        streamable_http_client("http://127.0.0.1:4100/v1/mcp", http_client=http) as (read, write),
+        ClientSession(read, write) as session,
+        # Hold the client: google-genai closes its connections once it's dropped.
+        genai.Client().aio as gemini,
+    ):
+        server = await session.initialize()
+        await session.call_tool("open_study", {"id": STUDY, "title": "Route 52"})
+        # A dict, with client.aio.models. A GenerateContentConfig or the chat API
+        # copies the config, which fails with a live session, and the sync
+        # client refuses MCP sessions. Gemini gets the server's rules as
+        # instructions. The tool loop runs here, not in google-genai, so this
+        # code can report each model call's tokens: the model can't see them.
+        config = {
+            "tools": [session],
+            "system_instruction": server.instructions,
+            "automatic_function_calling": {"disable": True},
+        }
+        prompt = f"Add route 52's weekly riders to study {STUDY}, with a citation."
+        contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
+        for _ in range(30):
+            response = await gemini.models.generate_content(model=MODEL, contents=contents, config=config)
+            usage = response.usage_metadata
+            await session.call_tool("report_activity", {
+                "studyId": STUDY, "kind": "usage", "model": MODEL,
+                "inputTokens": usage.prompt_token_count or 0,
+                # Thinking is billed as output. Add "costUsd" at your model's prices.
+                "outputTokens": (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0),
+            })
+            if not response.function_calls:
+                print(response.text)
+                break
+            contents.append(response.candidates[0].content)
+            parts = []
+            for call in response.function_calls:
+                result = await session.call_tool(call.name, call.args or {})
+                # Each result once: structured when it's an object, else the text.
+                answer = result.structured_content or result.content[0].text
+                key = "error" if result.is_error else "output"
+                parts.append(types.Part.from_function_response(name=call.name, response={key: answer}))
+            contents.append(types.Content(role="user", parts=parts))
+        else:
+            print("Stopped after 30 model calls")
+
+
+asyncio.run(main())
 ```
 
 ## Repo

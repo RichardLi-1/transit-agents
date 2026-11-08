@@ -104,6 +104,7 @@ Full schema at `GET /openapi.json`.
 - Tokens and cost: `GET /v1/usage`
 - Stream everything live: `GET /v1/events`
 - Be told about decisions: `POST /v1/subscriptions`
+- Connect an agent over MCP: `/v1/mcp`
 
 ## Who may do what
 

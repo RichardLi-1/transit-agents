@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@transit-agents/contracts": "*",
     "gtfs-realtime-bindings": "^1",
     "hono": "^4",

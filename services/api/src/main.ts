@@ -46,6 +46,7 @@ const app = createApp({
   staticDir: join(root, "apps/display/dist"),
   live: measurements,
   timeline: (id) => buildTimeline(service, measurements, id),
+  publicUrl: process.env.PUBLIC_URL,
 });
 
 const server = serve({ fetch: app.fetch, port, hostname: host }, () => {
