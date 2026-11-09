@@ -1,0 +1,167 @@
+[
+  {
+    "id": "ttc-gtfs",
+    "title": "TTC Routes and Schedules (GTFS)",
+    "publisher": "Toronto Transit Commission, via City of Toronto Open Data",
+    "licence": "Open Government Licence – Toronto",
+    "licenceUrl": "https://open.toronto.ca/open-data-licence/",
+    "url": "https://open.toronto.ca/dataset/ttc-routes-and-schedules/",
+    "retrieved": "2026-11-09",
+    "file": "ttc.json.gz",
+    "kind": "points",
+    "coverage": "City of Toronto and the TTC's routes beyond it",
+    "notes": "Scheduled stops and route shapes, timetable to 2026-12-21. A route's stops are every stop any of its trips calls at, all branches and both directions."
+  },
+  {
+    "id": "census-da-2021",
+    "title": "2021 Census: dissemination areas and Census Profile, City of Toronto",
+    "publisher": "Statistics Canada",
+    "licence": "Statistics Canada Open Licence",
+    "licenceUrl": "https://www.statcan.gc.ca/en/reference/licence",
+    "url": "https://www12.statcan.gc.ca/census-recensement/2021/dp-pd/prof/index.cfm?Lang=E",
+    "retrieved": "2026-11-09",
+    "file": "census-da-2021.json.gz",
+    "kind": "polygons",
+    "coverage": "City of Toronto (census subdivision 3520005)",
+    "notes": "The cartographic boundary file, which follows the shoreline, simplified to about 3 m, with Census Profile counts for each area. 68 of 3743 areas lack some counts, such as low income, which Statistics Canada suppresses for very small areas; they add nothing to those totals. Counts are randomly rounded; 25% sample data are estimates. Low income is counted for people, not households.",
+    "variables": {
+      "population": {
+        "label": "Population, 2021",
+        "unit": "people",
+        "characteristic": 1
+      },
+      "households": {
+        "label": "Households (occupied private dwellings), 2021",
+        "unit": "households",
+        "characteristic": 5
+      },
+      "ageBase": {
+        "label": "People counted by age",
+        "unit": "people",
+        "characteristic": 8
+      },
+      "age65": {
+        "label": "People aged 65 and over",
+        "unit": "people",
+        "characteristic": 24
+      },
+      "lowIncomeBase": {
+        "label": "People counted for low-income status",
+        "unit": "people",
+        "characteristic": 321
+      },
+      "lowIncome": {
+        "label": "People in low income (LIM-AT, 2020 incomes)",
+        "unit": "people",
+        "characteristic": 326
+      },
+      "commuters": {
+        "label": "Commuters with a usual or no fixed workplace (25% sample)",
+        "unit": "people",
+        "characteristic": 2603
+      },
+      "transit": {
+        "label": "Commuters by public transit (25% sample)",
+        "unit": "people",
+        "characteristic": 2607
+      },
+      "walked": {
+        "label": "Commuters on foot (25% sample)",
+        "unit": "people",
+        "characteristic": 2608
+      },
+      "bicycle": {
+        "label": "Commuters by bicycle (25% sample)",
+        "unit": "people",
+        "characteristic": 2609
+      },
+      "visibleMinorityBase": {
+        "label": "People counted for visible minority (25% sample)",
+        "unit": "people",
+        "characteristic": 1669
+      },
+      "visibleMinority": {
+        "label": "Visible minority population (25% sample)",
+        "unit": "people",
+        "characteristic": 1670
+      }
+    }
+  },
+  {
+    "id": "toronto-neighbourhoods",
+    "title": "Neighbourhoods (158)",
+    "publisher": "City of Toronto (Social Development, Finance & Administration)",
+    "licence": "Open Government Licence – Toronto",
+    "licenceUrl": "https://open.toronto.ca/open-data-licence/",
+    "url": "https://open.toronto.ca/dataset/neighbourhoods/",
+    "retrieved": "2026-11-09",
+    "file": "neighbourhoods.json.gz",
+    "kind": "polygons",
+    "coverage": "City of Toronto",
+    "notes": "The 158-neighbourhood model, each with its Toronto Strong Neighbourhoods Strategy 2030 class: Neighbourhood Improvement Area, Emerging Neighbourhood, or neither. Simplified to about 5 m."
+  },
+  {
+    "id": "toronto-nia",
+    "title": "Neighbourhood Improvement Areas (TSNS 2030)",
+    "publisher": "City of Toronto (Social Development, Finance & Administration)",
+    "licence": "Open Government Licence – Toronto",
+    "licenceUrl": "https://open.toronto.ca/open-data-licence/",
+    "url": "https://open.toronto.ca/dataset/neighbourhood-improvement-areas/",
+    "retrieved": "2026-11-09",
+    "file": "nia.json.gz",
+    "kind": "polygons",
+    "coverage": "City of Toronto",
+    "notes": "The 33 Neighbourhood Improvement Areas of the Toronto Strong Neighbourhoods Strategy 2030, on the 158-neighbourhood model (effective 2022). Not the 31 areas of 2014. Simplified to about 5 m."
+  },
+  {
+    "id": "toronto-ksi",
+    "title": "Motor Vehicle Collisions involving Killed or Seriously Injured Persons",
+    "publisher": "Toronto Police Service, via City of Toronto Open Data",
+    "licence": "Open Government Licence – Toronto",
+    "licenceUrl": "https://open.toronto.ca/open-data-licence/",
+    "url": "https://open.toronto.ca/dataset/motor-vehicle-collisions-involving-killed-or-seriously-injured-persons/",
+    "retrieved": "2026-11-09",
+    "file": "ksi.json.gz",
+    "kind": "points",
+    "coverage": "City of Toronto",
+    "notes": "7667 police-reported collisions where someone was killed or seriously injured, 2006 to 2026-10-22; the latest year is partial. One point per collision. Police-reported only: collisions police didn't attend are missing."
+  },
+  {
+    "id": "toronto-heritage-corridor",
+    "title": "Heritage Register, Don Mills corridor",
+    "publisher": "City of Toronto (City Planning, Heritage Planning)",
+    "licence": "Open Government Licence – Toronto",
+    "licenceUrl": "https://open.toronto.ca/open-data-licence/",
+    "url": "https://open.toronto.ca/dataset/heritage-register/",
+    "retrieved": "2026-11-08",
+    "file": "heritage.json.gz",
+    "kind": "points",
+    "coverage": "the Don Mills corridor only (west -79.37, south 43.70, east -79.32, north 43.78)",
+    "notes": "55 listed and designated properties inside the corridor box, from the City's public map layer, whose records match the Open Data register. Not for legal purposes.",
+    "bbox": [
+      -79.37,
+      43.7,
+      -79.32,
+      43.78
+    ]
+  },
+  {
+    "id": "toronto-parks-corridor",
+    "title": "Green Spaces, Don Mills corridor",
+    "publisher": "City of Toronto (Parks & Recreation)",
+    "licence": "Open Government Licence – Toronto",
+    "licenceUrl": "https://open.toronto.ca/open-data-licence/",
+    "url": "https://open.toronto.ca/dataset/green-spaces/",
+    "retrieved": "2026-11-08",
+    "file": "parks.json.gz",
+    "kind": "polygons",
+    "coverage": "the Don Mills corridor only (west -79.37, south 43.70, east -79.32, north 43.78)",
+    "notes": "145 parks, ravine parks, golf courses and cemeteries touching the corridor box, as whole features. Simplified to about 3 m.",
+    "bbox": [
+      -79.37,
+      43.7,
+      -79.32,
+      43.78
+    ]
+  }
+]

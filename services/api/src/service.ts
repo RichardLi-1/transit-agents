@@ -21,8 +21,11 @@ import {
   type Decision,
   type DocumentKind,
   type DocumentView,
+  type DatasetInfo,
   type Figure,
   type FindingView,
+  type Layer,
+  type LayerAdded,
   type MediaKind,
   type MediaType,
   type MediaView,
@@ -30,6 +33,7 @@ import {
   type StudyView,
   type Usage,
 } from "@transit-agents/contracts";
+import type { Feature } from "geojson";
 import type { z } from "zod";
 import type {
   NewAssumption as NewAssumptionSchema,
@@ -46,6 +50,12 @@ import type {
   NewMedia as NewMediaSchema,
   NewNeed as NewNeedSchema,
   NewStudy as NewStudySchema,
+  AreaRequest as AreaRequestSchema,
+  BufferRequest as BufferRequestSchema,
+  OverlayRequest as OverlayRequestSchema,
+  PointsWithinRequest as PointsWithinRequestSchema,
+  RouteLayerRequest as RouteLayerRequestSchema,
+  StudyLineRequest as StudyLineRequestSchema,
 } from "@transit-agents/contracts";
 import { type Alignment, ALIGNMENT_COST, AlignmentError, along, cachedNetwork, slugOf, snapAlignment } from "./alignment.ts";
 import { checkValue, findQuote } from "./citations.ts";
@@ -53,6 +63,7 @@ import { renderDocument, type RenderedSection, type Source } from "./document.ts
 import type { Page } from "./extract.ts";
 import type { VisitorBudget } from "./budget.ts";
 import { estimate } from "./footprint.ts";
+import { boundsOf, buffer, Gis, GisError, measure, METHOD, shortName as datasetShort, studyLine, type Made, type Total } from "./gis.ts";
 import { EVERYONE, Log, REDACTED, type Entry, type NewEntry, type Scope } from "./log.ts";
 import { isSha256, isWhole, MediaStore, sniff } from "./media.ts";
 import { SearchIndex } from "./search.ts";
@@ -75,6 +86,7 @@ import {
   type Need,
   type Spend,
   type State,
+  type StoredLayer,
   type Study,
 } from "./state.ts";
 
@@ -122,6 +134,8 @@ export type TraceNode = {
   basis: Basis;
   entry?: { seq: number; hash: string; at: string; actor: string };
   inputs: (TraceNode | { assumption: Assumption })[];
+  // For a total from a map layer: the layer, with its dataset and the operation that made it.
+  layer?: Layer;
 };
 
 export type Comparison = {
@@ -150,6 +164,9 @@ const megabytes = (bytes: number) => `${bytes / (1024 * 1024)} MB`;
 
 const sha256Of = (text: string) => createHash("sha256").update(text).digest("hex");
 
+// A layer as the display sees it, without what the service keeps for itself.
+const viewLayer = ({ sha256: _sha256, totals: _totals, warnings: _warnings, ...layer }: StoredLayer): Layer => layer;
+
 // How long a claim holds without a file. Longer than the slowest video takes, so
 // an agent that stops mid-way frees the request for another.
 export const CLAIM_MS = 20 * 60 * 1000;
@@ -160,6 +177,8 @@ export type ServiceOptions = {
   mediaDir?: string;
   // Counts what agents spend for visitors, from every entry, visitors' included.
   budget?: VisitorBudget;
+  // The open datasets the GIS tools work on. Without it, those in services/api/assets/gis.
+  gis?: Gis;
 };
 
 // private is true for a file made in a visitor's sandbox, and filename is what a
@@ -183,6 +202,7 @@ export class Service {
   // log, and never written to the log.
   private readonly index = new SearchIndex();
   private readonly budget: VisitorBudget | undefined;
+  readonly gis: Gis;
   // The files agents made in visitors' sandboxes, by sha256, with the need each is
   // for. The shared state names the shared record's files.
   private readonly visitorMedia = new Map<string, { type: MediaType; size: number; studyId: string | null; need: string }>();
@@ -194,17 +214,24 @@ export class Service {
 
   private readonly clock: () => Date;
 
-  constructor(database: string, { clock = () => new Date(), mediaDir, budget }: ServiceOptions = {}) {
+  constructor(database: string, { clock = () => new Date(), mediaDir, budget, gis = new Gis() }: ServiceOptions = {}) {
     this.clock = clock;
     this.log = new Log(database, clock);
     this.media = mediaDir ? new MediaStore(mediaDir) : undefined;
     this.budget = budget;
+    this.gis = gis;
+    // A layer's features, by their hash, as a context's pages are kept: outside the
+    // log, which names the hash.
     this.log.db.exec(`
       CREATE TABLE IF NOT EXISTS context_pages (
         context_id TEXT NOT NULL,
         page INTEGER NOT NULL,
         text TEXT NOT NULL,
         PRIMARY KEY (context_id, page)
+      );
+      CREATE TABLE IF NOT EXISTS layer_features (
+        sha256 TEXT PRIMARY KEY,
+        geojson TEXT NOT NULL
       );
     `);
     for (const entry of this.allEntries(EVERYONE)) {
@@ -407,6 +434,20 @@ export class Service {
       const check = checkValue(input.value, basis.citation.quote, match);
       if (!check.ok) throw new ApiError(422, "value_not_in_quote", check.reason);
       return { value: input.value, match };
+    }
+
+    if (basis.kind === "spatial") {
+      const layer = study.layers.get(basis.layer);
+      if (!layer) throw new ApiError(422, "unknown_layer", `No layer "${basis.layer}" in this study`);
+      const total = layer.totals?.[basis.total];
+      if (!total) {
+        const names = Object.keys(layer.totals ?? {});
+        throw new ApiError(422, "unknown_total", `Layer "${layer.id}" has no total "${basis.total}"${names.length ? `. It has: ${names.join(", ")}` : ""}`);
+      }
+      if (input.value !== undefined && Math.abs(input.value - total.value) > Math.abs(total.value) * 1e-6 + 1e-9) {
+        throw new ApiError(422, "value_mismatch", `Layer "${layer.id}" gives ${total.value} for ${basis.total}, not ${input.value}`);
+      }
+      return { value: total.value };
     }
 
     if (basis.kind === "computed") {
@@ -951,6 +992,248 @@ export class Service {
     return { id: sha256, url, link: new URL(url, base).href, kind: input.kind, title: input.title, pages, size: bytes.length };
   }
 
+  // --- Maps and GIS ----------------------------------------------------------
+
+  datasets(): DatasetInfo[] {
+    return this.gis.datasets();
+  }
+
+  // A study's layers, as the display sees them, newest last.
+  layers(studyId: string): Layer[] {
+    return [...this.study(studyId).layers.values()].map(viewLayer);
+  }
+
+  private layer(study: Study, id: string): StoredLayer {
+    const layer = study.layers.get(id);
+    if (!layer) {
+      const names = [...study.layers.keys()];
+      throw new ApiError(404, "not_found", `No layer "${id}" in this study${names.length ? `. Layers: ${names.join(", ")}` : ""}`);
+    }
+    return layer;
+  }
+
+  private features(layer: StoredLayer): Feature[] {
+    const row = this.log.db.prepare("SELECT geojson FROM layer_features WHERE sha256 = ?").get(layer.sha256) as { geojson: string } | undefined;
+    if (!row) throw new ApiError(404, "not_found", `Layer "${layer.id}" has no features stored`);
+    return (JSON.parse(row.geojson) as { features: Feature[] }).features;
+  }
+
+  // A layer's features, in WGS84.
+  layerGeojson(studyId: string, layerId: string): { type: "FeatureCollection"; features: Feature[] } {
+    return { type: "FeatureCollection", features: this.features(this.layer(this.study(studyId), layerId)) };
+  }
+
+  // What an agent needs of a layer without its features: what it is, its size, its
+  // totals and the figures that record them, and its first rows, largest share first.
+  summariseLayer(studyId: string, layerId: string) {
+    const study = this.study(studyId);
+    const layer = this.layer(study, layerId);
+    const features = this.features(layer);
+    const rows = features
+      .map((f) => f.properties ?? {})
+      .sort((a, b) => Number(b.share ?? 0) - Number(a.share ?? 0))
+      .slice(0, 10);
+    return {
+      layer: viewLayer(layer),
+      ...measure(layer.kind, features),
+      ...(layer.totals ? { totals: this.withFigures(study, layer) } : {}),
+      ...(layer.operation?.name === "overlay" ? { method: METHOD } : {}),
+      ...(layer.warnings?.length ? { warnings: layer.warnings } : {}),
+      rows,
+    };
+  }
+
+  // Each total, with the id of the figure that records it, if one does.
+  private withFigures(study: Study, layer: StoredLayer): Record<string, Total & { figure?: string }> {
+    const recorded = new Map(
+      [...study.figures.values()].flatMap((f) => (f.basis.kind === "spatial" && f.basis.layer === layer.id ? [[f.basis.total, f.id] as const] : [])),
+    );
+    return Object.fromEntries(Object.entries(layer.totals ?? {}).map(([name, total]) => [name, { ...total, ...(recorded.has(name) ? { figure: recorded.get(name) } : {}) }]));
+  }
+
+  private gisCall<T>(run: () => T): T {
+    try {
+      return run();
+    } catch (error) {
+      if (error instanceof GisError) throw new ApiError(422, error.code, error.message);
+      throw error;
+    }
+  }
+
+  // A TTC route's stops, or its main shapes, from the GTFS.
+  routeLayer(actor: string, studyId: string, what: "stops" | "shape", input: z.output<typeof RouteLayerRequestSchema>) {
+    this.study(studyId);
+    const route = this.gisCall(() => this.gis.route(input.route));
+    const made = this.gisCall(() => (what === "stops" ? this.gis.routeStops(route.name) : this.gis.routeShape(route.name)));
+    const name = `${route.name} ${route.long}`;
+    return this.saveLayer(actor, studyId, made, {
+      id: input.id ?? `ttc-${route.name.toLowerCase()}-${what}`,
+      title: input.title ?? `${name} ${what === "stops" ? "stops" : "route"}`,
+      color: route.color,
+      operation: { name: what === "stops" ? "route_stops" : "route_shape", params: { route: route.name } },
+    });
+  }
+
+  // The study's line, as the display draws it: built and proposed parts.
+  studyLineLayer(actor: string, studyId: string, input: z.output<typeof StudyLineRequestSchema>) {
+    const study = this.study(studyId);
+    const made = this.gisCall(() => studyLine(study.line));
+    return this.saveLayer(actor, studyId, made, {
+      id: input.id ?? `line-${study.line}`.slice(0, 63),
+      title: input.title ?? `${study.title} line`,
+      color: "#1f2937",
+      operation: { name: "study_line", params: { line: study.line } },
+    });
+  }
+
+  // One named area of a dataset, such as a neighbourhood, as a layer to work within.
+  namedAreaLayer(actor: string, studyId: string, input: z.output<typeof AreaRequestSchema>) {
+    this.study(studyId);
+    const made = this.gisCall(() => this.gis.namedArea(input.dataset, input.name));
+    const slug = slugify(made.name);
+    return this.saveLayer(actor, studyId, made, {
+      id: input.id ?? `${datasetShort(input.dataset)}-${slug}`.slice(0, 63),
+      title: input.title ?? made.name,
+      color: "#0d9488",
+      operation: { name: "named_area", params: { dataset: input.dataset, name: made.name } },
+    });
+  }
+
+  bufferLayer(actor: string, studyId: string, input: z.output<typeof BufferRequestSchema>) {
+    const study = this.study(studyId);
+    const source = this.layer(study, input.layer);
+    const made = this.gisCall(() => buffer(this.features(source), input.metres));
+    return this.saveLayer(actor, studyId, { ...made, ...(source.dataset ? { dataset: source.dataset } : {}) }, {
+      id: input.id ?? `${source.id}-${input.metres}m`,
+      title: input.title ?? `${input.metres} m around ${source.title}`,
+      color: "#2563eb",
+      derivedFrom: [source.id],
+      operation: { name: "buffer", params: { layer: source.id, metres: input.metres } },
+    });
+  }
+
+  // Areas of a dataset against a polygon layer, with area-weighted totals. The census
+  // variables asked for are recorded as figures; without any, its population and
+  // households. Other area datasets record how many areas the layer touches and the
+  // share of it they cover.
+  overlayLayer(actor: string, studyId: string, input: z.output<typeof OverlayRequestSchema>) {
+    const study = this.study(studyId);
+    const source = this.layer(study, input.layer);
+    const counts = Object.keys(this.gisCall(() => this.gis.variables(input.dataset)));
+    const variables = counts.length && !input.variables.length ? ["population", "households"] : input.variables;
+    const made = this.gisCall(() => this.gis.overlay(this.features(source), input.dataset, variables));
+    const label = { "census-da-2021": "Census areas", "toronto-nia": "NIAs", "toronto-neighbourhoods": "Neighbourhoods", "toronto-parks-corridor": "Parks" }[input.dataset] ?? input.dataset;
+    const saved = this.saveLayer(
+      actor,
+      studyId,
+      made,
+      {
+        id: input.id ?? `${source.id}-${datasetShort(input.dataset)}`,
+        title: input.title ?? `${label} in ${source.title}`,
+        color: { "census-da-2021": "#7c3aed", "toronto-nia": "#ea580c", "toronto-neighbourhoods": "#0d9488", "toronto-parks-corridor": "#16a34a" }[input.dataset],
+        derivedFrom: [source.id],
+        operation: { name: "overlay", params: { layer: source.id, dataset: input.dataset, variables, weighting: "area" } },
+      },
+      counts.length ? variables : ["areas", "layerShare"],
+      source.title,
+    );
+    return { ...saved, method: METHOD };
+  }
+
+  pointsWithinLayer(actor: string, studyId: string, input: z.output<typeof PointsWithinRequestSchema>) {
+    const study = this.study(studyId);
+    const source = this.layer(study, input.layer);
+    const filter = {
+      ...(input.from !== undefined ? { from: input.from } : {}),
+      ...(input.to !== undefined ? { to: input.to } : {}),
+      ...(input.fatal !== undefined ? { fatal: input.fatal } : {}),
+      ...(input.involving !== undefined ? { involving: input.involving } : {}),
+    };
+    const made = this.gisCall(() => this.gis.pointsWithin(this.features(source), input.dataset, filter));
+    const suffix = [
+      filter.from !== undefined || filter.to !== undefined ? `${filter.from ?? "start"}-${filter.to ?? "end"}` : "",
+      filter.fatal ? "fatal" : "",
+      filter.involving ?? "",
+    ].filter(Boolean);
+    const recorded = Object.keys(made.totals ?? {}).filter((name) => ["collisions", "fatal", "stops", "properties"].includes(name));
+    const label = { "toronto-ksi": "KSI collisions", "toronto-heritage-corridor": "Heritage properties", "ttc-gtfs": "TTC stops" }[input.dataset] ?? input.dataset;
+    const years = filter.from !== undefined || filter.to !== undefined ? ` ${filter.from ?? ""}–${filter.to ?? ""}` : "";
+    return this.saveLayer(
+      actor,
+      studyId,
+      made,
+      {
+        id: input.id ?? [`${source.id}-${datasetShort(input.dataset)}`, ...suffix].join("-"),
+        title: input.title ?? `${label}${years} in ${source.title}`,
+        color: { "toronto-ksi": "#dc2626", "toronto-heritage-corridor": "#a16207", "ttc-gtfs": "#da251d" }[input.dataset],
+        derivedFrom: [source.id],
+        operation: { name: "points_within", params: { layer: source.id, dataset: input.dataset, ...filter } },
+      },
+      filter.fatal ? recorded.filter((name) => name !== "fatal") : recorded,
+      source.title,
+    );
+  }
+
+  // Saves what an operation made as a layer, logs that it was added, and records the
+  // totals named as figures. The same operation again gives back the layer it made.
+  private saveLayer(
+    actor: string,
+    studyId: string,
+    made: Made,
+    meta: { id: string; title: string; color?: string | undefined; derivedFrom?: string[]; operation: { name: string; params: Record<string, unknown> } },
+    record: string[] = [],
+    within?: string,
+  ) {
+    const study = this.study(studyId);
+    const id = meta.id.toLowerCase();
+    if (!/^[a-z0-9][a-z0-9.-]{0,62}$/.test(id)) {
+      throw new ApiError(422, "bad_layer_id", `"${id}" can't be a layer's id: give an id of lowercase letters, numbers, dots and dashes, at most 63`);
+    }
+    const existing = study.layers.get(id);
+    if (existing) {
+      if (JSON.stringify(existing.operation) !== JSON.stringify(meta.operation)) {
+        throw new ApiError(409, "layer_exists", `Layer "${id}" exists, made another way. Give this one another id`);
+      }
+      return { layer: viewLayer(existing), ...(existing.totals ? { totals: this.withFigures(study, existing) } : {}), ...(existing.warnings?.length ? { warnings: existing.warnings } : {}), repeated: true };
+    }
+    const title = meta.title.length > 80 ? `${meta.title.slice(0, 79).trimEnd()}…` : meta.title;
+    const geojson = JSON.stringify({ type: "FeatureCollection", features: made.features });
+    const sha256 = sha256Of(geojson);
+    this.log.db.prepare("INSERT OR IGNORE INTO layer_features (sha256, geojson) VALUES (?, ?)").run(sha256, geojson);
+    const data = {
+      id,
+      title,
+      kind: made.kind,
+      ...(meta.color ? { color: meta.color } : {}),
+      featureCount: made.features.length,
+      bbox: boundsOf(made.features),
+      ...(made.dataset ? { dataset: made.dataset } : {}),
+      ...(meta.derivedFrom ? { derivedFrom: meta.derivedFrom } : {}),
+      operation: meta.operation,
+      sha256,
+      ...(made.totals ? { totals: made.totals } : {}),
+      ...(made.warnings?.length ? { warnings: made.warnings } : {}),
+    };
+    this.commit({ actor, type: "layer.saved", studyId, data });
+    this.commit({ actor, type: "activity", studyId, data: { kind: "layer.added", layerId: id, title } satisfies LayerAdded });
+    const layer = study.layers.get(id) as StoredLayer;
+    for (const name of record) {
+      const total = made.totals?.[name];
+      if (!total) continue;
+      const suffix = name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+      const figure = `${id.slice(0, 62 - suffix.length).replace(/[.-]+$/, "")}.${suffix}`;
+      const label = within ? `${total.label}, ${within}` : total.label;
+      this.addFigure(actor, studyId, {
+        id: figure,
+        label: label.length > 120 ? `${label.slice(0, 119).trimEnd()}…` : label,
+        unit: total.unit,
+        value: total.value,
+        basis: { kind: "spatial", layer: id, total: name },
+      });
+    }
+    return { layer: viewLayer(layer), ...(layer.totals ? { totals: this.withFigures(study, layer) } : {}), ...(layer.warnings?.length ? { warnings: layer.warnings } : {}) };
+  }
+
   // --- Activity ------------------------------------------------------------
 
   // An Escalation comes only from a planner's ping, never from POST .../activity.
@@ -1040,6 +1323,7 @@ export class Service {
         unit: figure.unit,
         basis: figure.basis,
         entry: { seq: figure.seq, hash: figure.hash, at: figure.recordedAt, actor: figure.recordedBy },
+        ...(figure.basis.kind === "spatial" && study.layers.has(figure.basis.layer) ? { layer: viewLayer(study.layers.get(figure.basis.layer) as StoredLayer) } : {}),
         inputs: dependencies.map((d) =>
           "figure" in d ? build(d.figure) : { assumption: this.state.assumptions.get(d.assumption) as Assumption },
         ),

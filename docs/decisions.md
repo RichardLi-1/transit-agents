@@ -110,6 +110,29 @@ the month-12 review, and a first study on day 1 from public data
 A twin plugs in as a skill. The service records what it predicted and what was
 decided, and does not replace it.
 
+## 13. GIS figures cite a dataset, not a page
+
+A planner asks where-questions: who lives near a route, which neighbourhoods a
+corridor reaches, how many people were hurt near it. The service answers them
+with Turf.js on open datasets, as it does all arithmetic, never the model. Each
+result is a layer on the study, which keeps its inputs and parameters, so it can
+be made again.
+
+A dataset has no pages, so a quote can't back its totals. A total is a figure of a
+fourth kind, `spatial`: it names the layer and the total, and the service reads
+the value from the layer it made, refusing any other. The layer names its dataset,
+with the publisher, licence, address and the day it was fetched, which stand in
+for a page, and trace_figure shows them. In an answer, a total is cited as
+(dataset id, layer id), such as (census-da-2021, layer ttc-52-stops-400m-census),
+never with a page.
+
+Census totals are area-weighted: an area counts in proportion to its land inside
+a layer. That assumes its people are spread evenly, so every such total says it
+is an estimate. A buffer is a straight-line distance, not a walk along streets.
+
+The data is in `services/api/assets/gis` (about 0.9 MB), made by
+`scripts/build-gis-data.ts`, with its credits.
+
 ## For the owner to decide
 
 - Keep the legend words "Live" and "Scheduled"? They are the display's only
@@ -117,3 +140,6 @@ decided, and does not replace it.
 - Keep the "Replay" tag in chat? It shows only while the scripted run plays.
 - How to frame "fast" in the pitch (decision 11).
 - A Sunday demo shows no live 52F, which doesn't run Sundays. The 11B does.
+- The heritage register's corridor copy came from the City's map layer, which
+  states no licence, though the Open Data register is under the Open Government
+  Licence – Toronto. Keep it committed, or fetch the Open Data file instead?

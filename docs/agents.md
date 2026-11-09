@@ -53,7 +53,8 @@ Every agent:
   trace_figure, compare_versions, record_figure, record_check, record_finding,
   preview_change, get_timeline, live_vehicles; plus its skill's scripts.
 - **Never:** asks specialists of its own; adds an engagement need except through
-  the engagement-needs skill, which pins it to the line and needs a citation.
+  the engagement-needs skill, which pins it to the line and needs a citation; runs
+  the service's GIS tools except through the gis-analyst skill.
 - **Code and tests:** [specialists.py](../agents/specialists.py), [test_specialists.py](../agents/tests/test_specialists.py) (14).
 
 ### Media
@@ -127,6 +128,7 @@ partly, ✗ not yet.
 | handover | ◐ | ✓ | n/a | ✓ | ◐ | ◐ 5/4 | ✗ |
 | engagement-needs | ◐ | ✓ | ✓ | ✓ | ✓ 9 | ◐ 4/5 | ✗ |
 | tpap-brief | ◐ | ✓ | ✓ service | ✓ | ✗ | ◐ 4/4 | ✗ |
+| gis-analyst | ✓ | ✓ | ✓ service | ✓ | ✓ 8 + 19 service | ✓ 8/5 | ✗ |
 
 What the table shows:
 
@@ -248,3 +250,24 @@ go under "To confirm".
 - Cases: 8, two of them briefs scored by rubric. An eval study holds a brief and a
   line but no findings, so the briefs test what it does with an empty study.
 - Next: add the regulation as a source; tests on a sample study, and cases on one.
+
+### gis-analyst
+
+Answers where-questions in Toronto from open data, as Waypoint does: a route's stops
+or shape, the study's line or a named neighbourhood, buffered and overlaid with 2021
+census areas, Neighbourhood Improvement Areas and police-reported KSI collisions.
+Its tools call the service's GIS tools, which no other specialist gets. The service
+does the geometry with Turf.js, saves each step as a map layer on the study, logs
+`layer.added` for the display's map, and records totals as figures that cite the
+dataset ([decisions.md](decisions.md#13-gis-figures-cite-a-dataset-not-a-page)).
+Census totals are area-weighted estimates; the census counts people in low income,
+not households; collisions are police-reported; heritage and green spaces cover the
+Don Mills corridor only, and the tools refuse beyond it. A catchment's population
+is never ridership.
+
+- Data: [services/api/assets/gis](../services/api/assets/gis/CREDITS.md), from
+  `scripts/build-gis-data.ts`.
+- Cases: 13 in `spatial`, 8 dev and 5 test: two it must not answer, one to flag; their gold
+  comes from the same tools ([spatial-gold.ts](../evals/spatial-gold.ts)), checked by a test.
+- Next: run its cases with and without the skill; a walkshed along streets, not
+  only straight-line buffers.
