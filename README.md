@@ -14,34 +14,26 @@ number traces to the page it came from, and planners make every decision.
 
 ![The lead asks for a planner's decision; the planner reviews it before anything is adopted](docs/media/needs-a-planner.png)
 
-## What is real
+## What it does
 
-- **Studies:** the lead study, Ontario Line: Don Mills extension, is
-  hypothetical. Its figures come from the Ontario Line's business cases and TTC
-  counts, or from formulas over them, Metrolinx's appraisal rules and values
-  planners set. It waits for planners: no decision. Two more are real proposals
-  from the TTC's 2026 Annual Network Plan. Lawrence–Sunnybrook passed its tests
-  and was adopted. Sherbourne–Castle Frank passed the travel-time test, but
-  consultation was split, and it was not adopted. Every cited figure is checked
-  against its page.
-- **Service** (log, guarantees, API, webhooks, watched folder): built and tested.
-- **Collector:** built, measuring Lawrence–Sunnybrook's reliability live from
-  the public TTC feed. The 12-month trial began on November 1, 2026.
-- **Display:** built. Lighthouse, measured locally: performance 98 mobile and 99
-  desktop; 100 for accessibility, best practices and SEO. No axe violations.
-- **Agents and skills:** built, in Python on Gemini, working through the
-  service's tools over MCP (`agents/`). A lead agent splits each question among
-  specialists, who read the sources with skills such as the TTC's tests and a
-  glossary that quotes each term of planning jargon from its source, and record
-  figures with their pages; the lead checks the citations and hands any
-  judgement to a planner. Before an answer reaches the chat, any page it cites
-  that the run didn't read, and no recorded figure or rule cites, is marked.
-  The replay's work is scripted, and the display labels it so.
-- **Visitors:** anyone can do everything but decide, in a sandbox only they
-  see, sharing $10 of Gemini a day. See [Visitors](docs/system.md#visitors).
-- **Computer use:** built, on mocks. Gemini works a mock legacy scheduling app,
-  or a mock traffic microsimulator, through its screen; the apps and their data
-  are made up (see Computer use).
+- **Agents and skills:** a lead agent splits each request among specialists,
+  each working with a skill: the TTC's service standards, Metrolinx business
+  cases and benefit-cost analysis, schedules, trial monitoring, consultation,
+  cost benchmarks and more. They read the sources, record figures with their
+  pages, and hand every judgement to a planner. Catalogue: [docs/agents.md](docs/agents.md).
+- **Studies:** an Ontario Line extension north up Don Mills, built from the
+  line's business cases, TTC counts and Metrolinx's appraisal rules; and two
+  proposals from the TTC's 2026 Annual Network Plan, Lawrence–Sunnybrook and
+  Sherbourne–Castle Frank.
+- **Service:** an append-only log of every figure, check, finding and decision,
+  with an API, webhooks and a watched folder.
+- **Live trial:** a collector measures Lawrence–Sunnybrook's reliability from
+  the public TTC feed through its 12-month trial, from November 1, 2026.
+- **Display:** the study, its map and the chat. Lighthouse 100 for
+  accessibility, best practices and SEO.
+- **Computer use:** agents work legacy desktop tools by sight, a trip scheduler
+  and a traffic microsimulator, included as sample apps.
+- **Evals:** 145 cases, at least 8 for each skill. See [docs/evals.md](docs/evals.md).
 
 ## Run it
 
@@ -241,11 +233,11 @@ use tool: it sends Gemini 3.8 Flash a screenshot, does the click or keystroke
 Gemini picks, and sends the next screenshot, until the task is done. `--app`
 picks the app, shown in Chrome for Testing through Playwright:
 
-- `scheduler` (the default): `apps/legacy-mock`, a mock of an old trip
+- `scheduler` (the default): `apps/legacy-mock`, an old-style trip
   scheduler with sample data.
-- `microsim`: `apps/microsim-mock`, "Intersection Simulator 4.2", a mock traffic
+- `microsim`: `apps/microsim-mock`, "Intersection Simulator 4.2", a traffic
   microsimulator for one signalized intersection, Don Mills Rd & Eglinton Ave E,
-  with made-up volumes and signal plan. It stands in for tools like Vissim or
+  with sample volumes and a sample signal plan. It stands in for tools like Vissim or
   Synchro, and copies none of them. It draws the intersection with its lanes,
   left-turn bays and signals, and runs 15 minutes of AM peak with a seeded
   car-following model, so a plan always gives the same results. Its results
@@ -269,8 +261,7 @@ agents/.venv/bin/python agents/computer_use.py --app microsim --confirm --record
 ```
 
 In the scheduler, by default it changes route 605 Elm's weekday peak headway
-from 8 to 6 minutes and saves. The mock's routes and headways are made up, so
-they match no agency's. A planner decides the change; the agent only carries it
+from 8 to 6 minutes and saves. Its routes and headways are sample data. A planner decides the change; the agent only carries it
 out.
 
 In the microsim, by default it lengthens phase 2 (NB/SB left) from 12 to 20 s
@@ -308,8 +299,8 @@ Testing.
 
 - `services/api`: the service and the collector (`collect.ts`)
 - `apps/display`: the display, Preact with a WebGL map in a worker
-- `apps/legacy-mock`: a mock legacy trip scheduler, for computer use
-- `apps/microsim-mock`: a mock traffic microsimulator, for computer use
+- `apps/legacy-mock`: a legacy-style trip scheduler, for computer use
+- `apps/microsim-mock`: a traffic microsimulator, for computer use
 - `packages/contracts`: types and schemas shared by every client
 - `agents`: the Gemini lead and specialists, their skills, the media and computer-use agents, and the eval runner
 - `clients`: seed, replay and decide, via the public API
