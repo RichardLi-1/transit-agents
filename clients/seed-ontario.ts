@@ -45,6 +45,16 @@ export const ONTARIO_SOURCES: Source[] = [
     url: "https://cdn.ttc.ca/-/media/Project/TTC/DevProto/Documents/Home/Transparency-and-accountability/Subway-Ridership-20242025.pdf",
     pagesFile: `${RIDERSHIP}.pages.json`,
   },
+  // The AODA's Integrated Accessibility Standards, as e-Laws consolidates them, printed
+  // from e-Laws' Word copy without the table of contents (scripts/build-sources.ts).
+  {
+    id: "o-reg-191-11",
+    title: "O. Reg. 191/11: Integrated Accessibility Standards (AODA)",
+    folder: "Accessibility",
+    source: "Government of Ontario, e-Laws",
+    url: "https://www.ontario.ca/laws/regulation/110191",
+    pagesFile: "o-reg-191-11.pages.json",
+  },
 ];
 
 const cite = (contextId: string, page: number, quote: string) => ({ contextId, page, quote });
