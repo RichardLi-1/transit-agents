@@ -137,10 +137,11 @@ describe("mcp", () => {
     const [planner, agent, integration, viewer] = await Promise.all(
       ["planner-token", "agent-token", "integration-token", "viewer-token"].map(names),
     );
-    // The equity, jobs and stop accessibility skills each add their GIS tools for agents and planners.
+    // 52 and 43 with the safety and active transportation tools; the equity, jobs and stop
+    // accessibility skills each add their GIS tools for agents and planners too.
     const skills = Object.keys(GIS_SKILL_TOOLS).length;
-    assert.equal(planner?.length, 45 + skills);
-    assert.equal(agent?.length, 36 + skills);
+    assert.equal(planner?.length, 52 + skills);
+    assert.equal(agent?.length, 43 + skills);
     assert.ok(["route_stops", "buffer", "overlay", "points_within", "summarise_layer"].every((name) => agent?.includes(name)));
     assert.ok(agent?.includes("propose_alignment"));
     assert.ok(agent?.includes("create_document") && planner?.includes("create_document"));

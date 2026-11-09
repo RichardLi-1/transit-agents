@@ -182,6 +182,41 @@ export const TOOLS: Record<string, Spec> = {
     description:
       "Count a point dataset's points inside an area layer: toronto-ksi collisions (narrow by years from and to, fatal, or involving a pedestrian, cyclist or motorcyclist), ttc-gtfs stops, or toronto-heritage-corridor properties. Saves the points as a layer and records the counts as figures.",
   },
+  // Road safety and active transportation, which only their skills' own tools call.
+  "POST /v1/studies/:id/gis/ksi-profile": {
+    name: "ksi_profile",
+    description:
+      "Profile police-reported KSI collisions inside an area layer: by year, road user, severity, intersection or mid-block, dark, and time of day, with the people killed and seriously injured. Narrow by years from and to, or involving a pedestrian, cyclist or motorcyclist. Saves a layer and records the main counts as figures citing toronto-ksi-detail.",
+  },
+  "POST /v1/studies/:id/gis/ksi-hotspots": {
+    name: "ksi_hotspots",
+    description:
+      "Rank the places inside an area layer with the most KSI collisions: collisions within radius metres (default 30) count as one place, named by the streets police recorded. Returns the top places (default 10) with their counts, and saves them as a layer.",
+  },
+  "POST /v1/studies/:id/gis/ksi-trend": {
+    name: "ksi_trend",
+    description:
+      "Compare KSI collisions a year inside an area layer before and from a split year, over whole years only (default: the last ten, split in half), against the whole city's change, with an exact test of whether chance alone could give the change. Saves a layer and records the counts and change as figures.",
+  },
+  "POST /v1/studies/:id/gis/cycling": {
+    name: "cycling_within",
+    description:
+      "Measure the City's cycling network inside an area layer: km of separated cycle tracks, painted bike lanes, multi-use trails and shared roads, and by the City's own type. Saves the segments as a layer and records the km as figures.",
+  },
+  "POST /v1/studies/:id/gis/sidewalks": {
+    name: "sidewalks_within",
+    description:
+      "Measure streets inside an area layer by their sidewalks, from the City's 2017 inventory: km with sidewalks on both sides, one side, partial or none, and the share with none. Saves the streets as a layer and records the totals as figures.",
+  },
+  "POST /v1/studies/:id/gis/bike-share": {
+    name: "bike_share_within",
+    description: "Count Bike Share Toronto stations and their docks inside an area layer. Saves them as a layer and records the counts as figures.",
+  },
+  "POST /v1/studies/:id/gis/first-last-mile": {
+    name: "first_last_mile",
+    description:
+      "For each stop of a points layer, such as route_stops makes: the nearest bike share station, the stations within metres, and the km of bikeway within metres. Saves two layers, bike share and bikeways, records how many stops have each within reach, and lists stops with neither.",
+  },
   ...GIS_SKILL_TOOLS,
   "POST /v1/studies/:id/activity": {
     name: "report_activity",

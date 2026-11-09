@@ -54,8 +54,9 @@ Every agent:
   preview_change, get_timeline, live_vehicles; plus its skill's scripts.
 - **Never:** asks specialists of its own; adds an engagement need except through
   the engagement-needs skill, which pins it to the line and needs a citation; runs
-  the service's GIS tools except through the gis-analyst skill and the three
-  built on it: equity-analysis, economic-development and stop-accessibility.
+  the service's GIS tools except through the gis-analyst, safety-audit,
+  active-transportation, equity-analysis, economic-development and
+  stop-accessibility skills.
 - **Code and tests:** [specialists.py](../agents/specialists.py), [test_specialists.py](../agents/tests/test_specialists.py) (14).
 
 ### Media
@@ -130,6 +131,8 @@ partly, ✗ not yet.
 | engagement-needs | ◐ | ✓ | ✓ | ✓ | ✓ 9 | ◐ 4/5 | ✗ |
 | tpap-brief | ◐ | ✓ | ✓ service | ✓ | ✗ | ◐ 4/4 | ✗ |
 | gis-analyst | ✓ | ✓ | ✓ service | ✓ | ✓ 8 + 19 service | ✓ 8/5 | ✗ |
+| safety-audit | ✓ | ✓ | ✓ service | ✓ | ✓ 6 + 13 service | ◐ 5/5 | ✗ |
+| active-transportation | ✓ | ✓ | ✓ service | ✓ | ✓ 5 + 8 service | ◐ 5/5 | ✗ |
 | equity-analysis | ✓ | ✓ | ✓ service | ✓ | ✓ 7 + 18 service | ◐ 5/4 | ✗ |
 | economic-development | ✓ | ✓ | ✓ service | ✓ | ✓ 7 + 18 service | ◐ 5/4 | ✗ |
 | stop-accessibility | ✓ | ✓ | ✓ service | ✓ | ✓ 7 + 18 service | ◐ 5/4 | ✗ |
@@ -142,7 +145,7 @@ What the table shows:
 - Descriptions say what a skill does, not when to pick another. Three overlap:
   metrolinx-business-case, business-case-template and metrolinx-bca are one method.
 - The evidence is still missing. Every skill now has at least 8 cases of its own,
-  half kept for `test`, but the 119 new ones wait for a planner to check their gold,
+  half kept for `test`, but the 139 new ones wait for a planner to check their gold,
   and no skill has been run with and without. The eval set has been run once, on one
   case (2026-11-08).
 
@@ -276,6 +279,45 @@ is never ridership.
 - Next: run its cases with and without the skill; a walkshed along streets, not
   only straight-line buffers.
 
+### safety-audit
+
+A Vision Zero audit of a route, line or area, as Waypoint does. `ksi_profile` counts
+police-reported KSI collisions by year, road user, severity, intersection or
+mid-block, dark and time of day, and the people killed and seriously injured by road
+user. `ksi_hotspots` ranks the places with the most, collisions within 30 m counting
+as one place. `ksi_trend` compares collisions a year before and after a split year,
+against the city's change, with an exact test of whether chance alone could give it.
+The service counts ([gis-safety.ts](../services/api/src/gis-safety.ts)); each result
+is a layer, its main counts figures citing toronto-ksi-detail. Countermeasures come
+only from the City's Vision Zero Road Safety Plan, its 2.0 update and FHWA's Proven
+Safety Countermeasures, with pages, as what they list, never as what a measure would
+prevent here. It never says why a collision happened, and says the data is
+police-reported and has no traffic counts.
+
+- Data: `ksi-detail.json.gz`, from `scripts/build-safety-data.ts`
+  ([CREDITS.md](../services/api/assets/gis/CREDITS.md)).
+- Cases: 10, 5 dev and 5 test, gold from [safety-gold.ts](../evals/safety-gold.ts):
+  a cause, a forecast and a rate per vehicle-km it must not give.
+- Next: a planner checks the gold; run with and without; hot spots on the City's own
+  intersections and segments, not clusters.
+
+### active-transportation
+
+Walking, cycling and bike share near transit. `cycling_within` gives km of cycle
+tracks, bike lanes, trails and shared roads in an area; `sidewalks_within`, street km
+by sidewalks on both sides, one, partial or none; `bike_share_within`, stations and
+docks; `first_last_mile`, for each stop, the nearest bike share station and the
+bikeway within reach, and the stops with neither. The service measures
+([gis-active.ts](../services/api/src/gis-active.ts)), each total a figure citing its
+dataset. The sidewalk inventory dates from 2017; bike share is one day's station
+list; none of it is ridership.
+
+- Data: `cycling.json.gz`, `sidewalks.json.gz`, `bikeshare.json.gz`, from
+  `scripts/build-safety-data.ts`, under the Open Government Licence – Toronto.
+- Cases: 10, 5 dev and 5 test, gold from [safety-gold.ts](../evals/safety-gold.ts):
+  a ridership forecast it must not give, and sidewalk priorities it hands to a planner.
+- Next: a planner checks the gold; distances along streets; whether the network
+  connects, not only how much of it is near.
 ### equity-analysis
 
 Says who a route, its stops or a line serves, as Waypoint's equity analysis does:

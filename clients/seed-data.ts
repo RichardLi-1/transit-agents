@@ -2,6 +2,7 @@
 // the exact words it came from, and the service checks them against the page.
 import type { NewAssumption, NewCheck, NewContext, NewDecision, NewFigure, NewFinding, NewNeed, NewStudy } from "@transit-agents/contracts";
 import { METROLINX_RULES, ONTARIO, ONTARIO_SOURCES } from "./seed-ontario.ts";
+import { SAFETY_SOURCES } from "./seed-safety.ts";
 
 const PLAN = "ttc-anp-2026";
 const STANDARDS = "ttc-standards-2024";
@@ -41,6 +42,7 @@ export const SOURCES: Source[] = [
     source: "City of Toronto Open Data",
     url: "https://open.toronto.ca/dataset/ttc-gtfs-realtime-gtfs-rt/",
   },
+  ...SAFETY_SOURCES,
 ];
 
 const cite = (page: number, quote: string, contextId = PLAN) => ({ contextId, page, quote });

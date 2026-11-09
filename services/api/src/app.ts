@@ -10,6 +10,13 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import {
+  ActiveLayerRequest,
+  FirstLastMileRequest,
+  KsiHotspotsRequest,
+  KsiProfileRequest,
+  KsiTrendRequest,
+} from "@transit-agents/contracts";
+import {
   Activity,
   AreaRequest,
   BufferRequest,
@@ -53,6 +60,8 @@ import {
 import type { VisitorBudget } from "./budget.ts";
 import { extractPages } from "./extract.ts";
 import { GIS_SKILL_ROUTES } from "./gis-skills.ts";
+import { activeLayer, firstLastMileLayer } from "./gis-active.ts";
+import { ksiHotspotsLayer, ksiProfileLayer, ksiTrendLayer } from "./gis-safety.ts";
 import { issueGuest, userAudience, verifyGuest } from "./guests.ts";
 import { EVERYONE, visible, type Entry } from "./log.ts";
 import { VisitorLimits } from "./limits.ts";
@@ -885,6 +894,63 @@ export function createApp(options: AppOptions) {
       roles: authors,
       body: PointsWithinRequest,
       handler: async (c) => c.json(view(c).pointsWithinLayer(actorName(c), c.req.param("id") as string, await bodyOf(c, PointsWithinRequest)), 201),
+    },
+    // Road safety (gis-safety.ts) and active transportation (gis-active.ts).
+    {
+      method: "post",
+      path: "/v1/studies/:id/gis/ksi-profile",
+      summary: "KSI collisions inside an area layer by year, road user, severity, place, light and time of day, saved as a layer, with the main counts recorded as figures",
+      roles: authors,
+      body: KsiProfileRequest,
+      handler: async (c) => c.json(ksiProfileLayer(view(c), actorName(c), c.req.param("id") as string, await bodyOf(c, KsiProfileRequest)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/gis/ksi-hotspots",
+      summary: "The places inside an area layer with the most KSI collisions, ranked, saved as a layer",
+      roles: authors,
+      body: KsiHotspotsRequest,
+      handler: async (c) => c.json(ksiHotspotsLayer(view(c), actorName(c), c.req.param("id") as string, await bodyOf(c, KsiHotspotsRequest)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/gis/ksi-trend",
+      summary: "KSI collisions a year inside an area layer, before and after a year, against the city's, with an exact test of the change, saved as a layer",
+      roles: authors,
+      body: KsiTrendRequest,
+      handler: async (c) => c.json(ksiTrendLayer(view(c), actorName(c), c.req.param("id") as string, await bodyOf(c, KsiTrendRequest)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/gis/cycling",
+      summary: "The cycling network inside an area layer, in km by type, saved as a layer, with the totals recorded as figures",
+      roles: authors,
+      body: ActiveLayerRequest,
+      handler: async (c) => c.json(activeLayer(view(c), actorName(c), c.req.param("id") as string, "cycling", await bodyOf(c, ActiveLayerRequest)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/gis/sidewalks",
+      summary: "Streets inside an area layer by their sidewalks, in km, saved as a layer, with the totals recorded as figures",
+      roles: authors,
+      body: ActiveLayerRequest,
+      handler: async (c) => c.json(activeLayer(view(c), actorName(c), c.req.param("id") as string, "sidewalks", await bodyOf(c, ActiveLayerRequest)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/gis/bike-share",
+      summary: "Bike share stations inside an area layer, and their docks, saved as a layer, with the totals recorded as figures",
+      roles: authors,
+      body: ActiveLayerRequest,
+      handler: async (c) => c.json(activeLayer(view(c), actorName(c), c.req.param("id") as string, "bike-share", await bodyOf(c, ActiveLayerRequest)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/gis/first-last-mile",
+      summary: "For each stop of a points layer, the nearest bike share station and the bikeways within a distance, saved as two layers, with the counts recorded as figures",
+      roles: authors,
+      body: FirstLastMileRequest,
+      handler: async (c) => c.json(firstLastMileLayer(view(c), actorName(c), c.req.param("id") as string, await bodyOf(c, FirstLastMileRequest)), 201),
     },
     // The equity, economic development and stop accessibility skills' GIS tools.
     ...GIS_SKILL_ROUTES.map(
