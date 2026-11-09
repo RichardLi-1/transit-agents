@@ -6,7 +6,7 @@ import { gzipSync } from "node:zlib";
 import { after, describe, it } from "node:test";
 import { KsiHotspotsRequest, KsiProfileRequest, KsiTrendRequest, NewStudy, PointsWithinRequest, RouteLayerRequest, BufferRequest } from "@transit-agents/contracts";
 import type { Feature } from "geojson";
-import { Gis, GisError } from "./gis.ts";
+import { buffer, Gis, GisError } from "./gis.ts";
 import { KSI_DETAIL, ksiHotspotsLayer, ksiProfileLayer, ksiTrendLayer, modeOf, poissonTest, Safety } from "./gis-safety.ts";
 import { ApiError, Service } from "./service.ts";
 
@@ -187,6 +187,13 @@ describe("the safety tools on the service", () => {
 });
 
 describe("the committed KSI detail", () => {
+  it("can audit a corridor 50 m either side of route 25, whose shapes' buffers union can't close unrounded", () => {
+    const real = new Gis();
+    const corridor = buffer(real.routeShape("25").features, 50).features;
+    assert.equal(corridor[0]?.geometry.type, "Polygon");
+    assert.ok((values(new Safety(real).profile(corridor, { from: 2016, to: 2025 }).totals).collisions as number) > 0);
+  });
+
   it("is listed with its licence, and counts the same collisions as toronto-ksi", () => {
     const service = new Service(":memory:");
     try {

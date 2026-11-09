@@ -375,9 +375,25 @@ export function dissolve(features: Feature[]): Feature<Area> {
 export function buffer(features: Feature[], metres: number): Made {
   if (!features.length) throw new GisError("empty", "The layer has no features to buffer");
   const circles = features.map((f) => bufferOf(f as Feature<Geometry>, metres, { units: "meters", steps: STEPS })).filter((f): f is Feature<Area> => Boolean(f));
-  const merged = circles.length === 1 ? circles[0] : union(featureCollection(circles));
+  const merged = circles.length === 1 ? circles[0] : unionOf(circles);
   if (!merged) throw new GisError("empty", "The buffer is empty");
   return { kind: "polygons", features: [{ type: "Feature", properties: { metres }, geometry: merged.geometry }] };
+}
+
+// Areas as one. Union sometimes can't close a ring where two buffers' edges nearly
+// meet, as with route 25's shapes at 50 m: then it runs again on coordinates
+// rounded to about 10 cm, which closes them.
+function unionOf(areas: Feature<Area>[]): Feature<Area> | null {
+  try {
+    return union(featureCollection(areas));
+  } catch {
+    const snap = (rings: Position[][]) => rings.map((ring) => ring.map(([lon, lat]) => [round(lon as number, 6), round(lat as number, 6)]));
+    const snapped = areas.map((f): Feature<Area> => ({
+      ...f,
+      geometry: f.geometry.type === "Polygon" ? { type: "Polygon", coordinates: snap(f.geometry.coordinates) } : { type: "MultiPolygon", coordinates: f.geometry.coordinates.map(snap) },
+    }));
+    return union(featureCollection(snapped));
+  }
 }
 
 // What a layer covers: its features, and their area or length.
