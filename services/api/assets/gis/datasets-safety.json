@@ -1,0 +1,54 @@
+[
+  {
+    "id": "toronto-ksi-detail",
+    "title": "Motor Vehicle Collisions involving Killed or Seriously Injured Persons, with time, place and road users",
+    "publisher": "Toronto Police Service, via City of Toronto Open Data",
+    "licence": "Open Government Licence – Toronto",
+    "licenceUrl": "https://open.toronto.ca/open-data-licence/",
+    "url": "https://open.toronto.ca/dataset/motor-vehicle-collisions-involving-killed-or-seriously-injured-persons/",
+    "retrieved": "2026-11-09",
+    "file": "ksi-detail.json.gz",
+    "kind": "points",
+    "coverage": "City of Toronto",
+    "notes": "7667 police-reported collisions where someone was killed or seriously injured, 2006 to 2026-10-22; the latest year is partial. One point per collision, with its hour, whether it was dark, whether police placed it at an intersection or mid-block, the two streets police named, and 8272 people killed or seriously injured (\"Major\" injury), by road user. Police-reported only: collisions police didn't attend are missing. The same collisions as toronto-ksi, in more detail."
+  },
+  {
+    "id": "toronto-cycling-network",
+    "title": "Cycling Network",
+    "publisher": "City of Toronto (Transportation Services)",
+    "licence": "Open Government Licence – Toronto",
+    "licenceUrl": "https://open.toronto.ca/open-data-licence/",
+    "url": "https://open.toronto.ca/dataset/cycling-network/",
+    "retrieved": "2026-11-09",
+    "file": "cycling.json.gz",
+    "kind": "lines",
+    "coverage": "City of Toronto",
+    "notes": "1581 segments, each with the City's type (its INFRA_HIGHORDER). Measured along the street: a street with a lane on each side counts once. Grouped as separated: Cycle Track, Bi-Directional Cycle Track, Cycle Track - Contraflow; painted: Bike Lane, Bike Lane - Buffered, Bike Lane - Contraflow; trail: Multi-Use Trail, Multi-Use Trail - Boulevard, Multi-Use Trail - Connector, Multi-Use Trail - Existing Connector, Multi-Use Trail - Entrance; shared: Sharrows, Sharrows - Wayfinding, Sharrows - Arterial, Sharrows - Arterial - Connector, Signed Route (No Pavement Markings), Park Road. Simplified to about 2 m."
+  },
+  {
+    "id": "toronto-sidewalks",
+    "title": "Sidewalk Inventory",
+    "publisher": "City of Toronto (Transportation Services)",
+    "licence": "Open Government Licence – Toronto",
+    "licenceUrl": "https://open.toronto.ca/open-data-licence/",
+    "url": "https://open.toronto.ca/dataset/sidewalk-inventory/",
+    "retrieved": "2026-11-09",
+    "file": "sidewalks.json.gz",
+    "kind": "lines",
+    "coverage": "City of Toronto",
+    "notes": "40027 street segments (local, collector and arterial; not expressways, laneways or trails), each with its sidewalks: both sides, one side, one side and part of the other, partial, none, or under development. The inventory dates from 2017 and the portal last refreshed it in 2019, so sidewalks built since are missing. Simplified to about 2 m."
+  },
+  {
+    "id": "bike-share-toronto",
+    "title": "Bike Share Toronto stations (GBFS station_information)",
+    "publisher": "Bike Share Toronto (Toronto Parking Authority), via City of Toronto Open Data",
+    "licence": "Open Government Licence – Toronto",
+    "licenceUrl": "https://open.toronto.ca/open-data-licence/",
+    "url": "https://open.toronto.ca/dataset/bike-share-toronto/",
+    "retrieved": "2026-11-09",
+    "file": "bikeshare.json.gz",
+    "kind": "points",
+    "coverage": "City of Toronto and the stations beyond it",
+    "notes": "1075 stations with 20877 docks, as the feed listed them on 2026-11-09. Stations open, close and move; this is one day's list. Docks are the station's capacity, not bikes available."
+  }
+]

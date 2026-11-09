@@ -6,7 +6,7 @@
 // Totals over areas are area-weighted: an area counts in proportion to its land
 // inside the layer, which assumes what it counts is spread evenly across it. The
 // census boundaries follow the shoreline, so an area's shape is its land.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { area as areaOf } from "@turf/area";
@@ -98,7 +98,8 @@ export class Gis {
     this.dir = dir;
   }
 
-  private read<T>(file: string): T {
+  // A dataset's file, read once. Other modules' GIS tools read theirs through it too.
+  read<T>(file: string): T {
     const known = this.cache.get(file);
     if (known) return known as T;
     const value = JSON.parse(gunzipSync(readFileSync(join(this.dir, file))).toString("utf8")) as T;
@@ -107,7 +108,12 @@ export class Gis {
   }
 
   private all(): Stored[] {
-    this.stored ??= JSON.parse(readFileSync(join(this.dir, "datasets.json"), "utf8")) as Stored[];
+    // datasets.json, from scripts/build-gis-data.ts, then any datasets-<name>.json
+    // another script writes, such as datasets-safety.json.
+    this.stored ??= readdirSync(this.dir)
+      .filter((file) => /^datasets(-[a-z0-9-]+)?\.json$/.test(file))
+      .sort((a, b) => Number(a !== "datasets.json") - Number(b !== "datasets.json") || a.localeCompare(b))
+      .flatMap((file) => JSON.parse(readFileSync(join(this.dir, file), "utf8")) as Stored[]);
     return this.stored;
   }
 
