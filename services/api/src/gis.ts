@@ -335,7 +335,7 @@ export class Gis {
   // A dataset that covers only part of the city answers only inside it.
   private covers(info: Stored, box: BBox) {
     if (info.bbox && !within(box, info.bbox)) {
-      throw new GisError("outside_coverage", `"${info.id}" covers only ${info.coverage}. This layer reaches beyond it, so its answer would be short`);
+      throw new GisError("outside_coverage", `"${info.id}" covers ${info.coverage}. This layer reaches beyond it, so its answer would be short`);
     }
   }
 }

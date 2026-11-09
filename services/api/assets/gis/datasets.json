@@ -136,7 +136,7 @@
     "retrieved": "2026-11-08",
     "file": "heritage.json.gz",
     "kind": "points",
-    "coverage": "Don Mills corridor only: west -79.37, south 43.70, east -79.32, north 43.78",
+    "coverage": "the Don Mills corridor only (west -79.37, south 43.70, east -79.32, north 43.78)",
     "notes": "55 listed and designated properties inside the corridor box, from the City's public map layer, whose records match the Open Data register. Not for legal purposes.",
     "bbox": [
       -79.37,
@@ -155,7 +155,7 @@
     "retrieved": "2026-11-08",
     "file": "parks.json.gz",
     "kind": "polygons",
-    "coverage": "Don Mills corridor only: west -79.37, south 43.70, east -79.32, north 43.78",
+    "coverage": "the Don Mills corridor only (west -79.37, south 43.70, east -79.32, north 43.78)",
     "notes": "145 parks, ravine parks, golf courses and cemeteries touching the corridor box, as whole features. Simplified to about 3 m.",
     "bbox": [
       -79.37,

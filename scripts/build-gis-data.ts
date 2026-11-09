@@ -430,7 +430,7 @@ async function main() {
       retrieved: corridorRetrieved,
       file: "heritage.json.gz",
       kind: "points",
-      coverage: "Don Mills corridor only: west -79.37, south 43.70, east -79.32, north 43.78",
+      coverage: "the Don Mills corridor only (west -79.37, south 43.70, east -79.32, north 43.78)",
       notes: `${built.heritage.features} listed and designated properties inside the corridor box, from the City's public map layer, whose records match the Open Data register. Not for legal purposes.`,
       bbox: corridorBox,
     } as (typeof datasets)[number]);
@@ -446,7 +446,7 @@ async function main() {
       retrieved: corridorRetrieved,
       file: "parks.json.gz",
       kind: "polygons",
-      coverage: "Don Mills corridor only: west -79.37, south 43.70, east -79.32, north 43.78",
+      coverage: "the Don Mills corridor only (west -79.37, south 43.70, east -79.32, north 43.78)",
       notes: `${built.parks.features} parks, ravine parks, golf courses and cemeteries touching the corridor box, as whole features. Simplified to about 3 m.`,
       bbox: corridorBox,
     } as (typeof datasets)[number]);
