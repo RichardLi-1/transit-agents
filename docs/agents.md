@@ -53,7 +53,8 @@ Every agent:
   trace_figure, compare_versions, record_figure, record_check, record_finding,
   preview_change, get_timeline, live_vehicles; plus its skill's scripts.
 - **Never:** asks specialists of its own; adds an engagement need except through
-  the engagement-needs skill, which pins it to the line and needs a citation.
+  the engagement-needs skill, which pins it to the line and needs a citation; runs
+  the service's GIS tools except through the gis-analyst skill.
 - **Code and tests:** [specialists.py](../agents/specialists.py), [test_specialists.py](../agents/tests/test_specialists.py) (14).
 
 ### Media
@@ -124,6 +125,7 @@ Eval cases are counted as those that turn mainly on the skill. ✓ meets the tes
 | handover | ◐ | ✓ | n/a | ✓ | ◐ | ✗ 7 | ✗ |
 | engagement-needs | ◐ | ✓ | ✓ | ✓ | ✓ 9 | ✗ 0 | ✗ |
 | tpap-brief | ◐ | ✓ | ✓ service | ✓ | ✗ | ✗ 0 | ✗ |
+| gis-analyst | ✓ | ✓ | ✓ service | ✓ | ✓ 8 + 19 service | ✓ 13 | ✗ |
 
 What the table shows:
 
@@ -132,7 +134,7 @@ What the table shows:
   page, and that no skill gives away a held-out case's answer ([test_skills.py](../agents/tests/test_skills.py)).
 - Descriptions say what a skill does, not when to pick another. Three overlap:
   metrolinx-business-case, business-case-template and metrolinx-bca are one method.
-- The evidence is missing. Only ttc-standards has enough cases, and no skill has been
+- The evidence is missing. Only ttc-standards and gis-analyst have enough cases, and no skill has been
   run with and without. The eval set has been run once, on one case (2026-11-08).
 
 ### ttc-standards
@@ -233,3 +235,24 @@ citation. The regulation itself, O. Reg. 231/08, isn't in the sources, so TPAP's
 go under "To confirm".
 
 - Next: add the regulation as a source; tests on a sample study; 8 cases scored by rubric.
+
+### gis-analyst
+
+Answers where-questions in Toronto from open data, as Waypoint does: a route's stops
+or shape, the study's line or a named neighbourhood, buffered and overlaid with 2021
+census areas, Neighbourhood Improvement Areas and police-reported KSI collisions.
+Its tools call the service's GIS tools, which no other specialist gets. The service
+does the geometry with Turf.js, saves each step as a map layer on the study, logs
+`layer.added` for the display's map, and records totals as figures that cite the
+dataset ([decisions.md](decisions.md#13-gis-figures-cite-a-dataset-not-a-page)).
+Census totals are area-weighted estimates; the census counts people in low income,
+not households; collisions are police-reported; heritage and green spaces cover the
+Don Mills corridor only, and the tools refuse beyond it. A catchment's population
+is never ridership.
+
+- Data: [services/api/assets/gis](../services/api/assets/gis/CREDITS.md), from
+  `scripts/build-gis-data.ts`.
+- Cases: 13 in `spatial`, 8 dev and 5 test: two it must not answer, one to flag; their gold
+  comes from the same tools ([spatial-gold.ts](../evals/spatial-gold.ts)), checked by a test.
+- Next: run its cases with and without the skill; a walkshed along streets, not
+  only straight-line buffers.
