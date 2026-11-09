@@ -1,0 +1,11 @@
+Island Ferry Terminal: appraisal inputs
+
+A new ferry terminal would replace the island ferry's temporary dock. This note gives the project's own inputs for its economic appraisal, from its design team and its demand model run.
+
+- The appraisal begins in 2025, its base year. All amounts are in millions of real 2025 dollars, as changes from business as usual.
+- The terminal would open in 2028.
+- Design is 40% complete.
+- Capital costs, before optimism bias: $50 million a year in 2026 and in 2027. Nothing has been spent yet.
+- Operating and maintenance costs: $3 million a year in each year from 2028 to 2087.
+- User and external benefits, from the project's demand model run: $9 million a year in each year from 2028 to 2087.
+- The project's analysis gives no wider economic impacts.

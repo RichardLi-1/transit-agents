@@ -1,0 +1,12 @@
+Northern Express Bus: appraisal inputs
+
+The Northern Express Bus would add limited-stop service on a busy arterial road. This note gives the project's own inputs for its economic appraisal, from its design team and its demand model run.
+
+- The appraisal begins in 2023, its base year. All amounts are in millions of real 2023 dollars, as changes from business as usual.
+- The service would open in 2029.
+- Design is 15% complete. The capital cost's contingency was set by a quantitative cost risk analysis (QCRA).
+- Capital costs, before optimism bias: $20 million a year in each year from 2026 to 2028. Nothing has been spent yet.
+- Operating and maintenance costs: $4 million a year in each year from 2029 to 2088.
+- The capital and operating cost estimates already include escalation.
+- Benefits: the demand model run gives 1.2 million hours of weighted travel time saved a year, in each year from 2029 to 2088. It gives no benefits in dollars.
+- The project's analysis gives no wider economic impacts.

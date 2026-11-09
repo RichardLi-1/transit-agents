@@ -1,0 +1,12 @@
+Harbour Tramway: appraisal inputs
+
+The Harbour Tramway would link the ferry docks to the rail station. This note gives the project's own inputs for its economic appraisal, from its design team and its demand model run.
+
+- The appraisal begins in 2026, its base year. All amounts are in millions of real 2026 dollars, as changes from business as usual.
+- The tramway would open in 2031.
+- Design is 5% complete. There is no quantitative cost risk analysis: the capital cost holds a flat 30% contingency.
+- Capital costs, before optimism bias and including that contingency: $90 million a year in each year from 2027 to 2030. Nothing has been spent yet.
+- Operating and maintenance costs: $5 million a year in each year from 2031 to 2090.
+- The capital and operating cost estimates leave out escalation.
+- User and external benefits, from the project's demand model run: $24 million a year in each year from 2031 to 2090.
+- The project's analysis gives no wider economic impacts.

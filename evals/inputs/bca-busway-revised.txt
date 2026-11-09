@@ -1,0 +1,12 @@
+Eastern Busway: appraisal inputs, revised
+
+The Eastern Busway would give buses their own lanes for 4 km. This note gives the project's own inputs for its economic appraisal, from its design team and its demand model run. It replaces the earlier note.
+
+- The appraisal begins in 2025, its base year. All amounts are in millions of real 2025 dollars, as changes from business as usual.
+- The busway would open in 2030.
+- Design is 8% complete. The capital cost's contingency was set by a quantitative cost risk analysis (QCRA).
+- Capital costs, before optimism bias: $120 million a year in each year from 2026 to 2029. Nothing has been spent yet.
+- Operating and maintenance costs: $6 million a year in each year from 2030 to 2089.
+- The capital and operating cost estimates already include escalation.
+- User and external benefits, from the project's demand model run: $34 million a year in each year from 2030 to 2089.
+- The project's analysis gives no wider economic impacts.
