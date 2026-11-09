@@ -341,6 +341,12 @@ class TheSkillsTest(unittest.TestCase):
             "spatial-011": r"A catchment's population isn't ridership",
             "spatial-012": r"Heritage properties and green spaces cover the Don Mills corridor only",
             "spatial-013": r"The census counts people in low income \(LIM-AT\), not households",
+            "safety-007": r"Never say what caused a change",
+            "safety-008": r"Never apply either to this area's count",
+            "safety-010": r"give no rate per vehicle or per person",
+            "active-003": r"say so with every sidewalk total",
+            "active-007": r"None of this is ridership",
+            "active-009": r"leave which to build to a planner",
         }
         text = "\n".join(skill.body for skill in self.skills)
         cases = {case["id"]: case for case in map(json.loads, (ROOT / "evals" / "cases.jsonl").read_text().splitlines())}
