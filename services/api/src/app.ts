@@ -258,7 +258,8 @@ function securityHeaders(signIn: SignIn | null): Record<string, string> {
     ...(signIn ? [`frame-src 'self'${tenant}`] : []),
     "base-uri 'none'",
     "form-action 'none'",
-    "frame-ancestors 'none'",
+    // Its own pages only, so the display can show the simulator in a tab.
+    "frame-ancestors 'self'",
     "object-src 'none'",
   ];
   return {
