@@ -541,6 +541,11 @@ export const Activity = z.discriminatedUnion("kind", [
     computeSeconds: z.number().nonnegative().optional(),
     subagentId: slug.optional(),
   }),
+  // One tool call an agent makes: the call, then how it went. id pairs the two.
+  // summary is a short line, such as the arguments or a count of results: never a
+  // whole page, and never a secret.
+  z.object({ kind: z.literal("tool.called"), id: slug, name: z.string().min(1).max(100), subagentId: slug.optional(), summary: z.string().max(300).optional() }),
+  z.object({ kind: z.literal("tool.finished"), id: slug, ok: z.boolean(), ms: z.number().int().nonnegative().optional(), summary: z.string().max(300).optional() }),
 ]);
 export type Activity = z.infer<typeof Activity>;
 

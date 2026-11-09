@@ -59,6 +59,19 @@ describe("Activity", () => {
     assert.throws(() => Activity.parse({ kind: "reading", contextId: "plan", subagentId: "Not One" }));
     assert.throws(() => Activity.parse({ kind: "subagent.started", id: "a1", question: "Riders?", skill: "../x" }));
   });
+
+  it("takes a tool call and how it went, paired by id, with a short summary", () => {
+    for (const activity of [
+      { kind: "tool.called", id: "t1a2b3", name: "read_page", subagentId: "a1b2c3", summary: "plan p. 4" },
+      { kind: "tool.called", id: "t1a2b3", name: "get_study" },
+      { kind: "tool.finished", id: "t1a2b3", ok: true, ms: 120, summary: "3 results" },
+      { kind: "tool.finished", id: "t1a2b3", ok: false },
+    ]) {
+      assert.deepEqual(Activity.parse(activity), activity);
+    }
+    assert.throws(() => Activity.parse({ kind: "tool.finished", id: "t1", ok: true, summary: "x".repeat(301) }));
+    assert.throws(() => Activity.parse({ kind: "tool.called", id: "T 1", name: "read_page" }));
+  });
 });
 
 describe("schemas agents are given", () => {
