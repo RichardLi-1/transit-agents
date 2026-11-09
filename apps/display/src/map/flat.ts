@@ -36,6 +36,13 @@ export class FlatMap {
     this.draw();
   }
 
+  // Light or dark, as the page is: the casings take the ground's colour.
+  private dark = false;
+  setTheme(dark: boolean) {
+    this.dark = dark;
+    this.draw();
+  }
+
   setStudyLines(lines: Point[][], proposed: Point[][], color: string) {
     this.lines = lines;
     this.proposed = proposed;
@@ -107,7 +114,7 @@ export class FlatMap {
     }
 
     // Buses and streetcars in TTC Red, thin; rail lines in their own colours on a
-    // white casing, with round joins, as on the tilted map.
+    // casing of the ground's colour, with round joins, as on the tilted map.
     const trace = (line: (typeof data.polylines)[number]) => {
       context.beginPath();
       for (let i = 0; i < line.count; i++) {
@@ -131,7 +138,7 @@ export class FlatMap {
       context.lineWidth = width * ratio;
       for (const line of rail) {
         const route = data.routes[line.route] as NetworkRoute;
-        context.strokeStyle = casing ? "#ffffff" : `#${LINE_COLORS[route.id] ?? route.color}`;
+        context.strokeStyle = casing ? (this.dark ? "#161618" : "#ffffff") : `#${LINE_COLORS[route.id] ?? route.color}`;
         trace(line);
       }
     }

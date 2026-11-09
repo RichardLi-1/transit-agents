@@ -16,6 +16,8 @@ export interface MapRenderer {
   flyTo(camera: Camera, duration: number): void;
   drawStudyLine(duration: number): void;
   resize(width: number, height: number, ratio: number): void;
+  // Light or dark, as the page is.
+  setTheme(dark: boolean): void;
 }
 
 class WorkerRenderer implements MapRenderer {
@@ -61,6 +63,9 @@ class WorkerRenderer implements MapRenderer {
   }
   resize(width: number, height: number, ratio: number) {
     this.call("resize", width, height, ratio);
+  }
+  setTheme(dark: boolean) {
+    this.call("setTheme", dark);
   }
 }
 

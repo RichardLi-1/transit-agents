@@ -246,10 +246,14 @@ function cumulative(points: Point[]): number[] {
 
 const longest = (lines: Point[][]) => Math.max(0, ...lines.map((line) => cumulative(line).at(-1) ?? 0));
 
+// The dark map's ground, as the page's dark background (--bg in styles.css).
+export const DARK_GROUND: Vec3 = [0x16 / 255, 0x16 / 255, 0x18 / 255];
+
 // The casing under a line: white, so the line stands clear of what it crosses, or,
 // for a pale line such as Line 1's yellow, a darker shade of it, so it still
-// stands out on the white map.
-function casingOf(color: Vec3): Vec3 {
+// stands out on the white map. On the dark map, the ground's colour.
+function casingOf(color: Vec3, dark = false): Vec3 {
+  if (dark) return DARK_GROUND;
   const linear = color.map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
   const luminance = 0.2126 * (linear[0] as number) + 0.7152 * (linear[1] as number) + 0.0722 * (linear[2] as number);
   return luminance > 0.25 ? [color[0] * 0.55, color[1] * 0.55, color[2] * 0.55] : [1, 1, 1];
@@ -349,8 +353,20 @@ export class MapEngine {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   }
 
+  // Light or dark, as the page is: the casings take the ground's colour.
+  private dark = false;
+  private data: NetworkData | null = null;
+
+  setTheme(dark: boolean) {
+    if (dark === this.dark) return;
+    this.dark = dark;
+    if (this.data) this.setNetwork(this.data);
+    this.rebuildStudy();
+  }
+
   setNetwork(data: NetworkData) {
     const { gl } = this;
+    this.data = data;
     this.routes = data.routes;
     this.unit = data.unitMetres;
 
@@ -367,7 +383,7 @@ export class MapEngine {
           points.push([(data.coordinates[i * 2] as number) * this.unit, (data.coordinates[i * 2 + 1] as number) * this.unit]);
         }
         const color = hexToRgb(LINE_COLORS[route.id] ?? route.color);
-        ribbon(points, color, casingOf(color), rail, null);
+        ribbon(points, color, casingOf(color, this.dark), rail, null);
       } else {
         for (let i = line.start; i + 1 < line.start + line.count; i++) indices.push(i, i + 1);
       }
@@ -485,8 +501,9 @@ export class MapEngine {
     const split = this.proposedLines.length ? built / total : 1;
     // A proposed segment's casing is a pale tint of its colour, so the gaps between
     // its dashes read as one unbuilt line.
-    const tint: Vec3 = [color[0] * 0.3 + 0.7, color[1] * 0.3 + 0.7, color[2] * 0.3 + 0.7];
-    for (const line of this.studyLines) ribbon(line, color, casingOf(color), data, [0, split]);
+    const ground: Vec3 = this.dark ? DARK_GROUND : [1, 1, 1];
+    const tint = color.map((c, i) => c * 0.3 + (ground[i] as number) * 0.7) as Vec3;
+    for (const line of this.studyLines) ribbon(line, color, casingOf(color, this.dark), data, [0, split]);
     for (const line of this.proposedLines) ribbon(line, color, tint, data, [split, 1]);
     const period = DASH_METRES + GAP_METRES;
     this.studyDash = this.proposedLines.length ? [split, period / total, DASH_METRES / period] : NO_DASH;

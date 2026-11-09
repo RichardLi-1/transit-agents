@@ -35,8 +35,35 @@ type Renderer = MapRenderer | FlatMap;
 const isFlat = (map: Renderer | null): map is FlatMap => map instanceof FlatMap;
 
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const darkScheme = () => window.matchMedia("(prefers-color-scheme: dark)");
 
 export type Credit = { text: string; url: string };
+
+// How long after the camera's last move the map counts as still.
+const SETTLE_MS = 200;
+
+// Marks the page while the map moves, by hand or in a flight, so the glass over it
+// can stop blurring: the blur is redone for every pane on every frame, the GPU's
+// biggest cost, and the panes clear up again once the map settles.
+function useMoving(feed: ViewFeed) {
+  useEffect(() => {
+    const root = document.documentElement;
+    let first = true;
+    let timer = 0;
+    const stop = feed.subscribe(() => {
+      // The first view is the map arriving, not moving.
+      if (first) return void (first = false);
+      if (!("moving" in root.dataset)) root.dataset.moving = "";
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => delete root.dataset.moving, SETTLE_MS);
+    });
+    return () => {
+      stop();
+      window.clearTimeout(timer);
+      delete root.dataset.moving;
+    };
+  }, [feed]);
+}
 
 type Props = {
   study: StudyView | null;
@@ -66,6 +93,14 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
   const [flat, setFlat] = useState(false);
   // Where the camera is, for the cards pinned to the map.
   const feed = useMemo(() => new ViewFeed(), []);
+  useMoving(feed);
+  // The map turns light or dark with the page.
+  useEffect(() => {
+    const scheme = darkScheme();
+    const follow = () => renderer.current?.setTheme(scheme.matches);
+    scheme.addEventListener("change", follow);
+    return () => scheme.removeEventListener("change", follow);
+  }, []);
 
   const lineKey = study?.line ?? null;
   const failing = study?.checks.some((c) => c.status === "fail") ?? false;
@@ -112,6 +147,7 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
     if (!canvas) return;
     controls.settle();
     const map = new FlatMap(canvas, (view) => feed.set({ kind: "flat", ...view }));
+    map.setTheme(darkScheme().matches);
     renderer.current = map;
     setFlat(true);
     if (network.current) map.setNetwork(network.current);
@@ -124,6 +160,7 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
       renderer.current = createRenderer(element, fallBack, (view) => {
         if (!isFlat(renderer.current)) feed.set({ kind: "tilted", ...view });
       });
+      renderer.current.setTheme(darkScheme().matches);
     } catch {
       fallBack();
     }

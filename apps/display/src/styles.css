@@ -10,17 +10,65 @@
   --bubble: #ececf0;
   --radius: 14px;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(0, 0, 0, 0.08);
-  /* The floating panels, the folders, card, time bar and chat, are liquid glass:
-     translucent, the map showing through blurred and brighter, under a light rim
-     and a soft shadow. Over the darkest map line, at full width, their muted
-     text still passes AA. Opaque where transparency is unwanted or unsupported. */
-  --panel: rgba(255, 255, 255, 0.72);
+  /* The floating panels, the folders, card, time bar and chat, are liquid glass,
+     after Apple's: clear rather than frosted, the map behind blurred, brighter and
+     more vivid; light catching the top-left edge and glowing just inside the rim,
+     where glass bends it; a crisp dark hairline and a deep shadow outside, so each
+     pane stands off the white map. Over the darkest map line their muted text
+     still passes AA. Opaque where transparency is unwanted or unsupported. */
+  --panel: linear-gradient(155deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.34) 55%, rgba(255, 255, 255, 0.48));
   --panel-solid: #fbfbfd;
-  --panel-rim: rgba(255, 255, 255, 0.75);
-  --panel-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
-  --panel-lift: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 2px 6px rgba(0, 0, 0, 0.04), 0 16px 40px rgba(0, 0, 0, 0.1);
-  --panel-frost: blur(24px) saturate(180%);
+  --panel-rim: rgba(255, 255, 255, 0.6);
+  --panel-sheen:
+    inset 1.5px 1.5px 0 -0.5px rgba(255, 255, 255, 0.95),
+    inset -1px -1px 0 -0.5px rgba(255, 255, 255, 0.55),
+    inset 0 0 24px rgba(255, 255, 255, 0.5);
+  --panel-lift:
+    0 0 0 0.5px rgba(0, 0, 0, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 10px 24px -6px rgba(0, 0, 0, 0.14),
+    0 28px 64px -12px rgba(0, 0, 0, 0.2);
+  --panel-frost: blur(7px) saturate(240%) brightness(1.04);
   --panel-radius: 22px;
+  /* The same glass, sized for what floats small: map cards, buttons, notices. */
+  --chip-sheen:
+    inset 1px 1px 0 -0.25px rgba(255, 255, 255, 0.95),
+    inset -1px -1px 0 -0.5px rgba(255, 255, 255, 0.5),
+    inset 0 0 10px rgba(255, 255, 255, 0.55);
+  --chip-lift:
+    0 0 0 0.5px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.08),
+    0 8px 20px -6px rgba(0, 0, 0, 0.2);
+  /* A pressed-in well for fields and choices inside a pane. */
+  --well: rgba(255, 255, 255, 0.62);
+  --well-edge: inset 0 1px 1px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 1px 0 rgba(255, 255, 255, 0.9);
+  /* Gloss on a filled button: a lit top edge, a shaded foot, a glow of its colour. */
+  --gloss: linear-gradient(rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.08));
+  --gloss-edge: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+  /* Small glass, and the glass while the map moves, unblurred. */
+  --chip: linear-gradient(155deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.52));
+  --chip-hover: rgba(255, 255, 255, 0.94);
+  --moving: rgba(251, 251, 253, 0.88);
+  --moving-chip: rgba(251, 251, 253, 0.92);
+  /* Muted text on glass: a shade darker, for the map behind it. */
+  --muted-glass: #48484e;
+  /* The ground, and the surfaces on it: fields, fills, a pressed or hovered fill. */
+  --bg: #fff;
+  --field: #fff;
+  --field-hover: #f5f5f7;
+  --fill: #ececf0;
+  --fill-off: #e5e5ea;
+  --sunken: #f5f5f7;
+  --hover: rgba(0, 0, 0, 0.06);
+  --press: rgba(0, 0, 0, 0.1);
+  --tag: rgba(0, 0, 0, 0.07);
+  --divider: rgba(0, 0, 0, 0.1);
+  --divider-lit: rgba(255, 255, 255, 0.7);
+  /* Words on a fill of --ink. */
+  --on-ink: #fff;
+  --focus: var(--accent);
+  /* Behind Quick Look, over the page. */
+  --scrim: rgba(255, 255, 255, 0.35);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --serif: "New York", "Iowan Old Style", Georgia, "Times New Roman", serif;
   --chat: 340px;
@@ -36,6 +84,116 @@
   color-scheme: light;
 }
 
+/* Dark, when the system is: the map on near-black, the glass smoked rather than
+   milky, lit along its top-left edge all the same. Accent words turn pink enough
+   to read on dark; filled buttons keep the accent, as white reads on it. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f5f5f7;
+    --muted: #a8a8ad;
+    --muted-glass: #b8b8be;
+    --hairline: rgba(255, 255, 255, 0.12);
+    --accent-ink: #f08fce;
+    --pass: #4ac26b;
+    --fail: #ff7b72;
+    --focus: #e070bf;
+    --glass: rgba(36, 36, 40, 0.8);
+    --bubble: #2c2c2e;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.45);
+    --panel: linear-gradient(155deg, rgba(46, 46, 50, 0.74), rgba(28, 28, 30, 0.6) 55%, rgba(38, 38, 42, 0.68));
+    --panel-solid: #1c1c1e;
+    --panel-rim: rgba(255, 255, 255, 0.14);
+    --panel-sheen:
+      inset 1.5px 1.5px 0 -0.5px rgba(255, 255, 255, 0.34),
+      inset -1px -1px 0 -0.5px rgba(255, 255, 255, 0.12),
+      inset 0 0 24px rgba(255, 255, 255, 0.05);
+    --panel-lift:
+      0 0 0 0.5px rgba(0, 0, 0, 0.85),
+      0 1px 2px rgba(0, 0, 0, 0.35),
+      0 10px 24px -6px rgba(0, 0, 0, 0.5),
+      0 28px 64px -12px rgba(0, 0, 0, 0.65);
+    --panel-frost: blur(7px) saturate(180%) brightness(0.9);
+    --chip-sheen:
+      inset 1px 1px 0 -0.25px rgba(255, 255, 255, 0.34),
+      inset -1px -1px 0 -0.5px rgba(255, 255, 255, 0.12),
+      inset 0 0 10px rgba(255, 255, 255, 0.05);
+    --chip-lift:
+      0 0 0 0.5px rgba(0, 0, 0, 0.85),
+      0 1px 2px rgba(0, 0, 0, 0.35),
+      0 8px 20px -6px rgba(0, 0, 0, 0.55);
+    --chip: linear-gradient(155deg, rgba(50, 50, 54, 0.86), rgba(32, 32, 36, 0.74));
+    --chip-hover: rgba(58, 58, 62, 0.96);
+    --moving: rgba(28, 28, 30, 0.92);
+    --moving-chip: rgba(36, 36, 40, 0.94);
+    --well: rgba(255, 255, 255, 0.08);
+    --well-edge: inset 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 1px 0 rgba(255, 255, 255, 0.04);
+    --bg: #161618;
+    --field: #2c2c2e;
+    --field-hover: #3a3a3c;
+    --fill: #3a3a3c;
+    --fill-off: #2c2c2e;
+    --sunken: #232325;
+    --hover: rgba(255, 255, 255, 0.08);
+    --press: rgba(255, 255, 255, 0.14);
+    --tag: rgba(255, 255, 255, 0.1);
+    --divider: rgba(255, 255, 255, 0.12);
+    --divider-lit: rgba(255, 255, 255, 0.04);
+    --on-ink: #161618;
+    --scrim: rgba(0, 0, 0, 0.45);
+    color-scheme: dark;
+  }
+}
+
+/* More contrast, when the system asks for it (Increase contrast on a Mac): solid
+   panes with a firm edge in place of glass, darker secondary words, firmer lines. */
+@media (prefers-contrast: more) {
+  :root {
+    --muted: #2c2c2e;
+    --muted-glass: #1d1d1f;
+    --hairline: rgba(0, 0, 0, 0.55);
+    --divider: rgba(0, 0, 0, 0.55);
+    --accent-ink: #6f1f55;
+    --panel: var(--panel-solid);
+    --panel-solid: #fff;
+    --panel-rim: #1d1d1f;
+    --panel-sheen: inset 0 0 0 0 transparent;
+    --panel-lift: 0 2px 8px rgba(0, 0, 0, 0.2);
+    --panel-frost: none;
+    --chip: #fff;
+    --chip-hover: #f5f5f7;
+    --chip-sheen: inset 0 0 0 0 transparent;
+    --chip-lift: 0 1px 4px rgba(0, 0, 0, 0.2);
+    --moving: #fff;
+    --moving-chip: #fff;
+    --well: #fff;
+    --well-edge: 0 0 0 1px #1d1d1f;
+    --gloss: none;
+    --tag: #e5e5ea;
+  }
+}
+
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root {
+    --muted: #d1d1d6;
+    --muted-glass: #e5e5ea;
+    --hairline: rgba(255, 255, 255, 0.6);
+    --divider: rgba(255, 255, 255, 0.6);
+    --accent-ink: #ffb3e2;
+    --panel-solid: #000;
+    --panel-rim: #f5f5f7;
+    --panel-lift: 0 2px 8px rgba(0, 0, 0, 0.6);
+    --chip: #000;
+    --chip-hover: #1c1c1e;
+    --moving: #000;
+    --moving-chip: #000;
+    --well: #000;
+    --well-edge: 0 0 0 1px #f5f5f7;
+    --field: #000;
+    --tag: #3a3a3c;
+    --bg: #000;
+  }
+}
+
 :root:has(.stage > .time) {
   --map-foot: 127px;
 }
@@ -48,7 +206,7 @@ html,
 body {
   margin: 0;
   height: 100%;
-  background: #fff;
+  background: var(--bg);
   color: var(--ink);
   font: 15px/1.4 var(--font);
   -webkit-font-smoothing: antialiased;
@@ -67,7 +225,7 @@ button {
 }
 
 :focus-visible {
-  outline: 3px solid var(--accent);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
   border-radius: 6px;
 }
@@ -144,19 +302,19 @@ button {
 }
 
 .map-buttons button:hover {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--hover);
   color: var(--accent-ink);
 }
 
 .map-buttons button:active {
-  background: rgba(0, 0, 0, 0.1);
+  background: var(--press);
 }
 
 .fade {
   position: fixed;
   inset: 0 0 auto 0;
   height: 30vh;
-  background: linear-gradient(#fff 45%, rgba(255, 255, 255, 0));
+  background: linear-gradient(var(--bg) 45%, transparent);
   pointer-events: none;
 }
 
@@ -170,7 +328,7 @@ button {
   min-height: 24px;
   padding: 0 8px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--glass);
   color: var(--muted);
   font-size: 11px;
   text-decoration: none;
@@ -224,7 +382,7 @@ button {
   height: 10px;
   border-radius: 50%;
   background: var(--ink);
-  box-shadow: 0 0 0 2px #fff;
+  box-shadow: 0 0 0 2px var(--bg);
 }
 
 /* The stem from the place up to its card, flipped down when the card sits below. */
@@ -323,7 +481,7 @@ button {
   padding: 0;
   border: 1px solid var(--hairline);
   overflow: hidden;
-  background: #f5f5f7;
+  background: var(--sunken);
 }
 
 .need .thumb:hover {
@@ -426,7 +584,7 @@ button {
   padding: 0 10px;
   border: 1px solid var(--hairline);
   border-radius: 999px;
-  background: #fff;
+  background: var(--field);
   color: var(--accent-ink);
   font-size: 12px;
   font-weight: 600;
@@ -544,7 +702,7 @@ button {
 }
 
 .shelf .item > a:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--hover);
 }
 
 .shelf .item svg {
@@ -608,7 +766,7 @@ button {
 .card,
 .time,
 .chat {
-  --muted: #56565c;
+  --muted: var(--muted-glass);
 }
 
 .shelf,
@@ -707,7 +865,7 @@ button {
 }
 
 .card .picker:has(select:focus-visible) {
-  outline: 3px solid var(--accent);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
   border-radius: 6px;
 }
@@ -942,7 +1100,7 @@ button {
 }
 
 .finding:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--hover);
 }
 
 /* A gap: what's missing is the note, and the next step and who to contact sit
@@ -1037,12 +1195,12 @@ button {
   padding: 0 14px;
   border: 1px solid var(--hairline);
   border-radius: 999px;
-  background: #fff;
+  background: var(--field);
   font-weight: 600;
 }
 
 .card .sign-in:hover {
-  background: #f5f5f7;
+  background: var(--field-hover);
 }
 
 .decide {
@@ -1057,7 +1215,7 @@ button {
   height: 32px;
   border: 1px solid var(--hairline);
   border-radius: 999px;
-  background: #fff;
+  background: var(--field);
 }
 
 .decide select {
@@ -1080,7 +1238,7 @@ button {
 }
 
 .decide button[aria-disabled="true"] {
-  background: #e5e5ea;
+  background: var(--fill-off);
   color: var(--muted);
   cursor: default;
 }
@@ -1188,11 +1346,11 @@ input[type="range"] {
   border: 0;
   border-radius: 50%;
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 
 .round:disabled {
-  background: #e5e5ea;
+  background: var(--fill-off);
   color: var(--muted);
   cursor: default;
 }
@@ -1203,7 +1361,7 @@ input[type="range"] {
   padding: 0 10px;
   border: 1px solid var(--hairline);
   border-radius: 999px;
-  background: #fff;
+  background: var(--field);
   font-size: 13px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -1262,7 +1420,7 @@ input[type="range"] {
   margin: 0;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #ececf0;
+  background: var(--fill);
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
@@ -1504,7 +1662,7 @@ input[type="range"] {
 }
 
 .exec-ping:disabled {
-  background: #fff;
+  background: var(--field);
   color: var(--muted);
   box-shadow: inset 0 0 0 1px var(--hairline);
   cursor: default;
@@ -1528,7 +1686,7 @@ input[type="range"] {
 }
 
 .exec-sent:focus-visible {
-  outline: 3px solid var(--accent);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -1611,7 +1769,7 @@ input[type="range"] {
   padding: 4px 12px;
   border: 1px solid var(--hairline);
   border-radius: 14px;
-  background: #fff;
+  background: var(--field);
   color: var(--accent-ink);
   font: inherit;
   font-size: 13px;
@@ -1718,7 +1876,7 @@ input[type="range"] {
   padding: 4px 10px;
   border: 1px solid var(--hairline);
   border-radius: 14px;
-  background: #fff;
+  background: var(--field);
   color: var(--ink);
   font: inherit;
   font-size: 13px;
@@ -1769,7 +1927,7 @@ input[type="range"] {
   padding: 0 14px;
   border: 1px solid var(--hairline);
   border-radius: 999px;
-  background: #fff;
+  background: var(--field);
 }
 
 .chat button[type="submit"] {
@@ -1784,7 +1942,7 @@ input[type="range"] {
 }
 
 .chat button[type="submit"]:disabled {
-  background: #e5e5ea;
+  background: var(--fill-off);
   color: var(--muted);
   cursor: default;
 }
@@ -1823,14 +1981,14 @@ input[type="range"] {
   padding: 0 12px;
   border: 1px solid var(--hairline);
   border-radius: 999px;
-  background: #fff;
+  background: var(--field);
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .account button:hover {
-  background: #f5f5f7;
+  background: var(--field-hover);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -1873,7 +2031,7 @@ input[type="range"] {
 }
 
 .quicklook::backdrop {
-  background: rgba(255, 255, 255, 0.35);
+  background: var(--scrim);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
 }
@@ -1957,7 +2115,7 @@ input[type="range"] {
   height: 32px;
   border: 0;
   border-radius: 50%;
-  background: #ececf0;
+  background: var(--fill);
   font-size: 20px;
   line-height: 1;
 }
@@ -1973,14 +2131,14 @@ input[type="range"] {
   padding: 4px 12px;
   border: 1px solid var(--hairline);
   border-radius: 999px;
-  background: #fff;
+  background: var(--field);
   font-size: 13px;
 }
 
 .quicklook .tabs button[aria-pressed="true"] {
   background: var(--ink);
   border-color: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
 }
 
 .quicklook figure {
@@ -2114,7 +2272,7 @@ input[type="range"] {
   margin: 0;
   border-radius: 8px;
   overflow: hidden;
-  background: #f5f5f7;
+  background: var(--sunken);
 }
 
 .viewer .media img,
@@ -2463,7 +2621,7 @@ input[type="range"] {
   font-weight: 700;
   line-height: 18px;
   text-align: center;
-  box-shadow: 0 0 0 2px #fff;
+  box-shadow: 0 0 0 2px var(--panel-solid);
 }
 
 /* Liquid glass: a bright, translucent pane with a soft rim and a lit top edge.
@@ -2559,7 +2717,7 @@ input[type="range"] {
   height: 32px;
   border-radius: 50%;
   background: var(--ink) linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0));
-  color: #fff;
+  color: var(--on-ink);
   box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.15);
 }
 
@@ -2640,7 +2798,7 @@ input[type="range"] {
 }
 
 .notice:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--hover);
 }
 
 .notice .glyph {
@@ -2732,7 +2890,7 @@ input[type="range"] {
 
 /* Where Review took the planner, lit for a moment, in the focus ring's colour. */
 .noticed {
-  outline: 3px solid var(--accent);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
   box-shadow: 0 0 0 8px rgba(176, 52, 136, 0.16);
 }
@@ -2874,7 +3032,7 @@ input[type="range"] {
 /* The agents panel: the lead and its specialists while a run works, at the foot
    of the map beside its buttons, in the panels' liquid glass. It folds to a pill. */
 .agents {
-  --muted: #56565c;
+  --muted: var(--muted-glass);
   position: fixed;
   z-index: 2;
   right: calc(var(--map-right) + 128px);
@@ -3171,4 +3329,151 @@ input[type="range"] {
   font: inherit;
   font-size: 13px;
   font-weight: 600;
+}
+
+/* Liquid glass, small ------------------------------------------------------ */
+
+/* What floats small over the map, the cards on it, its buttons, the bell, the
+   notices and Quick Look, in the panels' glass. A shade more opaque, as these sit
+   right on the lines, and their muted text darker to match. */
+.map-buttons,
+.need,
+.bell,
+.toast,
+.notice-list,
+.quicklook .sheet {
+  --muted: var(--muted-glass);
+  border: 1px solid var(--panel-rim);
+  background: var(--panel-solid);
+  box-shadow: var(--chip-sheen), var(--chip-lift);
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .map-buttons,
+  .need,
+  .bell,
+  .toast,
+  .notice-list,
+  .quicklook .sheet {
+    background: var(--chip);
+    -webkit-backdrop-filter: var(--panel-frost);
+    backdrop-filter: var(--panel-frost);
+  }
+
+  .bell:hover,
+  .bell[aria-expanded="true"] {
+    background: var(--chip-hover);
+  }
+}
+
+/* Fields and choices inside a pane sit in it as wells: lighter glass, pressed in. */
+.chat input,
+.decide select,
+.decide input,
+.suggestions button,
+.need .action {
+  border-color: transparent;
+  background: var(--well);
+  box-shadow: var(--well-edge);
+}
+
+.suggestions button:hover,
+.need .action:hover {
+  background: var(--field);
+  box-shadow: var(--well-edge), 0 0 0 1px var(--accent);
+}
+
+.need .action[aria-pressed="true"] {
+  box-shadow: var(--well-edge), 0 0 0 1px var(--accent);
+}
+
+.chat form {
+  border-top-color: var(--divider);
+  box-shadow: inset 0 1px 0 var(--divider-lit);
+}
+
+.tag {
+  background: var(--tag);
+  box-shadow: inset 0 0 0 0.5px var(--hairline);
+}
+
+/* Filled buttons are glossy: lit at the top, shaded at the foot, glowing. The
+   gloss fades out before the words, so their contrast is the colour's own. */
+.decide button:not([aria-disabled="true"]),
+.chat button[type="submit"]:not(:disabled),
+.need .create,
+.round {
+  background-image: var(--gloss);
+  box-shadow: var(--gloss-edge), 0 3px 10px -2px rgba(176, 52, 136, 0.45);
+}
+
+.round {
+  box-shadow: var(--gloss-edge), 0 3px 10px -2px rgba(0, 0, 0, 0.35);
+}
+
+/* While the map moves the glass stops blurring, the GPU's biggest cost in a drag,
+   and turns a little more opaque so the lines passing under it stay soft. It
+   clears again once the map settles. */
+:root[data-moving] :is(.shelf, .card, .time, .chat, .agents) {
+  background: var(--moving);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root[data-moving] :is(.map-buttons, .need, .bell, .toast, .notice-list) {
+  background: var(--moving-chip);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Opaque for anyone who asks for less transparency. */
+@media (prefers-reduced-transparency: reduce) {
+  .map-buttons,
+  .need,
+  .bell,
+  .toast,
+  .notice-list,
+  .quicklook .sheet {
+    background: var(--panel-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .chat input,
+  .decide select,
+  .decide input,
+  .suggestions button,
+  .need .action {
+    background: var(--field);
+  }
+}
+
+/* Forced colours: plain panes and fields, edged in the system's colours. */
+@media (forced-colors: active) {
+  .map-buttons,
+  .need,
+  .bell,
+  .toast,
+  .notice-list,
+  .quicklook .sheet,
+  .chat input,
+  .decide select,
+  .decide input,
+  .suggestions button,
+  .need .action {
+    background: Canvas;
+    border-color: CanvasText;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* A source's page is paper, white with dark words, in dark mode too. */
+@media (prefers-color-scheme: dark) {
+  .quicklook .paper {
+    --ink: #1d1d1f;
+    --muted: #5f5f66;
+    --accent-ink: #8e2a6e;
+    color-scheme: light;
+  }
 }
