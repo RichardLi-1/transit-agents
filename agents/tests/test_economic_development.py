@@ -11,7 +11,7 @@ import skills
 import specialists
 from tests import support
 from tests.support import AGENT, FakeGemini, reply
-from tests.test_equity_analysis import load
+from tests.test_equity_analysis import load, spelled_out
 from tests.test_skills import SOURCES, normalize
 
 
@@ -53,6 +53,9 @@ class SkillTest(unittest.TestCase):
         self.assertIn("Forecasts no growth.", skill.description)
         self.assertIn("Forecast. Never say how many jobs, businesses, homes or dollars a line will bring", skill.body)
         self.assertIn("never this study's figure", skill.body)
+
+    def test_the_cases_it_spells_out_are_dev(self):
+        spelled_out(self, "economic-development", {"econ-007": r"Say it needs a model run and hand it to a planner", "econ-008": r"say the data covers only the Don Mills corridor"})
 
     def test_offers_the_layer_tools_jobs_and_zoning(self):
         script = load("economic-development")

@@ -9,8 +9,9 @@ import { GOLD, gold } from "./spatial-gold.ts";
 const cases = readFileSync(join(import.meta.dirname, "cases.jsonl"), "utf8")
   .split("\n")
   .filter(Boolean)
-  .map((line) => JSON.parse(line) as { id: string; capability: string; split: string; expect: { behaviour: string; value?: number } });
-const spatial = cases.filter((c) => c.capability === "spatial");
+  .map((line) => JSON.parse(line) as { id: string; capability: string; skill: string; split: string; expect: { behaviour: string; value?: number } });
+// gis-analyst's: the skills built on it check their own, in gis-skills-gold.test.ts.
+const spatial = cases.filter((c) => c.capability === "spatial" && c.skill === "gis-analyst");
 
 it("has at least 8 spatial cases, in dev and test, with one it must not answer", () => {
   assert.ok(spatial.length >= 8);

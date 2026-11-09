@@ -2,7 +2,9 @@
 specialist's own study, only with the skill, and its rules quote their pages."""
 
 import importlib.util
+import json
 import os
+import re
 import unittest
 import uuid
 from unittest import mock
@@ -10,7 +12,7 @@ from unittest import mock
 import skills
 import specialists
 from tests import support
-from tests.support import AGENT, FakeGemini, reply
+from tests.support import AGENT, ROOT, FakeGemini, reply
 from tests.test_skills import SOURCES, normalize
 
 
@@ -24,6 +26,22 @@ def load(name: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def spelled_out(test: unittest.TestCase, skill: str, given: dict[str, str]):
+    """The cases whose answer or behaviour a skill spells out are dev, and no test case's value is in it."""
+    body = skills.load_skill(skill).body
+    cases = [json.loads(line) for line in (ROOT / "evals" / "cases.jsonl").read_text().splitlines()]
+    own = {case["id"]: case for case in cases if case.get("skill") == skill}
+    for case, words in given.items():
+        with test.subTest(case):
+            test.assertRegex(body, words)
+            test.assertEqual(own[case]["split"], "dev")
+    # A count under 10 is too common a number to look for.
+    for case in own.values():
+        value = case["expect"].get("value")
+        if case["split"] == "test" and value is not None and not (float(value).is_integer() and abs(value) < 10):
+            test.assertNotRegex(body, rf"(?<![\d.]){re.escape(str(case['expect']['value']))}(?![\d.])", case["id"])
 
 
 TOOLS = {"list_datasets", "list_layers", "summarise_layer", "route_stops", "route_shape", "study_line", "named_area", "buffer", "equity_profile"}
@@ -64,6 +82,9 @@ class SkillTest(unittest.TestCase):
         self.assertIn("say a change is equitable or not", body)
         self.assertIn("The tool counts stops, never boardings.", body)
         self.assertIn("Name no one to ask about the rest", body)
+
+    def test_the_cases_it_spells_out_are_dev(self):
+        spelled_out(self, "equity-analysis", {"eq-007": r"Infer anything about a person", "eq-008": r"The tool counts stops, never boardings", "eq-009": r"say a change is equitable or not"})
 
     def test_offers_the_layer_tools_and_equity_profile(self):
         script = load("equity-analysis")

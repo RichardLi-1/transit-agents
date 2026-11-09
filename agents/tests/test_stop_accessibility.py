@@ -12,7 +12,7 @@ import skills
 import specialists
 from tests import support
 from tests.support import AGENT, FakeGemini, reply
-from tests.test_equity_analysis import load
+from tests.test_equity_analysis import load, spelled_out
 from tests.test_skills import SOURCES, normalize
 
 
@@ -47,6 +47,9 @@ class SkillTest(unittest.TestCase):
         self.assertIn("Say that a stop, station, route or the TTC complies, or fails to comply", self.body)
         self.assertIn("an inventory, not a finding of compliance; a planner confirms", self.body)
         self.assertIn("The sources here give no date by which every existing stop or station must be accessible.", self.body)
+
+    def test_the_cases_it_spells_out_are_dev(self):
+        spelled_out(self, "stop-accessibility", {"acc-007": r"complies, or fails to comply", "acc-008": r"Nothing here says which stations have elevators", "acc-009": r"identify planning for accessible bus stops and shelters"})
 
     def test_offers_the_stop_tools(self):
         script = load("stop-accessibility")
