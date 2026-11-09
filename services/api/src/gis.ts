@@ -265,9 +265,7 @@ export class Gis {
     if (withoutData) {
       warnings.push(`${withoutData} of ${features.length} areas lack a count asked for: Statistics Canada suppresses some counts for very small areas, so they add nothing to it.`);
     }
-    if (counts.length && inside < layerArea * 0.98) {
-      warnings.push(`${round(100 - (inside / layerArea) * 100, 1)}% of the layer is outside the census areas (outside the City, or on water). Nothing there is counted.`);
-    }
+    if (counts.length && inside < layerArea * 0.98) warnings.push(outsideWarning(layerArea, inside));
     return { kind: "polygons", features, dataset: this.cite(id), totals, warnings };
   }
 
@@ -338,6 +336,18 @@ export class Gis {
       throw new GisError("outside_coverage", `"${info.id}" covers ${info.coverage}. This layer reaches beyond it, so its answer would be short`);
     }
   }
+}
+
+// What a census total leaves out when part of the layer lies beyond the City's census
+// areas, said plainly, so no one reads the total as the whole layer's, or goes looking
+// for someone to ask about the rest: no dataset or source here names anyone.
+export function outsideWarning(layerArea: number, inside: number): string {
+  const outside = Math.max(0, layerArea - inside);
+  return (
+    `${round((outside / layerArea) * 100, 1)}% of the layer is outside the census areas (${round(outside / 1e6, 2)} km²): beyond the City of Toronto, or on water. ` +
+    "The census data here covers the City of Toronto only, so nobody living there is counted: these totals are for the part inside Toronto only. " +
+    "No dataset or source here covers the rest or names anyone to ask about it."
+  );
 }
 
 // A clipped area without the rings clipping left too small to be rings, or nothing.

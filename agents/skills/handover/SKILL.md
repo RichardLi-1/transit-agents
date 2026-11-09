@@ -47,5 +47,6 @@ Not known yet:
 
 - Cite the page that shows the gap, such as one that calls a cost a Class 5 estimate. Where no page shows it, ask it as a question for the planner, and claim nothing.
 - Name an organisation or team, never a person.
+- Name only an organisation a cited page names. Never infer one from a map or a dataset's gap, such as a neighbouring region for land outside the City: say what isn't counted instead.
 - Keep each to a line or two, in plain words.
 - Record a gap only when your instructions ask: one finding, tone neutral, its line without the page as the text, citing that page. A gap no page shows stays in the answer.

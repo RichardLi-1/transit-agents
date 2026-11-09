@@ -82,7 +82,8 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stops["layer"]["kind"], "points")
         self.assertEqual(buffered["layer"]["derivedFrom"], ["ttc-52-stops"])
         self.assertIn("spread evenly", census["method"])
-        self.assertTrue(any("outside the census areas" in warning for warning in census["warnings"]))
+        [outside] = [warning for warning in census["warnings"] if "outside the census areas" in warning]
+        self.assertIn("these totals are for the part inside Toronto only", outside)
         figure = census["totals"]["population"]["figure"]
         study = support.api("GET", f"/v1/studies/{self.study}")
         [recorded] = [f for f in study["figures"] if f["id"] == figure]
