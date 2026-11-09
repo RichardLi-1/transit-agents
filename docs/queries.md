@@ -107,3 +107,21 @@ Answer where-questions on open data with the service's GIS tools, citing the dat
 - Neighbourhood Improvement Areas a 400 m walk from the 52's stops reaches: 3, Kingsview Village-The Westway, Weston and Rustic.
 - Low-income households near the 52: the census counts people in low income (LIM-AT), not households. Gives the people, and flags it.
 - How many will ride a Don Mills extension: GIS can't tell. That needs a ridership forecast.
+
+## 13. Safety
+
+Audit road safety the Vision Zero way, from police-reported KSI collisions, and name countermeasures only from cited pages. Values from [safety-gold.ts](../evals/safety-gold.ts).
+
+- KSI collisions within 50 m of the 25 Don Mills route, 2016 to 2025: 48. The place with the most: Don Mills Rd and Sheppard Ave E, 5.
+- Change a year from 2016–2020 to 2021–2025: -22.2%, with how often chance alone would give it, and the city's change beside it.
+- Did Vision Zero cause the drop? The data says where and when, never why. Flags it for a planner.
+- A rate per vehicle-km: there are no traffic counts, so it gives none.
+
+## 14. Active transportation
+
+Measure walking, cycling and bike share near transit, citing the dataset. Values from [safety-gold.ts](../evals/safety-gold.ts).
+
+- Bikeways within 400 m of the 25's stops: 14.36 km of cycle tracks, bike lanes and trails.
+- Streets within 400 m of the 52's stops with no sidewalk on either side: 20.9%, from the 2017 inventory.
+- Stops of the 25 with no bike share station within 400 m: 45.
+- How many more will cycle if lanes are added: the data can't tell.

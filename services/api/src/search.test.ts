@@ -277,7 +277,7 @@ describe("gold questions over the seeded sources", () => {
   const rank = (query: string, pages: string[]) => index.find(query, 50).findIndex((hit) => pages.includes(`${hit.contextId}#${hit.page}`)) + 1;
 
   it("indexes every seeded source with pages", () => {
-    assert.deepEqual(SOURCES.filter((source) => source.pagesFile).length, 6);
+    assert.deepEqual(SOURCES.filter((source) => source.pagesFile).length, 9);
   });
 
   it("rank the pages that answer the Find questions", () => {
@@ -286,6 +286,8 @@ describe("gold questions over the seeded sources", () => {
   });
 
   it("rank the page a figure is on", () => {
-    assert.deepEqual(FIGURES.map(([query, page]) => rank(query, [page])), [1, 2, 1, 1, 1, 1, 6, 7, 2]);
+    // With the road safety sources, more pages weigh "$" and "per": "$1.29" falls
+    // from 2 to 3, and "40 riders per $100" rises from 7 to 5.
+    assert.deepEqual(FIGURES.map(([query, page]) => rank(query, [page])), [1, 3, 1, 1, 1, 1, 6, 5, 2]);
   });
 });

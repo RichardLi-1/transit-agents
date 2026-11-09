@@ -318,6 +318,9 @@ TTC schedules and live positions come from the City of Toronto's
 [Open Data portal](https://open.toronto.ca/), under the Open Government
 Licence – Toronto. Plan, standards and ridership pages are from public TTC
 documents, and business case pages from public Metrolinx documents, included
-as text and page images for checking citations. The Ontario Line and its
+as text and page images for checking citations. Road safety pages are from the
+City of Toronto's Vision Zero Road Safety Plan and its 2.0 update, public
+documents included as text, and the US Federal Highway Administration's Proven
+Safety Countermeasures, a US government work in the public domain. The Ontario Line and its
 proposed extension are drawn from [OpenStreetMap](https://www.openstreetmap.org/copyright),
 © OpenStreetMap contributors, under the Open Database License.
