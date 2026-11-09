@@ -1018,6 +1018,13 @@ export class Service {
     return (JSON.parse(row.geojson) as { features: Feature[] }).features;
   }
 
+  // A study's layer and its features, for the skills' GIS modules (gis-skills.ts),
+  // which save what they make with saveLayer.
+  studyLayer(studyId: string, layerId: string): { layer: Layer; features: Feature[] } {
+    const layer = this.layer(this.study(studyId), layerId);
+    return { layer: viewLayer(layer), features: this.features(layer) };
+  }
+
   // A layer's features, in WGS84.
   layerGeojson(studyId: string, layerId: string): { type: "FeatureCollection"; features: Feature[] } {
     return { type: "FeatureCollection", features: this.features(this.layer(this.study(studyId), layerId)) };
@@ -1051,7 +1058,7 @@ export class Service {
     return Object.fromEntries(Object.entries(layer.totals ?? {}).map(([name, total]) => [name, { ...total, ...(recorded.has(name) ? { figure: recorded.get(name) } : {}) }]));
   }
 
-  private gisCall<T>(run: () => T): T {
+  gisCall<T>(run: () => T): T {
     try {
       return run();
     } catch (error) {
@@ -1176,7 +1183,7 @@ export class Service {
 
   // Saves what an operation made as a layer, logs that it was added, and records the
   // totals named as figures. The same operation again gives back the layer it made.
-  private saveLayer(
+  saveLayer(
     actor: string,
     studyId: string,
     made: Made,

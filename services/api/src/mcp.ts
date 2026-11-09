@@ -25,6 +25,7 @@ import { ON_BEHALF_OF, type Role } from "@transit-agents/contracts";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { Actor } from "./app.ts";
+import { GIS_SKILL_TOOLS } from "./gis-skills.ts";
 import { ApiError } from "./service.ts";
 
 // What a tool needs to know about a route in app.ts.
@@ -181,6 +182,7 @@ export const TOOLS: Record<string, Spec> = {
     description:
       "Count a point dataset's points inside an area layer: toronto-ksi collisions (narrow by years from and to, fatal, or involving a pedestrian, cyclist or motorcyclist), ttc-gtfs stops, or toronto-heritage-corridor properties. Saves the points as a layer and records the counts as figures.",
   },
+  ...GIS_SKILL_TOOLS,
   "POST /v1/studies/:id/activity": {
     name: "report_activity",
     description: "Report progress, messages, tokens and cost. Report usage only with numbers you were given.",

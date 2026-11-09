@@ -52,6 +52,7 @@ import {
 } from "@transit-agents/contracts";
 import type { VisitorBudget } from "./budget.ts";
 import { extractPages } from "./extract.ts";
+import { GIS_SKILL_ROUTES } from "./gis-skills.ts";
 import { issueGuest, userAudience, verifyGuest } from "./guests.ts";
 import { EVERYONE, visible, type Entry } from "./log.ts";
 import { VisitorLimits } from "./limits.ts";
@@ -885,6 +886,17 @@ export function createApp(options: AppOptions) {
       body: PointsWithinRequest,
       handler: async (c) => c.json(view(c).pointsWithinLayer(actorName(c), c.req.param("id") as string, await bodyOf(c, PointsWithinRequest)), 201),
     },
+    // The equity, economic development and stop accessibility skills' GIS tools.
+    ...GIS_SKILL_ROUTES.map(
+      (route): Route => ({
+        method: "post",
+        path: route.path,
+        summary: route.summary,
+        roles: authors,
+        body: route.body,
+        handler: async (c) => c.json(route.run(view(c), actorName(c), c.req.param("id") as string, (await bodyOf(c, route.body)) as never), 201),
+      }),
+    ),
     {
       method: "get",
       path: "/v1/media/:id",

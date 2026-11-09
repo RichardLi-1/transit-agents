@@ -12,6 +12,7 @@ import { ErrorCode, McpError, type CallToolResult } from "@modelcontextprotocol/
 import type { NeedView, StudyView } from "@transit-agents/contracts";
 import { createApp, type Actor } from "./app.ts";
 import { issueGuest } from "./guests.ts";
+import { GIS_SKILL_TOOLS } from "./gis-skills.ts";
 import { NOT_TOOLS, TOOLS } from "./mcp.ts";
 import { Service } from "./service.ts";
 import { Webhooks } from "./webhooks.ts";
@@ -136,8 +137,10 @@ describe("mcp", () => {
     const [planner, agent, integration, viewer] = await Promise.all(
       ["planner-token", "agent-token", "integration-token", "viewer-token"].map(names),
     );
-    assert.equal(planner?.length, 45);
-    assert.equal(agent?.length, 36);
+    // The equity, jobs and stop accessibility skills each add their GIS tools for agents and planners.
+    const skills = Object.keys(GIS_SKILL_TOOLS).length;
+    assert.equal(planner?.length, 45 + skills);
+    assert.equal(agent?.length, 36 + skills);
     assert.ok(["route_stops", "buffer", "overlay", "points_within", "summarise_layer"].every((name) => agent?.includes(name)));
     assert.ok(agent?.includes("propose_alignment"));
     assert.ok(agent?.includes("create_document") && planner?.includes("create_document"));
