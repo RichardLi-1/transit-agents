@@ -1,17 +1,22 @@
+import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { StudyView } from "@transit-agents/contracts";
 import { api } from "../api.ts";
 import { MapButtons } from "../map/MapButtons.tsx";
 import { MapControls } from "../map/controls.ts";
-import type { NetworkData } from "../map/engine.ts";
+import type { Camera, NetworkData } from "../map/engine.ts";
 import { FlatMap } from "../map/flat.ts";
 import { boundsOf, frameOf } from "../map/gestures.ts";
+import { cameraFor, creditOf, fileName, placesOf, search, type FeatureCollection, type Place } from "../map/layers.ts";
 import { toPoint, ViewFeed } from "../map/projection.ts";
 import { createRenderer, type MapRenderer } from "../map/renderer.ts";
+import { save, useLayers, type Loaded } from "../map/useLayers.ts";
 import { ScheduledVehicles, type StudyLine } from "../map/vehicles.ts";
-import { OVERVIEW, studyColor, VIEWS } from "../map/views.ts";
+import { LINE_KEYS, OVERVIEW, studyColor, VIEWS } from "../map/views.ts";
 import type { Simulator } from "../simulator.ts";
 import { clockAt, dateToMs, DAY_MS } from "../time.ts";
+import { LineIcon } from "./icons.tsx";
+import { Layers } from "./Layers.tsx";
 import { Needs } from "./Needs.tsx";
 import type { Opened } from "./QuickLook.tsx";
 
@@ -22,12 +27,15 @@ const optionLines = (study: StudyView | null) =>
 const LIVE_REFRESH_MS = 15_000;
 const LINE_DRAW_MS = 1800;
 const CAMERA_MS = 1400;
+// How close a search result brings the camera, in metres.
+const PLACE_DISTANCE = 2600;
 
-const describe = (study: StudyView | null, proposed: boolean) => {
+const describe = (study: StudyView | null, proposed: boolean, layers: number) => {
   if (!study) return "Map of the TTC network";
   const passed = study.checks.filter((c) => c.status === "pass").length;
   const tests = study.checks.length ? ` ${passed} of ${study.checks.length} tests pass.` : "";
-  return `Map of the TTC network with ${study.title} highlighted.${proposed ? " Its proposed part is dashed." : ""}${tests}`;
+  const shown = layers ? ` ${layers} ${layers === 1 ? "layer" : "layers"} shown.` : "";
+  return `Map of the TTC network with ${study.title} highlighted.${proposed ? " Its proposed part is dashed." : ""}${tests}${shown}`;
 };
 
 type Live = { pattern: string; lat: number; lon: number };
@@ -36,8 +44,6 @@ const isFlat = (map: Renderer | null): map is FlatMap => map instanceof FlatMap;
 
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const darkScheme = () => window.matchMedia("(prefers-color-scheme: dark)");
-
-export type Credit = { text: string; url: string };
 
 // How long after the camera's last move the map counts as still.
 const SETTLE_MS = 200;
@@ -69,18 +75,24 @@ type Props = {
   study: StudyView | null;
   simulator: Simulator;
   canCreate: boolean;
+  reads: boolean;
+  // Changes as agents add layers, so the list is asked for again.
+  layerVersion: string;
   // The study the planner chose, which brings the camera back to it.
   picked?: string | null;
-  onCredit: (credit: Credit | null) => void;
+  // A layer to show and zoom to, as a figure measured on it asks; n counts each ask.
+  focus?: { id: string; n: number } | null;
   onNeed: (need: Opened, from: Element) => void;
   // Whether the engagement viewer is open, which hides the rest of the page.
   onViewer: (open: boolean) => void;
+  // Over the foot of the map, such as the time bar.
+  children?: ComponentChildren;
 };
 
-// The map's credit for the shown study's line, if its data asks for one, goes to
-// onCredit: the page shows it after the card and chat, so it comes last when
-// tabbing, though it sits over the map.
-export function MapView({ study, simulator, canCreate, picked = null, onCredit, onNeed, onViewer }: Props) {
+// The map pane: the WebGL map, or the flat one where WebGL is missing, with the
+// tools along its top, the agents' layers, the engagement needs pinned to their
+// places, and the credits its data asks for at its foot.
+export function MapView({ study, simulator, canCreate, reads, layerVersion, picked = null, focus = null, onNeed, onViewer, children }: Props) {
   const glCanvas = useRef<HTMLCanvasElement>(null);
   const flatCanvas = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<Renderer | null>(null);
@@ -91,6 +103,11 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
   const serviceUntil = useRef(Infinity);
   const [ready, setReady] = useState(false);
   const [flat, setFlat] = useState(false);
+  const [networkShown, setNetworkShown] = useState(true);
+  const [needsShown, setNeedsShown] = useState(true);
+  const [refreshed, setRefreshed] = useState(0);
+  const [searching, setSearching] = useState(false);
+  const [query, setQuery] = useState("");
   // Where the camera is, for the cards pinned to the map.
   const feed = useMemo(() => new ViewFeed(), []);
   useMoving(feed);
@@ -101,6 +118,8 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
     scheme.addEventListener("change", follow);
     return () => scheme.removeEventListener("change", follow);
   }, []);
+
+  const layers = useLayers(study?.id ?? null, reads, `${layerVersion}|${refreshed}`);
 
   const lineKey = study?.line ?? null;
   const failing = study?.checks.some((c) => c.status === "fail") ?? false;
@@ -142,6 +161,15 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
     }
   };
 
+  // The layers' data, and which of them show, on whichever renderer is active.
+  const layerShapes = useMemo(() => layers.loaded.flatMap((loaded) => (loaded.shapes ? [loaded.shapes] : [])), [layers.loaded]);
+  const shownIds = layers.shown.map(({ layer }) => layer.id).join(",");
+  const putLayers = (map: Renderer) => {
+    map.setLayers(layerShapes);
+    map.showLayers(shownIds ? shownIds.split(",") : []);
+    map.setNetworkShown(networkShown);
+  };
+
   const fallBack = () => {
     const canvas = flatCanvas.current;
     if (!canvas) return;
@@ -152,6 +180,7 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
     setFlat(true);
     if (network.current) map.setNetwork(network.current);
     showStudy(map, false);
+    putLayers(map);
   };
 
   useEffect(() => {
@@ -166,6 +195,8 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
     }
     const resize = () => {
       const map = renderer.current;
+      // The pane is hidden behind another tab: nothing to size until it shows.
+      if (!element.clientWidth || !element.clientHeight) return;
       if (isFlat(map)) map.draw();
       else map?.resize(element.clientWidth, element.clientHeight, window.devicePixelRatio);
     };
@@ -205,6 +236,18 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
   useEffect(() => {
     renderer.current?.setStudyFailing(failing);
   }, [failing, ready, flat]);
+
+  useEffect(() => {
+    renderer.current?.setLayers(layerShapes);
+  }, [layerShapes, flat]);
+
+  useEffect(() => {
+    renderer.current?.showLayers(shownIds ? shownIds.split(",") : []);
+  }, [shownIds, layerShapes, flat]);
+
+  useEffect(() => {
+    renderer.current?.setNetworkShown(networkShown);
+  }, [networkShown, flat]);
 
   // Options proposed while the study shows replace its proposed part where it is.
   const optionCount = optionLines(study).length;
@@ -266,10 +309,64 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
     };
   }, [routes, watched, simulator]);
 
+  // Takes the camera somewhere, as a planner asked, on either map.
+  const go = (camera: Camera) => {
+    const map = renderer.current;
+    if (isFlat(map)) map.setCamera(camera);
+    else map?.flyTo(camera, reduced() ? 0 : CAMERA_MS);
+  };
+  const bearing = () => (feed.view?.kind === "tilted" ? feed.view.camera.bearing : (feed.view?.bearing ?? 0));
+  const zoomTo = (loaded: Loaded) => go(cameraFor(loaded.layer.bbox, bearing()));
+
+  // A figure measured on a layer brings it back into view, shown, and the camera to it,
+  // once the layer has loaded and the pane has its size.
+  const focused = useRef(0);
+  useEffect(() => {
+    if (!focus || focus.n === focused.current || !ready) return;
+    const loaded = layers.loaded.find(({ layer }) => layer.id === focus.id);
+    if (!loaded) return;
+    focused.current = focus.n;
+    layers.reveal(focus.id);
+    const timer = window.setTimeout(() => zoomTo(loaded), 50);
+    return () => window.clearTimeout(timer);
+  }, [focus?.n, layers.loaded, ready]);
+
+  const places = useMemo<Place[]>(() => {
+    const needs = (study?.needs ?? []).map((need) => ({ label: need.place, layer: "Engagement", at: toPoint(need.lat, need.lon) }));
+    return [...placesOf(layers.listed), ...needs];
+  }, [layers.listed, study?.needs]);
+  const found = search(places, query);
+  const searchBox = useRef<HTMLInputElement>(null);
+  const searchButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (searching) searchBox.current?.focus();
+  }, [searching]);
+  const closeSearch = () => {
+    setSearching(false);
+    searchButton.current?.focus();
+  };
+  const goTo = (place: Place) => {
+    go({ x: place.at[0], y: place.at[1], distance: PLACE_DISTANCE, pitch: 0.7, bearing: bearing() });
+    setSearching(false);
+  };
+
+  const saveAll = () => {
+    const features = layers.shown.flatMap(({ layer, collection }) => (collection?.features ?? []).map((feature) => ({ ...feature, properties: { ...feature.properties, layer: layer.title } })));
+    const all: FeatureCollection = { type: "FeatureCollection", features };
+    save(all, `${study?.id ?? "map"}-layers.geojson`);
+  };
+
   const shownLine = ready && lineKey ? lines.current[lineKey] : undefined;
-  const label = describe(study, Boolean(shownLine?.proposed?.length));
-  const credit = shownLine?.credit;
-  useEffect(() => onCredit(credit ?? null), [credit?.text, credit?.url]);
+  const label = describe(study, Boolean(shownLine?.proposed?.length), layers.shown.length);
+  const credits = [
+    ...(shownLine?.credit ? [shownLine.credit] : []),
+    ...layers.shown.flatMap(({ layer }) => {
+      const text = creditOf(layer);
+      return text && layer.dataset ? [{ text, url: layer.dataset.url }] : [];
+    }),
+  ].filter((credit, i, all) => all.findIndex((c) => c.text === credit.text) === i);
+  const key = study ? LINE_KEYS[study.id] : undefined;
+
   // Back to the study, and focus to the map, as the button goes.
   const resetView = (event: MouseEvent) => {
     const focused = document.activeElement === event.currentTarget;
@@ -277,7 +374,7 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
     if (focused) (flat ? flatCanvas : glCanvas).current?.focus();
   };
   return (
-    <>
+    <div class="map-pane">
       {/* The map showing takes the keys and the gestures. */}
       <canvas ref={glCanvas} class={flat ? "map hidden" : "map"} role="application" aria-roledescription="map" aria-label={label} aria-describedby="map-keys" aria-hidden={flat} tabIndex={flat ? undefined : 0} />
       <canvas ref={flatCanvas} class={flat ? "map" : "map hidden"} role="application" aria-roledescription="map" aria-label={label} aria-describedby="map-keys" aria-hidden={!flat} tabIndex={flat ? 0 : undefined} />
@@ -286,9 +383,96 @@ export function MapView({ study, simulator, canCreate, picked = null, onCredit, 
         {moved && "You have moved the map. Home or Reset view goes back. "}
         Drag, scroll or use the arrow keys to move. Pinch, or plus and minus, to zoom. Shift with a drag or the arrow keys turns and tilts. Home goes back to the study.
       </p>
-      <MapButtons controls={controls} onReset={resetView} />
       <div class="fade" aria-hidden="true" />
-      <Needs study={study} feed={feed} canCreate={canCreate} onDetails={onNeed} onViewer={onViewer} />
-    </>
+      {needsShown && <Needs study={study} feed={feed} canCreate={canCreate} onDetails={onNeed} onViewer={onViewer} />}
+
+      <div class="map-top">
+        <div class="map-toolbar" role="group" aria-label="Map tools">
+          <button type="button" class="tool wide" aria-pressed={networkShown} onClick={() => setNetworkShown(!networkShown)}>
+            <LineIcon name="layers" size={18} />
+            Basemap
+          </button>
+          <button ref={searchButton} type="button" class="tool" aria-label="Search the map" title="Search" aria-expanded={searching} aria-controls="map-search" onClick={() => (searching ? closeSearch() : setSearching(true))}>
+            <LineIcon name="search" size={18} />
+          </button>
+          <button type="button" class="tool" aria-label="Refresh layers" title="Refresh layers" onClick={() => setRefreshed((n) => n + 1)}>
+            <LineIcon name="reset" size={18} />
+          </button>
+          <button type="button" class="tool" aria-label="Engagement needs" title="Engagement needs" aria-pressed={needsShown} onClick={() => setNeedsShown(!needsShown)}>
+            <LineIcon name="needs" size={18} />
+          </button>
+          <button type="button" class="tool" aria-label="Download shown layers" title="Download" disabled={!layers.shown.length} onClick={saveAll}>
+            <LineIcon name="download" size={18} />
+          </button>
+        </div>
+        <div id="map-search" class="map-search" hidden={!searching} onKeyDown={(event) => event.key === "Escape" && closeSearch()}>
+          <input
+            ref={searchBox}
+            type="search"
+            value={query}
+            aria-label="Find a place on the map"
+            placeholder="Find a place"
+            autocomplete="off"
+            onInput={(event) => setQuery(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && found[0]) goTo(found[0]);
+            }}
+          />
+          {query.trim() && (
+            <ul aria-label="Places found">
+              {found.map((place, i) => (
+                <li key={`${place.label}-${place.layer}-${i}`}>
+                  <button type="button" onClick={() => goTo(place)}>
+                    <span>{place.label}</span>
+                    <span class="layer">{place.layer}</span>
+                  </button>
+                </li>
+              ))}
+              {!found.length && <li class="none">No match</li>}
+            </ul>
+          )}
+        </div>
+        <Layers
+          listed={layers.listed}
+          hidden={(id) => !layers.shown.some(({ layer }) => layer.id === id)}
+          removed={layers.removed}
+          onToggle={layers.toggle}
+          onZoom={zoomTo}
+          onSave={(loaded) => loaded.collection && save(loaded.collection, fileName(loaded.layer))}
+          onSaveAll={saveAll}
+          onRemove={layers.remove}
+          onRestore={layers.restore}
+        />
+      </div>
+
+      <MapButtons controls={controls} onReset={resetView} />
+
+      <div class="map-foot">
+        {children}
+        {(key || credits.length > 0) && (
+          <div class="map-notes">
+            {key && study && (
+              <p class="key" style={{ "--line": `#${studyColor(study.line)}` }}>
+                <span>
+                  <span class="swatch" aria-hidden="true" />
+                  <span class="sr-only">Solid line: </span>
+                  {key[0]}
+                </span>
+                <span>
+                  <span class="swatch dashed" aria-hidden="true" />
+                  <span class="sr-only">Dashed line: </span>
+                  {key[1]}
+                </span>
+              </p>
+            )}
+            {credits.map((credit) => (
+              <a key={credit.text} class="credit" href={credit.url} target="_blank" rel="noopener noreferrer">
+                {credit.text}
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

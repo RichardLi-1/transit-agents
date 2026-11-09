@@ -387,7 +387,7 @@ export function Notices({ notices, studies, covered, onScreen, onReview }: Props
       <button
         ref={bell}
         type="button"
-        class={count ? "bell unread" : "bell"}
+        class={count ? "rail-item bell unread" : "rail-item bell"}
         aria-expanded={open}
         aria-controls="notice-list"
         onClick={toggle}
@@ -396,7 +396,7 @@ export function Notices({ notices, studies, covered, onScreen, onReview }: Props
         <span class={rings ? "swing" : undefined} key={rings}>
           <BellIcon />
         </span>
-        <span class="sr-only">Notifications</span>
+        <span class="rail-label">Alerts</span>
         {count > 0 && (
           <span class="badge">
             {count > 9 ? "9+" : count}
