@@ -177,6 +177,35 @@ QUOTES = [
     ("ontario-line-ibc-2019", 38, "an 800-metre walkshed around stations, based on an assumed 2041 street network"),
     ("ttc-anp-2026", 114, "boardings at all stops within 400m of a Neighbourhood Improvement Area (NIA), as designated by the City of Toronto"),
     ("ttc-standards-2024", 24, "people with low income, women and shift workers"),
+    # safety-audit
+    ("toronto-vision-zero-2-2019", 17, "KSI collisions between various emphasis areas since collision events often involve"),
+    ("toronto-vision-zero-2-2019", 13, "Reactive to historical crashes"),
+    ("toronto-vision-zero-2-2019", 13, "Proactive and systemic prioritization"),
+    ("toronto-vision-zero-2-2019", 14, "Table 3. Most Effective Vision Zero Countermeasures in Toronto"),
+    ("toronto-vision-zero-2-2019", 14, "Vulnerable road users have a 95% likelihood of death"),
+    ("toronto-vision-zero-2-2019", 14, "in a collision at 60 km/hr, while at 40 km/hr the likelihood of death is reduced to"),
+    ("fhwa-psc-2021", 7, "Appropriate Speed"),
+    ("toronto-vision-zero-2-2019", 14, "40% of pedestrian KSI collisions happen as pedestrians are crossing mid-block"),
+    ("toronto-vision-zero-2-2019", 34, "Given that the presence of TTC stops at mid-block locations may encourage"),
+    ("toronto-vision-zero-2-2019", 34, "Stakeholders representing pedestrians with disabilities have raised concerns with"),
+    ("fhwa-psc-2021", 25, "A pedestrian refuge island (or crossing area) is a median with a refuge area"),
+    ("toronto-vision-zero-2-2019", 35, "most prevalent type of KSI collisions involving pedestrians (18%) and cyclists (8%)."),
+    ("toronto-vision-zero-2-2019", 35, "Pedestrian head start signals, also known as Leading Pedestrian Intervals (LPI), are"),
+    ("fhwa-psc-2021", 24, "enter the crosswalk at an intersection 3-7 seconds before vehicles are given"),
+    ("toronto-vision-zero-2017", 32, "No right-turn-on-red prohibitions will be implemented at key"),
+    ("toronto-vision-zero-2017", 32, "corner radii result in shorter pedestrian crossing distances and times,"),
+    ("fhwa-psc-2021", 22, "Most fatal and serious injury bicyclist crashes occur at non-intersection locations."),
+    ("toronto-vision-zero-2017", 47, "Cycle tracks are lanes for bicycles that are adjacent to the roadway,"),
+    ("fhwa-psc-2021", 30, "the nighttime fatality rate is three times the"),
+    ("toronto-vision-zero-2017", 31, "Working with Toronto Hydro, street lighting will be reviewed at"),
+    ("toronto-vision-zero-2017", 32, "In areas with high KSI collisions, in-depth safety reviews will be"),
+    ("fhwa-psc-2021", 32, "performed by a multidisciplinary team independent of the project"),
+    # active-transportation
+    ("toronto-vision-zero-2017", 47, "but separated from vehicular traffic"),
+    ("toronto-vision-zero-2-2019", 29, "sidewalks should be provided on arterial and collector"),
+    ("toronto-vision-zero-2-2019", 29, "Local roads remain the largest gap in the walking network"),
+    ("toronto-vision-zero-2-2019", 31, "Areas where users are more dependent on walking as a main mode of"),
+    ("fhwa-psc-2021", 28, "both sides of the road in urban areas"),
 ]
 
 
@@ -232,6 +261,7 @@ class TheSkillsTest(unittest.TestCase):
         expected = {
             *("ttc-standards", "consultation", "trial-monitor", "handover", "metrolinx-business-case"),
             *("engagement-needs", "gtfs-analyst", "transit-cost-benchmark", "planning-glossary", "gis-analyst"),
+            *("safety-audit", "active-transportation"),
         }
         self.assertLessEqual(expected, listed.keys())
         self.assertEqual(listed, {skill.name: skill.description for skill in self.skills})

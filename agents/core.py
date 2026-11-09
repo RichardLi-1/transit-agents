@@ -77,6 +77,14 @@ WRITES = {
     "buffer": "studyId",
     "overlay": "studyId",
     "points_within": "studyId",
+    # Road safety and active transportation, which only their skills' tools call.
+    "ksi_profile": "studyId",
+    "ksi_hotspots": "studyId",
+    "ksi_trend": "studyId",
+    "cycling_within": "studyId",
+    "sidewalks_within": "studyId",
+    "bike_share_within": "studyId",
+    "first_last_mile": "studyId",
 }
 
 # Retry busy (503), rate-limit (429) and server errors, and a connection that failed,
