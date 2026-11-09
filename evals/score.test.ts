@@ -183,4 +183,12 @@ describe("countBySkill", () => {
       "all         1     2       1    4               2          1",
     ]);
   });
+
+  it("gives every skill at least 8 cases of its own, split between dev and test, with one to refuse or hand over", () => {
+    for (const row of countBySkill(cases)) {
+      assert.ok(row.dev + row.test >= 8, `${row.skill}: ${row.dev + row.test} dev and test cases`);
+      assert.ok(row.dev >= 3 && row.test >= 3, `${row.skill}: ${row.dev} dev, ${row.test} test`);
+      assert.ok(row.handOver >= 1, `${row.skill}: nothing to refuse or hand over`);
+    }
+  });
 });
