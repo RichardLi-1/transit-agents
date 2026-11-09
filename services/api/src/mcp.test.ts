@@ -136,8 +136,8 @@ describe("mcp", () => {
     const [planner, agent, integration, viewer] = await Promise.all(
       ["planner-token", "agent-token", "integration-token", "viewer-token"].map(names),
     );
-    assert.equal(planner?.length, 45);
-    assert.equal(agent?.length, 36);
+    assert.equal(planner?.length, 52);
+    assert.equal(agent?.length, 43);
     assert.ok(["route_stops", "buffer", "overlay", "points_within", "summarise_layer"].every((name) => agent?.includes(name)));
     assert.ok(agent?.includes("propose_alignment"));
     assert.ok(agent?.includes("create_document") && planner?.includes("create_document"));

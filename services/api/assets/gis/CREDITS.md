@@ -31,3 +31,20 @@ carries them. Show the credit with anything made from a dataset.
 
 The two corridor files come from the reference set (`references/files/site/toronto`
 in the main checkout, fetched 2026-11-08). Run the script with `--site` to rebuild them.
+
+## Road safety and active transportation
+
+Made by `scripts/build-safety-data.ts`, listed in `datasets-safety.json`.
+
+- `ksi-detail.json.gz`: [Motor Vehicle Collisions involving Killed or Seriously Injured Persons](https://open.toronto.ca/dataset/motor-vehicle-collisions-involving-killed-or-seriously-injured-persons/),
+  Toronto Police Service, via City of Toronto Open Data. Open Government Licence – Toronto.
+  One record per collision, with its hour, light, place, streets and the people
+  killed or seriously injured by road user.
+- `cycling.json.gz`: [Cycling Network](https://open.toronto.ca/dataset/cycling-network/),
+  City of Toronto. Open Government Licence – Toronto. Simplified to about 2 m.
+- `sidewalks.json.gz`: [Sidewalk Inventory](https://open.toronto.ca/dataset/sidewalk-inventory/),
+  City of Toronto. Open Government Licence – Toronto. Streets only, simplified to
+  about 2 m. The inventory dates from 2017.
+- `bikeshare.json.gz`: Bike Share Toronto's station list (GBFS `station_information`),
+  from the [Bike Share Toronto](https://open.toronto.ca/dataset/bike-share-toronto/)
+  dataset on City of Toronto Open Data. Open Government Licence – Toronto.
