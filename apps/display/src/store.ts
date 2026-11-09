@@ -5,6 +5,7 @@ import type { Assumption, Context, LoggedActivity, LogEntry, StudyView, Usage } 
 import { api, bearer, eventsUrl } from "./api.ts";
 import { hear, NOTHING_HEARD, type Heard } from "./notify.ts";
 import { track, type Runs } from "./runs.ts";
+import { wantsMap, type ToolStep } from "./steps.ts";
 
 // replay is true for the scripted replay's work, which no model did. It's kept for
 // each message and sub-agent, so a study's chat says so whatever comes after.
@@ -21,6 +22,13 @@ export type DocumentItem = { seq: number; studyId: string | null; title: string;
 // who it went to and when, so every viewer's chat says it was sent.
 export type EscalationItem = { seq: number; studyId: string | null; message?: number; text: string; to: string; at: string };
 
+// A map layer an agent added: the GIS service lists it, and the chat names it.
+export type LayerItem = { seq: number; studyId: string | null; layerId: string; title: string };
+
+// A new entry that brings the map into view: a layer added, or a planner asking
+// about the map. Only what arrives once the display is open.
+export type MapAsk = { seq: number; studyId: string };
+
 export const REPLAY = "agent:replay";
 
 export type Store = {
@@ -33,6 +41,9 @@ export type Store = {
   since: number | null;
   messages: Message[];
   subagents: Subagent[];
+  tools: ToolStep[];
+  layers: LayerItem[];
+  mapAsk: MapAsk | null;
   documents: DocumentItem[];
   escalations: EscalationItem[];
   reading: string | null;
@@ -58,6 +69,9 @@ export const initial: Store = {
   since: null,
   messages: [],
   subagents: [],
+  tools: [],
+  layers: [],
+  mapAsk: null,
   documents: [],
   escalations: [],
   reading: null,
@@ -101,14 +115,38 @@ function apply(store: Store, entry: LogEntry, live: boolean): Store {
   const activity = entry.data as LoggedActivity;
   const next = { ...store, focus };
   const replay = entry.actor === REPLAY;
+  // The GIS service's, which the contracts don't name yet.
+  const added = entry.data as { kind?: string; layerId?: unknown; title?: unknown };
+  if (added.kind === "layer.added") {
+    if (typeof added.layerId !== "string") return next;
+    const layer: LayerItem = { seq: entry.seq, studyId: entry.studyId, layerId: added.layerId, title: typeof added.title === "string" ? added.title : added.layerId };
+    const mapAsk = live && entry.studyId ? { seq: entry.seq, studyId: entry.studyId } : store.mapAsk;
+    return { ...next, layers: [...store.layers, layer], mapAsk };
+  }
   switch (activity.kind) {
-    case "message":
+    case "message": {
+      const from = PERSON.test(entry.actor) ? "planner" : "agent";
+      const asks = live && from === "planner" && entry.studyId && wantsMap(activity.text);
       return {
         ...next,
-        messages: [
-          ...store.messages,
-          { seq: entry.seq, studyId: entry.studyId, from: PERSON.test(entry.actor) ? "planner" : "agent", text: activity.text, replay },
-        ],
+        messages: [...store.messages, { seq: entry.seq, studyId: entry.studyId, from, text: activity.text, replay }],
+        mapAsk: asks ? { seq: entry.seq, studyId: entry.studyId as string } : store.mapAsk,
+      };
+    }
+    case "tool.called": {
+      const step: ToolStep = { seq: entry.seq, id: activity.id, studyId: entry.studyId, name: activity.name, replay };
+      if (activity.subagentId) step.subagentId = activity.subagentId;
+      if (activity.summary) step.summary = activity.summary;
+      return { ...next, tools: [...store.tools.filter((t) => !(t.id === activity.id && t.studyId === entry.studyId)), step] };
+    }
+    case "tool.finished":
+      return {
+        ...next,
+        tools: store.tools.map((t) =>
+          t.id === activity.id && t.studyId === entry.studyId
+            ? { ...t, ok: activity.ok, ...(activity.ms !== undefined ? { ms: activity.ms } : {}), ...(activity.summary ? { result: activity.summary } : {}) }
+            : t,
+        ),
       };
     case "reading":
       return { ...next, reading: activity.contextId };
@@ -136,6 +174,7 @@ function apply(store: Store, entry: LogEntry, live: boolean): Store {
       return {
         ...next,
         subagents: store.subagents.filter((s) => s.studyId !== entry.studyId),
+        tools: store.tools.filter((t) => t.studyId !== entry.studyId),
         openRuns: entry.studyId ? { ...store.openRuns, [entry.studyId]: entry.seq } : store.openRuns,
       };
     case "run.finished": {
