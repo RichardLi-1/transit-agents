@@ -9,6 +9,8 @@ export function citesAPage(id: string, figures: FigureView[], assumptions: Assum
   seen.add(id);
   const { basis } = figure;
   if (basis.kind === "cited") return true;
+  // A total from a map layer cites its dataset, which has no pages.
+  if (basis.kind === "spatial") return false;
   const inputs = basis.kind === "derived" ? Object.values(basis.inputs) : basis.inputs;
   return inputs.some((input) =>
     "figure" in input ? citesAPage(input.figure, figures, assumptions, seen) : Boolean(assumptions.find((a) => a.key === input.assumption)?.citation),

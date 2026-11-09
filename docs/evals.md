@@ -54,7 +54,7 @@ citations. [score.ts](../evals/score.ts) compares it with the case.
 
 ## The current set
 
-145 cases, every one named by the skill it mainly tests, and each skill with at least
+158 cases, every one named by the skill it mainly tests, and each skill with at least
 8 of its own, split between `dev` and `test`, with at least one it should refuse or
 hand over. `npm run agent:cases` prints the counts:
 
@@ -73,8 +73,10 @@ hand over. `npm run agent:cases` prints the counts:
 | handover | 5 | 4 | | 9 | 5 |
 | engagement-needs | 4 | 5 | | 4 | 9 |
 | tpap-brief | 4 | 4 | | 2 | 8 |
+| gis-analyst | 8 | 5 | | 3 | |
 
 - Behaviours: 85 answer, 29 flag, 18 refuse, 13 abstain.
+- Spatial cases' gold comes from the service's own GIS tools on the committed datasets ([spatial-gold.ts](../evals/spatial-gold.ts)). A test fails if a rebuilt dataset moves one. They cite datasets, which have no pages, so they score values and wording, not pages.
 - Scored by script: all but 6. By rubric: draft-001, draft-002, monitor-001, bct-008,
   tpap-005 and tpap-006, each new one with its rubric written out.
 - Changed numbers, so remembering the published answer gives the wrong one: the four
@@ -136,7 +138,7 @@ money, so the limit stays at 3 unless you raise it. Run the same cases again wit
 The current set can show that the system works and the method is sound, but not
 yet agent quality. Eight decisions is too few: five perfect answers still give a
 95% lower bound of 48%. A planner wrote none of the cases, 17 of the first 53 reuse the
-Lawrence proposal, and 92 of the 145 wait for a planner's review. With 4 or 5 test cases a skill, one case moves a skill's test
+Lawrence proposal, and 92 of the 158 wait for a planner's review. With 4 or 5 test cases a skill, one case moves a skill's test
 score by 20 to 25 points, so report each skill's counts with its rate, over at least
 3 runs.
 

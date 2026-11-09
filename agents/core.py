@@ -67,6 +67,14 @@ WRITES = {
     "propose_alignment": "studyId",
     "create_document": "studyId",
     "report_activity": "studyId",
+    # The GIS tools, which only gis-analyst's own tools call, for the run's study.
+    "route_stops": "studyId",
+    "route_shape": "studyId",
+    "study_line": "studyId",
+    "named_area": "studyId",
+    "buffer": "studyId",
+    "overlay": "studyId",
+    "points_within": "studyId",
 }
 
 # Retry busy (503), rate-limit (429) and server errors, and a connection that failed,

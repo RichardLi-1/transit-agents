@@ -97,3 +97,13 @@ Explain jargon in its source's own words, with the page, and say when no source 
 - TPAP: the Transit Project Assessment Process, under Ontario Regulation 231/08 (Manual p. 204).
 - Major rather than minor service change: one that changes riders' travel options or needs more resources, and so needs TTC Board approval (p. 113).
 - OMSF in the Ontario Line's cases: no source prints it, and they use MSF, Maintenance and Storage Facility. Says so, and doesn't guess.
+
+## 12. Spatial
+
+Answer where-questions on open data with the service's GIS tools, citing the dataset. Values from [spatial-gold.ts](../evals/spatial-gold.ts).
+
+- Residents within 400 m of the 52 Lawrence West's stops: about 83,643, area-weighted, 2021 Census.
+- KSI collisions within 400 m of the 52's stops, 2021 to 2025: 53, police-reported.
+- Neighbourhood Improvement Areas a 400 m walk from the 52's stops reaches: 3, Kingsview Village-The Westway, Weston and Rustic.
+- Low-income households near the 52: the census counts people in low income (LIM-AT), not households. Gives the people, and flags it.
+- How many will ride a Don Mills extension: GIS can't tell. That needs a ridership forecast.
