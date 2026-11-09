@@ -2,6 +2,8 @@
 // display. Anything that crosses the API is defined here once.
 import { z } from "zod";
 
+export * from "./safety.ts";
+
 export { evaluate, FormulaError, variables } from "./formula.ts";
 
 const slug = z.string().regex(/^[a-z0-9][a-z0-9.-]{0,62}$/, "Use lowercase letters, numbers, dots and dashes");

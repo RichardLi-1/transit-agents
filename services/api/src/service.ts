@@ -1176,7 +1176,8 @@ export class Service {
 
   // Saves what an operation made as a layer, logs that it was added, and records the
   // totals named as figures. The same operation again gives back the layer it made.
-  private saveLayer(
+  // The road safety and active transportation tools (gis-safety.ts, gis-active.ts) save theirs here too.
+  saveLayer(
     actor: string,
     studyId: string,
     made: Made,
