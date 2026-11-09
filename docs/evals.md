@@ -33,6 +33,12 @@ citations. [score.ts](../evals/score.ts) compares it with the case.
   adds. `npm run agent:cases` prints each skill's cases by split.
 - `split`: `dev` to build against, `test` kept aside, `future` for answers nobody knows yet.
 - `context` or `inputs`: full documents, or a prepared copy with the outcome removed.
+- `study`: what the case's study holds when it opens, as a planner would have set it:
+  `brief`, `routes`, `line` (a line the map draws, for engagement needs), `trial` dates
+  and the service patterns to `watch`.
+- `measured`: departures the live feed measured, `evals/inputs/<name>.json`, each day's
+  by pattern and by how they left. The runner adds them where the collector would, so
+  `get_timeline` serves them. The ones here are synthetic, and say so.
 - `perturbed`: the numbers were changed, so the published answer is wrong.
 - `expect.behaviour`: `answer`, `flag`, `abstain` or `refuse`.
 - `expect.value`, `tolerance`: the number, and how close it must be.

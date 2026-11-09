@@ -1,0 +1,23 @@
+{
+ "note": "Synthetic departures for eval cases, not real measurements: each day's departures by service pattern, counted by how they left. onTime 0 to 5 minutes late, slightlyEarly up to 1 minute early, early more than 1 minute early, late more than 5 minutes late.",
+ "days": [
+  {
+   "date": "2026-10-07",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 5,
+   "slightlyEarly": 1,
+   "early": 0,
+   "late": 1
+  },
+  {
+   "date": "2026-10-14",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 3,
+   "slightlyEarly": 0,
+   "early": 1,
+   "late": 1
+  }
+ ]
+}

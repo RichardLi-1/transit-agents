@@ -30,6 +30,7 @@ import secrets
 import shutil
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -84,6 +85,15 @@ def ports() -> range:
 
 # A case names its sources by id. This one isn't a document: the live feed is a tool.
 FEEDS = {"live-vehicles": "live vehicle positions (the live_vehicles tool)"}
+
+# What a case may set up in its study, as a planner would have opened it: a line on
+# the map, a trial's dates, the service patterns to watch. open_study takes these.
+STUDY_FIELDS = ("brief", "routes", "line", "trial", "watch")
+
+# A case's measured departures, evals/inputs/<name>.json, give each day's departures
+# by pattern, counted by how they left: a deviation for each, in seconds, away from
+# the edges of both on-time windows (services/api/src/reliability.ts).
+DEVIATIONS = {"early": -120, "slightlyEarly": -30, "onTime": 60, "late": 420}
 
 # The values evals/score.ts accepts.
 BEHAVIOURS = ("answer", "flag", "abstain", "refuse")
@@ -302,6 +312,11 @@ def choose(service: Service, cases: list[dict[str, Any]], limit: int) -> list[di
     for name in dict.fromkeys(name for case in chosen for name in case.get("inputs", [])):
         if not (path := EVALS / "inputs" / f"{name}.txt").exists():
             raise SetupError(f"No input {path.relative_to(ROOT)}.")
+    for case in chosen:
+        if unknown := sorted(set(case.get("study") or {}) - set(STUDY_FIELDS)):
+            raise SetupError(f"{case['id']}: a study takes {', '.join(STUDY_FIELDS)}, not {', '.join(unknown)}.")
+        if (name := case.get("measured")) and not (path := EVALS / "inputs" / f"{name}.json").exists():
+            raise SetupError(f"No measured departures {path.relative_to(ROOT)}.")
     if chosen:
         if len(chosen) < len(runnable):
             counted = f"{len(chosen)} of {len(runnable)} cases (--limit {limit})"
@@ -331,6 +346,32 @@ def add_inputs(service: Service, case: dict[str, Any]) -> dict[str, Any]:
     for shown, name in input_names(case).items():
         service.add_source(shown, (EVALS / "inputs" / f"{name}.txt").read_text())
     return {source["id"]: source for source in service.api("GET", "/v1/context")}
+
+
+def departures(name: str) -> list[tuple[str, str, str, str, int, int, int]]:
+    """A case's measured departures, as the collector records them: trip, date, route,
+    pattern, scheduled and actual time, and how late it left, in seconds."""
+    rows = []
+    for day in json.loads((EVALS / "inputs" / f"{name}.json").read_text())["days"]:
+        midnight = int(datetime.fromisoformat(day["date"]).replace(tzinfo=UTC).timestamp())
+        n = 0
+        for kind, deviation in DEVIATIONS.items():
+            for _ in range(day.get(kind, 0)):
+                n += 1
+                scheduled = midnight + 6 * 3600 + 60 * n
+                trip = f"{day['pattern']}-{day['date']}-{n}"
+                rows.append((trip, day["date"], day["route"], day["pattern"], scheduled, scheduled + deviation, deviation))
+    return rows
+
+
+def add_measured(service: Service, case: dict[str, Any]) -> None:
+    """Add the departures the case says the live feed measured to its service, where
+    the collector would have: the service reads them for get_timeline."""
+    if not (name := case.get("measured")):
+        return
+    assert service.data
+    with contextlib.closing(sqlite3.connect(Path(service.data, "measurements.db"))) as db, db:
+        db.executemany("INSERT INTO departures VALUES (?, ?, ?, ?, ?, ?, ?)", departures(name))
 
 
 def seeded() -> Service:
@@ -431,7 +472,7 @@ async def run_case(
     usage: dict[str, Any] = {}
     started = time.monotonic()
     try:
-        await call(session, "open_study", {"id": study, "title": study})
+        await call(session, "open_study", {"id": study, "title": study, **(case.get("study") or {})})
         # Without skills, the skills folder is an empty one.
         with contextlib.nullcontext() if skills else tempfile.TemporaryDirectory() as empty:
             task = task_for(case, sources)
@@ -507,6 +548,7 @@ async def run_cases(
         study = f"study-{n + 1}"  # nothing that names the case, or what it tests
         try:
             sources = add_inputs(service, case)
+            add_measured(service, case)
             async with open_session(service.url, service.tokens["agent"]) as session:
                 line = await run_case(session, client, case, sources, study, skills=skills)
         except (ModelError, httpx2.TransportError) as error:

@@ -89,6 +89,36 @@ class TaskTest(unittest.TestCase):
         self.assertEqual(evals.task_for({"query": "Edit the log.", "context": []}, self.sources), "Edit the log.")
 
 
+class SetupTest(unittest.TestCase):
+    """A case's study and measured departures, set up before the agent sees it."""
+
+    class NoSources:
+        def api(self, method, path, body=None, *, role="planner"):
+            return []
+
+    def case(self, **more):
+        return {"id": "trial-x", "query": "On time?", "context": [], **more}
+
+    def test_measured_departures_by_how_they_left(self):
+        rows = evals.departures("trial-sparse")
+        self.assertEqual(len(rows), 12)
+        trip, date, route, pattern, scheduled, actual, deviation = rows[0]
+        self.assertEqual((trip, date, route, pattern), ("52F-2026-10-07-1", "2026-10-07", "52", "52F"))
+        self.assertEqual(actual - scheduled, deviation)
+        # 5 on time, 1 a little early, 1 late; then 3 on time, 1 early, 1 late.
+        self.assertEqual(sorted(row[6] for row in rows), [-120, -30, *[60] * 8, 420, 420])
+        self.assertEqual(len({row[0] for row in rows}), 12, "each departure is a trip of its own")
+
+    def test_a_study_only_as_open_study_takes_it(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            good = self.case(study={"line": "lawrence-sunnybrook", "watch": ["52F"]}, measured="trial-sparse")
+            self.assertEqual(evals.choose(self.NoSources(), [good], 3), [good])
+            with self.assertRaisesRegex(core.SetupError, "trial-x: a study takes brief, routes, line, trial, watch, not figures"):
+                evals.choose(self.NoSources(), [self.case(study={"figures": []})], 3)
+            with self.assertRaisesRegex(core.SetupError, "No measured departures evals/inputs/nope.json"):
+                evals.choose(self.NoSources(), [self.case(measured="nope")], 3)
+
+
 class CitationsTest(unittest.TestCase):
     def pages(self, text):
         sources = ["ttc-anp-2026", "ttc-standards-2024", "lawrence", "rules"]
@@ -426,6 +456,41 @@ class EndToEndTest(unittest.TestCase):
         self.assertEqual(first["output"]["id"], "study-1")
         self.assertTrue(second["error"].startswith("404 not_found"), second)
         self.assert_cleaned_up(services=2)
+
+    def test_a_case_sets_up_its_study_and_what_the_feed_measured(self):
+        case = {
+            "id": "trial-x",
+            "capability": "monitor",
+            "skill": "trial-monitor",
+            "split": "dev",
+            "query": "How on time is the trial?",
+            "context": ["live-vehicles"],
+            "study": {"line": "lawrence-sunnybrook", "watch": ["52F"], "trial": {"startedOn": "2026-10-06", "reviewOn": "2027-10-06"}},
+            "measured": "trial-sparse",
+            "expect": {"behaviour": "abstain"},
+        }
+        self.enterContext(mock.patch.object(evals, "load_cases", return_value=[case]))
+        seen = {}
+
+        def respond(request):
+            if request.config.response_mime_type == "application/json":
+                return reply(text=json.dumps({"behaviour": "abstain"}))
+            if "ask_specialist" in request.tools:  # the lead
+                return reply(("ask_specialist", {"question": "How on time?"})) if request.turn == 0 else reply(text="Too few.")
+            if request.turn == 0:
+                return reply(("get_study", {"studyId": "study-1"}), ("get_timeline", {"studyId": "study-1"}))
+            seen.update({name: result["output"] for name, result in request.results})
+            return reply(text="Too few.")
+
+        status, out, err = self.main(["--case", "trial-x"], FakeGemini(respond))
+
+        self.assertEqual(status, 0, err)
+        study, timeline = seen["get_study"], seen["get_timeline"]
+        self.assertEqual((study["line"], study["watch"], study["trial"]["startedOn"]), ("lawrence-sunnybrook", ["52F"], "2026-10-06"))
+        self.assertEqual(timeline["measured"]["patterns"], ["52F"])
+        days = {day["date"]: (day["departures"], day["onTimeStandard"], day["onTimeReported"]) for day in timeline["measured"]["days"]}
+        self.assertEqual(days, {"2026-10-07": (7, 6, 5), "2026-10-14": (5, 3, 3)})
+        self.assert_cleaned_up()
 
     def test_the_reader_is_apart_from_the_leads_model_unless_set_to_it(self):
         self.assertNotEqual(evals.READER_DEFAULT, core.DEFAULT_MODEL)  # by default, not the model that wrote the answer

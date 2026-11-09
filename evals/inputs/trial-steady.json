@@ -1,0 +1,329 @@
+{
+ "note": "Synthetic departures for eval cases, not real measurements: each day's departures by service pattern, counted by how they left. onTime 0 to 5 minutes late, slightlyEarly up to 1 minute early, early more than 1 minute early, late more than 5 minutes late.",
+ "days": [
+  {
+   "date": "2026-10-06",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 100,
+   "slightlyEarly": 8,
+   "early": 4,
+   "late": 12
+  },
+  {
+   "date": "2026-10-06",
+   "pattern": "11B",
+   "route": "11",
+   "onTime": 46,
+   "slightlyEarly": 4,
+   "early": 2,
+   "late": 6
+  },
+  {
+   "date": "2026-10-06",
+   "pattern": "29",
+   "route": "29",
+   "onTime": 150,
+   "slightlyEarly": 10,
+   "early": 8,
+   "late": 32
+  },
+  {
+   "date": "2026-10-07",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 101,
+   "slightlyEarly": 8,
+   "early": 4,
+   "late": 12
+  },
+  {
+   "date": "2026-10-07",
+   "pattern": "11B",
+   "route": "11",
+   "onTime": 46,
+   "slightlyEarly": 5,
+   "early": 2,
+   "late": 6
+  },
+  {
+   "date": "2026-10-07",
+   "pattern": "29",
+   "route": "29",
+   "onTime": 150,
+   "slightlyEarly": 10,
+   "early": 8,
+   "late": 32
+  },
+  {
+   "date": "2026-10-08",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 102,
+   "slightlyEarly": 8,
+   "early": 4,
+   "late": 12
+  },
+  {
+   "date": "2026-10-08",
+   "pattern": "11B",
+   "route": "11",
+   "onTime": 46,
+   "slightlyEarly": 4,
+   "early": 2,
+   "late": 6
+  },
+  {
+   "date": "2026-10-08",
+   "pattern": "29",
+   "route": "29",
+   "onTime": 150,
+   "slightlyEarly": 10,
+   "early": 8,
+   "late": 32
+  },
+  {
+   "date": "2026-10-13",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 101,
+   "slightlyEarly": 8,
+   "early": 4,
+   "late": 11
+  },
+  {
+   "date": "2026-10-13",
+   "pattern": "11B",
+   "route": "11",
+   "onTime": 46,
+   "slightlyEarly": 4,
+   "early": 2,
+   "late": 6
+  },
+  {
+   "date": "2026-10-13",
+   "pattern": "29",
+   "route": "29",
+   "onTime": 150,
+   "slightlyEarly": 10,
+   "early": 8,
+   "late": 33
+  },
+  {
+   "date": "2026-10-14",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 102,
+   "slightlyEarly": 8,
+   "early": 4,
+   "late": 11
+  },
+  {
+   "date": "2026-10-14",
+   "pattern": "11B",
+   "route": "11",
+   "onTime": 46,
+   "slightlyEarly": 5,
+   "early": 2,
+   "late": 6
+  },
+  {
+   "date": "2026-10-14",
+   "pattern": "29",
+   "route": "29",
+   "onTime": 150,
+   "slightlyEarly": 10,
+   "early": 8,
+   "late": 33
+  },
+  {
+   "date": "2026-10-15",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 100,
+   "slightlyEarly": 8,
+   "early": 4,
+   "late": 11
+  },
+  {
+   "date": "2026-10-15",
+   "pattern": "11B",
+   "route": "11",
+   "onTime": 46,
+   "slightlyEarly": 4,
+   "early": 2,
+   "late": 6
+  },
+  {
+   "date": "2026-10-15",
+   "pattern": "29",
+   "route": "29",
+   "onTime": 150,
+   "slightlyEarly": 10,
+   "early": 8,
+   "late": 33
+  },
+  {
+   "date": "2026-10-20",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 102,
+   "slightlyEarly": 8,
+   "early": 4,
+   "late": 12
+  },
+  {
+   "date": "2026-10-20",
+   "pattern": "11B",
+   "route": "11",
+   "onTime": 46,
+   "slightlyEarly": 4,
+   "early": 2,
+   "late": 6
+  },
+  {
+   "date": "2026-10-20",
+   "pattern": "29",
+   "route": "29",
+   "onTime": 150,
+   "slightlyEarly": 10,
+   "early": 8,
+   "late": 34
+  },
+  {
+   "date": "2026-10-21",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 100,
+   "slightlyEarly": 8,
+   "early": 4,
+   "late": 12
+  },
+  {
+   "date": "2026-10-21",
+   "pattern": "11B",
+   "route": "11",
+   "onTime": 46,
+   "slightlyEarly": 5,
+   "early": 2,
+   "late": 6
+  },
+  {
+   "date": "2026-10-21",
+   "pattern": "29",
+   "route": "29",
+   "onTime": 150,
+   "slightlyEarly": 10,
+   "early": 8,
+   "late": 34
+  },
+  {
+   "date": "2026-10-22",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 101,
+   "slightlyEarly": 8,
+   "early": 4,
+   "late": 12
+  },
+  {
+   "date": "2026-10-22",
+   "pattern": "11B",
+   "route": "11",
+   "onTime": 46,
+   "slightlyEarly": 4,
+   "early": 2,
+   "late": 6
+  },
+  {
+   "date": "2026-10-22",
+   "pattern": "29",
+   "route": "29",
+   "onTime": 150,
+   "slightlyEarly": 10,
+   "early": 8,
+   "late": 34
+  },
+  {
+   "date": "2026-10-27",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 100,
+   "slightlyEarly": 8,
+   "early": 4,
+   "late": 11
+  },
+  {
+   "date": "2026-10-27",
+   "pattern": "11B",
+   "route": "11",
+   "onTime": 46,
+   "slightlyEarly": 4,
+   "early": 2,
+   "late": 6
+  },
+  {
+   "date": "2026-10-27",
+   "pattern": "29",
+   "route": "29",
+   "onTime": 150,
+   "slightlyEarly": 10,
+   "early": 8,
+   "late": 35
+  },
+  {
+   "date": "2026-10-28",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 101,
+   "slightlyEarly": 8,
+   "early": 4,
+   "late": 11
+  },
+  {
+   "date": "2026-10-28",
+   "pattern": "11B",
+   "route": "11",
+   "onTime": 46,
+   "slightlyEarly": 5,
+   "early": 2,
+   "late": 6
+  },
+  {
+   "date": "2026-10-28",
+   "pattern": "29",
+   "route": "29",
+   "onTime": 150,
+   "slightlyEarly": 10,
+   "early": 8,
+   "late": 35
+  },
+  {
+   "date": "2026-10-29",
+   "pattern": "52F",
+   "route": "52",
+   "onTime": 102,
+   "slightlyEarly": 8,
+   "early": 4,
+   "late": 11
+  },
+  {
+   "date": "2026-10-29",
+   "pattern": "11B",
+   "route": "11",
+   "onTime": 46,
+   "slightlyEarly": 4,
+   "early": 2,
+   "late": 6
+  },
+  {
+   "date": "2026-10-29",
+   "pattern": "29",
+   "route": "29",
+   "onTime": 150,
+   "slightlyEarly": 10,
+   "early": 8,
+   "late": 35
+  }
+ ]
+}
