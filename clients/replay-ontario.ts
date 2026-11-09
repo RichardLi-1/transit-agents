@@ -141,8 +141,13 @@ const QUESTIONS: Question[] = [
   },
 ];
 
-const PLAN =
-  "Four questions, one for each part of the business case, and one on what people along the line need to see. The extension is hypothetical, so every figure is the Ontario Line's own, a TTC count, or a formula over them with Metrolinx's rules and values planners set. Page numbers count the PDF's pages.";
+// The lead's plan, a numbered list the chat shows as one.
+export const PLAN = [
+  "Four questions, one for each part of the business case, and one on what people along the line need to see:",
+  ...QUESTIONS.map((step, i) => `${i + 1}. ${step.question}`),
+  "",
+  "The extension is hypothetical, so every figure is the Ontario Line's own, a TTC count, or a formula over them with Metrolinx's rules and values planners set. Page numbers count the PDF's pages.",
+].join("\n");
 
 // The answer: the precedent cost and its basis, then each gap on the card with its
 // next step, who to contact and its page, as agents/skills/handover sets out. It
@@ -182,8 +187,21 @@ export async function replayOntario(api = new ApiClient("agent"), gap = defaultG
   // A planner asks in the study's chat, with their own token.
   await planner.post(`/v1/studies/${id}/activity`, { kind: "message", text: QUESTION });
   await pause(gap);
+  // Each tool call shows in the chat as a step, as a live run's do: called, then finished.
+  let calls = 0;
+  const tool = async <T>(name: string, summary: string, run: () => Promise<T>, result: (out: T) => string, subagentId?: string) => {
+    const call = `replay-${++calls}`;
+    await activity({ kind: "tool.called", id: call, name, ...(summary ? { summary } : {}), ...(subagentId ? { subagentId } : {}) });
+    const started = Date.now();
+    const out = await run();
+    await activity({ kind: "tool.finished", id: call, ok: true, ms: Date.now() - started, summary: result(out) });
+    return out;
+  };
+
   await activity({ kind: "run.started" });
   await activity({ kind: "message", text: ONTARIO.study.brief });
+  await tool("get_study", `studyId: ${id}`, async () => undefined, () => ONTARIO.study.title);
+  await tool("list_skills", "", async () => undefined, () => "6 results");
   await pause(gap);
   await activity({ kind: "message", text: PLAN });
   for (const step of QUESTIONS) await activity({ kind: "subagent.started", id: step.sub, question: step.question });
@@ -191,14 +209,26 @@ export async function replayOntario(api = new ApiClient("agent"), gap = defaultG
 
   for (const step of QUESTIONS) {
     for (const [contextId, page] of step.read) {
-      await activity({ kind: "reading", contextId, page });
+      await tool(
+        "read_page",
+        `${contextId} p. ${page}`,
+        () => activity({ kind: "reading", contextId, page, subagentId: step.sub }),
+        () => `Page ${page}`,
+        step.sub,
+      );
       await pause(gap);
     }
     for (const figureId of step.figures) {
       const figure = figures.get(figureId);
       if (!figure) throw new Error(`Unknown figure ${figureId}`);
       figures.delete(figureId);
-      const recorded = await api.post<Figure>(`/v1/studies/${id}/figures`, figure);
+      const recorded = await tool(
+        "record_figure",
+        `id: ${figureId}, label: ${figure.label}`,
+        () => api.post<Figure>(`/v1/studies/${id}/figures`, figure),
+        (out) => `${out.label}: ${out.value.toLocaleString("en-CA", { maximumFractionDigits: 1 })}`,
+        step.sub,
+      );
       values.set(figureId, recorded.value);
       await pause(gap / 3);
     }
@@ -206,7 +236,7 @@ export async function replayOntario(api = new ApiClient("agent"), gap = defaultG
       const need = needs.get(needId);
       if (!need) throw new Error(`Unknown need ${needId}`);
       needs.delete(needId);
-      await api.post(`/v1/studies/${id}/needs`, need);
+      await tool("add_engagement_need", `id: ${needId}, place: ${need.place}`, () => api.post(`/v1/studies/${id}/needs`, need), () => need.title, step.sub);
       await pause(gap / 3);
     }
     await activity({ kind: "subagent.finished", id: step.sub, summary: step.summary(value) });
