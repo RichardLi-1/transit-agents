@@ -28,6 +28,9 @@ citations. [score.ts](../evals/score.ts) compares it with the case.
 ## Fields
 
 - `capability`: the capability in [queries.md](queries.md) it tests.
+- `skill`: the skill in `agents/skills/` it mainly tests. A run's scores are given by
+  skill too, so a run with skills set beside one with `--no-skills` shows what each
+  adds. `npm run agent:cases` prints each skill's cases by split.
 - `split`: `dev` to build against, `test` kept aside, `future` for answers nobody knows yet.
 - `context` or `inputs`: full documents, or a prepared copy with the outcome removed.
 - `perturbed`: the numbers were changed, so the published answer is wrong.
@@ -37,7 +40,11 @@ citations. [score.ts](../evals/score.ts) compares it with the case.
 - `expect.decision`, `checks`: the recommendation and each test result.
 - `expect.judgement`: the rules alone don't decide this case.
 - `expect.mentions`, `forbids`: required and banned wording.
-- `scorer: "rubric"`: needs planners or judged scoring.
+- `scorer: "rubric"`: needs planners or judged scoring. `rubric`: what a planner checks the answer for.
+- `review: "planner"`: a planner hasn't yet checked the gold answer, so the case
+  doesn't count in the paper.
+- `goldFrom`: how the gold answer was worked out, when it isn't read off a page, such
+  as with a skill's own script.
 
 ## The current set
 

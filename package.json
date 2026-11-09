@@ -20,6 +20,7 @@
     "agent": "agents/.venv/bin/python agents/main.py",
     "agent:eval": "agents/.venv/bin/python agents/main.py eval",
     "agent:score": "node --disable-warning=ExperimentalWarning evals/score-run.ts",
+    "agent:cases": "node --disable-warning=ExperimentalWarning evals/count.ts",
     "agent:test": "agents/.venv/bin/python -m unittest discover -s agents/tests -t agents",
     "serve": "node --disable-warning=ExperimentalWarning services/api/src/main.ts",
     "collect": "node --disable-warning=ExperimentalWarning services/api/src/collect.ts",

@@ -195,6 +195,11 @@ export function formatReport(report: RunReport, name = "run"): string {
   for (const [capability, row] of Object.entries(summary.byCapability).sort(([a], [b]) => a.localeCompare(b))) {
     out.push(`  ${capability.padEnd(width)}  ${rate(row.passed, row.total)}`);
   }
+  if (Object.keys(summary.bySkill).length) out.push("By skill:");
+  const skillWidth = Math.max(0, ...Object.keys(summary.bySkill).map((name) => name.length));
+  for (const [skill, row] of Object.entries(summary.bySkill).sort(([a], [b]) => a.localeCompare(b))) {
+    out.push(`  ${skill.padEnd(skillWidth)}  ${rate(row.passed, row.total)}`);
+  }
 
   out.push(
     d.total
