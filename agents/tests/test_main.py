@@ -558,7 +558,9 @@ class RunTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(api("GET", f"/v1/studies/{study}")["title"], "Run test")
         self.assertEqual([request.task for request in fake.requests[::2]], ["Find the riders.", "And again."])
         kinds = [a["kind"] for a in support.activities(study)]
-        self.assertEqual(kinds, ["run.started", "usage", "reading", "usage", "message", "run.finished"] * 2)
+        # Each tool call is a step in the chat: called, then finished, around its own activity.
+        steps = ["tool.called", "reading", "tool.finished"]
+        self.assertEqual(kinds, ["run.started", "usage", *steps, "usage", "message", "run.finished"] * 2)
 
 
 class AnswerTest(unittest.IsolatedAsyncioTestCase):

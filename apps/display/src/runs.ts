@@ -129,6 +129,10 @@ export function track(runs: Runs, entry: LogEntry, live: boolean): Runs {
       const owned = activity.subagentId ? { ...counted, specialists: mine(activity.subagentId, (s) => ({ ...s, tokens: s.tokens + tokens })).specialists } : counted;
       return { ...runs, [studyId]: owned };
     }
+    case "tool.called":
+    case "tool.finished":
+      // Only that the run is still at work: the chat shows each step.
+      return { ...runs, [studyId]: run };
     default:
       return runs;
   }

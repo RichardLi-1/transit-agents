@@ -71,16 +71,28 @@
   --scrim: rgba(255, 255, 255, 0.35);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --serif: "New York", "Iowan Old Style", Georgia, "Times New Roman", serif;
-  --chat: 340px;
-  /* A row of folders: the icons, their names and the padding around them. */
-  --shelf: 119px;
-  /* The edges of the map that the folders and the chat cover. The flat map frames
-     a study inside them, and cards on the map stay inside them. */
-  --map-top: 150px;
-  --map-right: 360px;
-  /* Where the map's buttons stand: at the foot of the map, or above the time bar,
-     which a laptop's screen makes as wide as the map. */
-  --map-foot: 24px;
+  /* The app's frame, as Waypoint's: a slim rail, the workspace and the chat, solid
+     panes on a ground a shade darker than they are. */
+  --frame: #eeeef2;
+  --pane: #fff;
+  --pane-edge: rgba(0, 0, 0, 0.09);
+  --rail: 68px;
+  --chat: 384px;
+  --gap: 8px;
+  /* The edge of the map the tools and the Layers panel cover: the flat map frames
+     a study below it, and cards on the map stay clear of it. */
+  --map-top: 60px;
+  --map-right: 0px;
+  /* Status colours on their tints, for the steps' badges. */
+  --pass-tint: #e3f4e8;
+  --pass-ink: #13672c;
+  --fail-tint: #fde7e5;
+  /* One type scale: the title, the figures, one size for text and a smaller one. */
+  --type-title: 600 22px/1.2 var(--serif);
+  --type-figure: 600 20px/1.2 var(--font);
+  --type-text: 14px;
+  --type-small: 12px;
+  --part-gap: 14px;
   color-scheme: light;
 }
 
@@ -140,6 +152,12 @@
     --divider-lit: rgba(255, 255, 255, 0.04);
     --on-ink: #161618;
     --scrim: rgba(0, 0, 0, 0.45);
+    --frame: #0c0c0e;
+    --pane: #161618;
+    --pane-edge: rgba(255, 255, 255, 0.1);
+    --pass-tint: #173823;
+    --pass-ink: var(--pass);
+    --fail-tint: #3f1b19;
     color-scheme: dark;
   }
 }
@@ -169,6 +187,8 @@
     --well-edge: 0 0 0 1px #1d1d1f;
     --gloss: none;
     --tag: #e5e5ea;
+    --frame: #fff;
+    --pane-edge: #1d1d1f;
   }
 }
 
@@ -191,11 +211,10 @@
     --field: #000;
     --tag: #3a3a3c;
     --bg: #000;
+    --frame: #000;
+    --pane: #000;
+    --pane-edge: #f5f5f7;
   }
-}
-
-:root:has(.stage > .time) {
-  --map-foot: 127px;
 }
 
 * {
@@ -206,7 +225,7 @@ html,
 body {
   margin: 0;
   height: 100%;
-  background: var(--bg);
+  background: var(--frame);
   color: var(--ink);
   font: 15px/1.4 var(--font);
   -webkit-font-smoothing: antialiased;
@@ -242,10 +261,610 @@ button {
   border: 0;
 }
 
-/* Map ------------------------------------------------------------------- */
+/* The frame -------------------------------------------------------------- */
+
+#app {
+  height: 100%;
+}
+
+/* The rail, the workspace and the chat, side by side on the frame's ground. */
+.app {
+  height: 100%;
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr) var(--chat);
+  gap: var(--gap);
+  padding: var(--gap) var(--gap) var(--gap) 0;
+}
+
+.workspace,
+.chat {
+  min-height: 0;
+  background: var(--pane);
+  border: 1px solid var(--pane-edge);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* Rail ------------------------------------------------------------------- */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 0;
+  padding: 6px 0;
+}
+
+.rail .brand {
+  width: 32px;
+  height: 32px;
+  margin-bottom: 10px;
+  border-radius: 9px;
+}
+
+.rail-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+/* An icon over its name, as in a desktop app's sidebar. */
+.rail-item {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 58px;
+  padding: 7px 0 6px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.rail-item:hover,
+.rail-item[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.rail-label {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.rail-tag {
+  max-width: 60px;
+  margin: 4px 0 0;
+  font-size: 10px;
+  text-align: center;
+}
+
+.rail-menu {
+  position: relative;
+}
+
+/* A menu off the rail: the studies, or the notifications. */
+.popover,
+.notice-list {
+  position: absolute;
+  left: calc(100% + 10px);
+  z-index: 6;
+  border-radius: var(--radius);
+  padding: 6px;
+}
+
+.popover[hidden],
+.notice-list[hidden] {
+  display: none;
+}
+
+.studies-list {
+  top: 0;
+  width: 340px;
+}
+
+.studies-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+
+.studies-list a {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  align-items: start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.studies-list a:hover,
+.studies-list a[aria-current="page"] {
+  background: var(--hover);
+}
+
+.studies-list .swatch {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  forced-color-adjust: none;
+}
+
+.studies-list .words {
+  display: grid;
+}
+
+.studies-list .name {
+  font-weight: 600;
+}
+
+.studies-list .state {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Workspace -------------------------------------------------------------- */
+
+.workspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.workspace-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.workspace-head h1 {
+  flex: 1 1 280px;
+  margin: 0;
+  font: var(--type-title);
+  letter-spacing: -0.01em;
+}
+
+/* The tabs, as a segmented control. */
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--divider);
+}
+
+.tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.tab:hover {
+  color: var(--ink);
+}
+
+.tab[aria-selected="true"] {
+  background: var(--pane);
+  color: var(--ink);
+  box-shadow: 0 0 0 0.5px var(--pane-edge), 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.tab .count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* An agent is reading a source. */
+.tab .busy-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.phone-only {
+  display: none;
+}
+
+.panel {
+  min-height: 0;
+  overflow: auto;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+/* Study ------------------------------------------------------------------ */
+
+.study-page {
+  display: grid;
+  gap: 22px;
+  max-width: 1180px;
+  padding: 18px 22px 40px;
+  font-size: var(--type-text);
+}
+
+.brief {
+  max-width: 76ch;
+  margin: 0;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+.study-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  align-items: start;
+  gap: 22px 28px;
+}
+
+.study-main,
+.study-side {
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+}
+
+.part {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.part h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--divider);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.part h2 .fresh {
+  color: var(--accent-ink);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.decision-part {
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--sunken);
+}
+
+.decision-part h2 {
+  border: 0;
+  padding: 0;
+}
+
+/* The study's tables: tests, figures and files. */
+.study-page table,
+.file-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.study-page th,
+.study-page td,
+.file-table th,
+.file-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--divider);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.study-page tbody th,
+.file-table tbody th {
+  font-weight: 500;
+}
+
+.study-page thead th,
+.file-table thead th {
+  padding-top: 0;
+  color: var(--muted);
+  font-size: var(--type-small);
+  font-weight: 600;
+}
+
+.study-page .num,
+.file-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.study-page .rule,
+.figures .by,
+.figures .unit {
+  color: var(--muted);
+}
+
+.figures .by {
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.figures tr.new th {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* A page or a working, from a figure's row: a small link-like button. */
+.cite-page {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--accent-ink);
+  font-size: 13px;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: rgba(176, 52, 136, 0.35);
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+
+.cite-page:hover {
+  background: rgba(176, 52, 136, 0.08);
+}
+
+/* A figure measured on a map layer: the layer, then its data's publisher,
+   licence and date, and a link to the data. */
+.spatial {
+  display: grid;
+  justify-items: start;
+}
+
+.spatial .dataset {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.spatial .dataset a {
+  color: var(--accent-ink);
+}
+
+/* Files ------------------------------------------------------------------ */
+
+.files {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 14px 22px 40px;
+  min-height: 100%;
+}
+
+.files.dragging {
+  box-shadow: inset 0 0 0 2px rgba(176, 52, 136, 0.45);
+  background: rgba(176, 52, 136, 0.04);
+}
+
+.files-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+}
+
+.files-bar p {
+  margin: 0;
+}
+
+.files-bar .count {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.files-bar .said {
+  flex: 1;
+  color: var(--accent-ink);
+  font-size: 13px;
+}
+
+.files-bar .add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.file-table .group th {
+  padding-top: 16px;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.file-table .group svg {
+  margin-right: 8px;
+  vertical-align: -3px;
+  color: var(--muted);
+}
+
+.file-table .group .n {
+  margin-left: 8px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.file-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  text-decoration: none;
+}
+
+.file-name:hover .title {
+  text-decoration: underline;
+}
+
+.kind-dot {
+  flex: none;
+  width: 10px;
+  height: 12px;
+  border-radius: 2px;
+  background: #2f8f5b;
+  forced-color-adjust: none;
+}
+
+.kind-dot[data-kind="PDF"] {
+  background: #d93a32;
+}
+
+.kind-dot[data-kind="File"] {
+  background: #8e8e93;
+}
+
+.kind-dot[data-kind="Draft"] {
+  background: var(--accent);
+}
+
+.file-table td {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.file-table tr.reading th {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.busy {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.icon-link {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+
+.icon-link:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.icon-link.wide {
+  display: inline-flex;
+  gap: 6px;
+  width: auto;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* Simulator -------------------------------------------------------------- */
+
+.sim-panel:not([hidden]) {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.sim-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px 8px 18px;
+  border-bottom: 1px solid var(--divider);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.sim-head p {
+  margin: 0;
+}
+
+.sim-head strong {
+  color: var(--ink);
+}
+
+.sim-panel iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+/* Map -------------------------------------------------------------------- */
+
+.map-panel:not([hidden]) {
+  overflow: hidden;
+}
+
+.map-pane {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
 
 .map {
-  position: fixed;
+  position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
@@ -262,7 +881,7 @@ button {
   cursor: grabbing;
 }
 
-/* The map fills the screen, so its focus ring goes just inside the edge. */
+/* Its focus ring goes just inside the pane's edge. */
 .map:focus-visible {
   outline-offset: -3px;
   border-radius: 0;
@@ -272,24 +891,231 @@ button {
   visibility: hidden;
 }
 
-/* Zoom in, zoom out and Reset view, stacked at the foot of the map's clear part:
-   clear of the notices, which come down its top corner. */
+.fade {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 26%;
+  background: linear-gradient(var(--bg) 35%, transparent);
+  pointer-events: none;
+}
+
+/* The tools, the search and the Layers panel, down the map's top left. */
+.map-top {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 3;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  max-width: calc(100% - 80px);
+  pointer-events: none;
+}
+
+.map-top > * {
+  pointer-events: auto;
+}
+
+.map-toolbar {
+  display: flex;
+  gap: 6px;
+}
+
+/* A square tool on glass, or a wider one with its name. */
+.map-toolbar .tool {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 10px;
+  color: var(--ink);
+}
+
+.map-toolbar .tool.wide {
+  display: inline-flex;
+  gap: 7px;
+  width: auto;
+  padding: 0 12px 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.map-toolbar .tool[aria-pressed="false"] {
+  color: var(--muted);
+}
+
+.map-toolbar .tool[aria-pressed="true"] {
+  box-shadow: var(--chip-sheen), var(--chip-lift), inset 0 0 0 1.5px var(--accent);
+}
+
+.map-toolbar .tool:disabled {
+  color: var(--muted);
+  opacity: 0.6;
+  cursor: default;
+}
+
+.map-search {
+  width: min(320px, 100%);
+  padding: 6px;
+  border-radius: 12px;
+}
+
+.map-search[hidden] {
+  display: none;
+}
+
+.map-search input {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+}
+
+.map-search ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+}
+
+.map-search li button {
+  display: grid;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+}
+
+.map-search li button:hover {
+  background: var(--hover);
+}
+
+.map-search .layer,
+.map-search .none {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.map-search .none {
+  padding: 6px 10px;
+}
+
+/* The agents' layers, each a row of colour, name and tools. */
+.layers-panel {
+  width: min(340px, 100%);
+  padding: 6px 6px 8px;
+  border-radius: 14px;
+  font-size: 13px;
+}
+
+.layers-panel header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 4px 8px;
+  color: var(--muted);
+}
+
+.layers-panel h2 {
+  flex: 1;
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.layers-panel ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 1px;
+}
+
+.layers-panel ul[hidden] {
+  display: none;
+}
+
+.layers-panel li {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) repeat(4, 28px);
+  align-items: center;
+  gap: 2px 6px;
+  padding: 3px 2px 3px 10px;
+  border-radius: 8px;
+}
+
+.layers-panel li:hover {
+  background: var(--hover);
+}
+
+.layers-panel .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  forced-color-adjust: none;
+}
+
+.layers-panel .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layers-panel li.off .name {
+  color: var(--muted);
+}
+
+.layers-panel li.off .swatch {
+  opacity: 0.35;
+}
+
+.layers-panel .tool {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+}
+
+.layers-panel .tool:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.layers-panel .tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.layers-panel .fold svg {
+  transform: rotate(180deg);
+}
+
+.layers-panel .fold.closed svg {
+  transform: none;
+}
+
+/* Zoom in, zoom out and Reset view, at the map's top right. */
 .map-buttons {
-  position: fixed;
-  z-index: 1;
-  bottom: var(--map-foot);
-  right: calc(var(--map-right) + 16px);
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  right: 12px;
   display: grid;
   grid-template-columns: 32px;
   grid-auto-rows: 32px;
   gap: 2px;
   padding: 4px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: var(--shadow);
+  border-radius: 12px;
 }
 
 .map-buttons button {
@@ -310,25 +1136,34 @@ button {
   background: var(--press);
 }
 
-.fade {
-  position: fixed;
-  inset: 0 0 auto 0;
-  height: 30vh;
-  background: linear-gradient(var(--bg) 45%, transparent);
+/* The time bar, the line's key and the data's credits, along the map's foot. */
+.map-foot {
+  position: absolute;
+  inset: auto 12px 10px;
+  z-index: 2;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
   pointer-events: none;
 }
 
-/* Credit for map geometry drawn from OpenStreetMap, in the map's corner. */
-.credit {
-  position: fixed;
-  right: calc(var(--chat) + 40px);
-  bottom: 0;
-  display: inline-flex;
+.map-foot > * {
+  pointer-events: auto;
+}
+
+.map-notes {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  min-height: 24px;
-  padding: 0 8px;
-  border-radius: 6px;
+  gap: 4px 14px;
+  padding: 4px 10px;
+  border-radius: 8px;
   background: var(--glass);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.credit {
   color: var(--muted);
   font-size: 11px;
   text-decoration: none;
@@ -343,7 +1178,7 @@ button {
 /* Lies over the map canvas at its size, so a place on the ground has the same
    coordinates here. Only the cards take the pointer. */
 .needs {
-  position: fixed;
+  position: absolute;
   inset: 0;
   margin: 0;
   padding: 0;
@@ -630,272 +1465,17 @@ button {
   font-size: 11px;
 }
 
-/* Context folders ------------------------------------------------------- */
-
-/* Comes before the map in the page, so Tab reaches the folders before the account
-   controls beside them, and is lifted above the map. As wide as its folders, up
-   to the notifications bell left of the chat. */
-.shelf {
-  position: fixed;
-  top: 18px;
-  left: 24px;
-  /* Clear of the notifications bell. */
-  max-width: calc(100% - var(--chat) - 108px);
-  z-index: 1;
-  transition: background 0.2s, box-shadow 0.2s;
-}
-
-/* Nothing to hold yet: no empty panel. */
-.shelf:not(:has(li)) {
-  display: none;
-}
-
-.shelf.dragging {
-  background-image: linear-gradient(rgba(176, 52, 136, 0.06), rgba(176, 52, 136, 0.06));
-  box-shadow: inset 0 0 0 2px rgba(176, 52, 136, 0.35), var(--panel-lift);
-}
-
-.shelf ul {
-  display: flex;
-  gap: 8px;
-  min-height: var(--shelf);
-  margin: 0;
-  padding: 6px;
-  list-style: none;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-/* Each a little narrower, down to a floor, before the row scrolls: a dropped file
-   then never pushes Add context half out of sight. */
-.shelf .item {
-  flex: 0 1 auto;
-  min-width: 80px;
-}
-
-.shelf .item:has(> .add) {
-  flex: none;
-  min-width: 0;
-}
-
-.shelf .item > a,
-.shelf .item > .file {
-  display: grid;
-  justify-items: center;
-  gap: 6px;
-  width: 108px;
-  max-width: 100%;
-  padding: 8px 4px;
-  border-radius: 12px;
-  color: var(--ink);
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: 500;
-  text-align: center;
-}
-
-.shelf .item span:last-child {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.shelf .item > a:hover {
-  background: var(--hover);
-}
-
-.shelf .item svg {
-  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.shelf .reading svg {
-  transform: translateY(-6px) scale(1.06);
-}
-
-.shelf .add {
-  display: grid;
-  place-items: center;
-  width: 56px;
-  height: 56px;
-  margin: 16px 18px;
-  border: 1.5px dashed #c7c7cc;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--muted);
-}
-
-.shelf .add:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-/* Narrower folders on a laptop, so seven folders and Add context fit in the row
-   from 1280px wide, rather than Add context scrolling out of sight. */
-@media (min-width: 861px) and (max-width: 1400px) {
-  .shelf .item > a,
-  .shelf .item > .file {
-    width: 94px;
-  }
-}
-
-/* Study card ------------------------------------------------------------ */
-
-/* Reaches up to just below the folders. A card taller than that scrolls. The
-   time bar's row exists only with the bar, so without it the card sits at the
-   bottom. */
-.stage {
-  position: fixed;
-  inset: calc(30px + var(--shelf)) calc(var(--chat) + 40px) 24px 24px;
-  display: grid;
-  grid-template-rows: minmax(0, max-content);
-  grid-auto-rows: auto;
-  align-content: end;
-  gap: 14px;
-  pointer-events: none;
-}
-
-.stage > * {
-  pointer-events: auto;
-}
-
-/* The panels' palette: muted text a shade darker than elsewhere, for the map
-   behind the glass. The account controls float over the chat, so share it. */
-.shelf,
-.account,
-.card,
-.time,
-.chat {
-  --muted: var(--muted-glass);
-}
-
-.shelf,
-.card,
-.time,
-.chat {
-  background: var(--panel-solid);
-  border: 1px solid var(--panel-rim);
-  border-radius: var(--panel-radius);
-  box-shadow: var(--panel-sheen), var(--panel-lift);
-}
-
-@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .shelf,
-  .card,
-  .time,
-  .chat {
-    background: var(--panel);
-    -webkit-backdrop-filter: var(--panel-frost);
-    backdrop-filter: var(--panel-frost);
-  }
-}
-
-/* Opaque for anyone who asks for less transparency. */
-@media (prefers-reduced-transparency: reduce) {
-  .shelf,
-  .card,
-  .time,
-  .chat {
-    background: var(--panel-solid);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-
-/* One type scale: the title, the figures, and one size for every caption, note
-   and label, which weight and colour set apart, with a smaller one only for what
-   comes next on a gap. One gap between parts. */
-.card {
-  --type-title: 600 22px/1.2 var(--serif);
-  --type-figure: 600 20px/1.2 var(--font);
-  --type-text: 14px;
-  --type-small: 12px;
-  --part-gap: 14px;
-  width: min(360px, 100%);
-  min-height: 0;
-  overflow-y: auto;
-  padding: 18px;
-  display: grid;
-  align-content: start;
-  gap: var(--part-gap);
-  font-size: var(--type-text);
-  line-height: 1.4;
-}
-
-/* More below than shows: the bottom edge fades, a sign the card scrolls. */
-.card.below {
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 44px), transparent);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 44px), transparent);
-}
-
-.card .title {
-  margin: 0;
-  font: var(--type-title);
-  letter-spacing: -0.01em;
-  border: 0;
-  background: transparent;
-  padding: 0;
-  max-width: 100%;
-}
-
-.card .picker {
-  position: relative;
-}
-
-/* The chevron follows the last word, wherever a long title wraps. */
-.card .picker span::after {
-  content: "";
-  display: inline-block;
-  width: 12px;
-  height: 8px;
-  margin-left: 10px;
-  vertical-align: 0.2em;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%235f5f66' stroke-width='2'/%3E%3C/svg%3E") center / 12px no-repeat;
-}
-
-/* Unseen over the title, so the whole title opens the list of studies. */
-.card .picker select {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  appearance: none;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.card .picker:has(select:focus-visible) {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-
-.checks,
 .findings {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
+  gap: 2px;
 }
 
-/* The tests share columns, so their figures and labels line up. */
-.checks {
-  grid-template-columns: 20px auto 1fr auto;
-  gap: 4px 8px;
-}
-
-.checks li {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: subgrid;
-  align-items: center;
-}
-
-@supports not (grid-template-columns: subgrid) {
-  .checks li {
-    grid-template-columns: 20px auto 1fr auto;
-    gap: 8px;
-  }
+/* The status column is only as wide as its mark. */
+.checks td:first-child {
+  width: 28px;
 }
 
 .status {
@@ -944,24 +1524,9 @@ button {
   background: rgba(176, 52, 136, 0.08);
 }
 
-.checks .label {
-  color: var(--ink);
-}
-
-.checks .rule {
-  justify-self: end;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.checks:empty {
-  display: none;
-}
-
-/* What the solid and dashed parts of the study's line stand for, close under
-   the title. */
+/* What the solid and dashed parts of the study's line stand for, at the map's foot. */
 .key {
-  margin: calc(6px - var(--part-gap)) 0 0;
+  margin: 0;
   display: flex;
   flex-wrap: wrap;
   row-gap: 4px;
@@ -989,99 +1554,37 @@ button {
   background: repeating-linear-gradient(90deg, var(--line, var(--accent)) 0 6px, transparent 6px 9px);
 }
 
-/* A study can lead with a few figures, two to a row, beside any tests. */
+/* The figures a study leads with, large, each on a tile of its own. */
 .headlines {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--part-gap) 16px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
 }
 
 .headlines li {
   display: grid;
   align-content: start;
   justify-items: start;
+  gap: 2px;
+  padding: 12px 14px 14px;
+  border-radius: 12px;
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--divider);
 }
 
 .headlines .figure {
   margin-left: -6px;
+  font-size: 28px;
+  letter-spacing: -0.01em;
 }
 
 /* Two short lines, rather than one long and one word. */
 .headlines .label {
   color: var(--muted);
   text-wrap: balance;
-}
-
-/* Everything past the lead figures, the status and the decision: the line's
-   legend, the notes and every other figure, a click away. */
-.details summary {
-  padding: 4px 0;
-  color: var(--muted);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.details-body {
-  display: grid;
-  gap: var(--part-gap);
-  margin-top: 8px;
-}
-
-.details-body .key {
-  margin: 0;
-}
-
-.details .fresh {
-  color: var(--accent-ink);
-  font-weight: 600;
-}
-
-/* The figures share a column, as the tests' do, so their labels line up. */
-.more ul {
-  list-style: none;
-  margin: 4px 0 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 4px 8px;
-}
-
-.more li {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: subgrid;
-  align-items: baseline;
-}
-
-@supports not (grid-template-columns: subgrid) {
-  .more li {
-    grid-template-columns: auto 1fr;
-    gap: 0 8px;
-  }
-}
-
-/* The study's other figures: in the text size, as a list of them reads. */
-.more .figure {
-  margin-left: -6px;
-  font-size: var(--type-text);
-  line-height: 1.4;
-}
-
-.more .label,
-.more .by {
-  color: var(--muted);
-}
-
-.more .by {
-  margin: 8px 0 0;
-  font-weight: 600;
-}
-
-.more li.new .figure {
-  background: rgba(176, 52, 136, 0.08);
 }
 
 /* Text starts after a gutter that holds the note's marker. */
@@ -1189,7 +1692,7 @@ button {
   color: var(--ink);
 }
 
-.card .sign-in {
+.sign-in {
   justify-self: start;
   height: 32px;
   padding: 0 14px;
@@ -1199,7 +1702,7 @@ button {
   font-weight: 600;
 }
 
-.card .sign-in:hover {
+.sign-in:hover {
   background: var(--field-hover);
 }
 
@@ -1398,24 +1901,6 @@ input[type="range"] {
   font-size: 13px;
 }
 
-/* Chat ------------------------------------------------------------------ */
-
-.chat {
-  position: fixed;
-  top: 18px;
-  right: 18px;
-  bottom: 18px;
-  width: var(--chat);
-  display: grid;
-  /* The first row is held for the badges that float over it, so the log scrolls
-     below them and they never cover a message. */
-  grid-template-rows: 40px 1fr auto auto auto auto;
-  /* Clipped rather than hidden, so not even code can scroll the panel: Review
-     on a message moves only the log. */
-  overflow: hidden;
-  overflow: clip;
-}
-
 .tag {
   margin: 0;
   padding: 2px 8px;
@@ -1426,12 +1911,59 @@ input[type="range"] {
   font-weight: 600;
 }
 
-/* Floats over the log, so its arrival never moves the messages. */
-.chat .tag {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  z-index: 1;
+/* Chat ------------------------------------------------------------------ */
+
+.chat {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;
+  /* Clipped rather than hidden, so not even code can scroll the panel: Review
+     on a message moves only the log. */
+  overflow: hidden;
+  overflow: clip;
+  font-size: 14px;
+}
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.chat-head h2 {
+  margin: 0 auto 0 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* The run at work, or done: a mark and its time. */
+.run-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.run-line .mark {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--pass);
+}
+
+.run-line[data-state="working"] .mark {
+  background: var(--accent);
+}
+
+.run-line[data-state="stale"] .mark,
+.run-line[data-state="stopped"] .mark {
+  background: var(--muted);
 }
 
 /* Positioned, so the hidden "Replay:" labels scroll with their messages instead
@@ -1439,11 +1971,10 @@ input[type="range"] {
 .chat .log {
   position: relative;
   overflow-y: auto;
-  padding: 4px 14px 14px;
+  padding: 12px 14px 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  grid-row: 2;
+  gap: 10px;
 }
 
 .bubble {
@@ -1472,10 +2003,233 @@ input[type="range"] {
   cursor: pointer;
 }
 
+/* The agents' words read as a document does, down the column, as Waypoint's. */
 .bubble.agent {
-  align-self: flex-start;
-  background: var(--bubble);
-  border-bottom-left-radius: 5px;
+  align-self: stretch;
+  max-width: none;
+  padding: 0 2px;
+}
+
+/* The lead's plan, numbered. */
+.plan {
+  margin: 6px 0;
+  padding-left: 22px;
+  white-space: normal;
+  display: grid;
+  gap: 3px;
+}
+
+.plan li::marker {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-lead,
+.plan-after {
+  display: block;
+}
+
+/* Steps ------------------------------------------------------------------ */
+
+/* A specialist, or a tool call: a row with a mark, a name and a badge, which
+   opens to show more. */
+.step {
+  align-self: stretch;
+  font-size: 13px;
+}
+
+.step summary,
+.step.tool > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 30px 5px 10px;
+  border-radius: 10px;
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--divider);
+  list-style: none;
+  cursor: pointer;
+  position: relative;
+}
+
+.step summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The chevron, at the row's end, turning as it opens. */
+.step summary::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-top: -5px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg);
+}
+
+.step details[open] > summary::after,
+.step.tool[open] > summary::after {
+  margin-top: -2px;
+  transform: rotate(-135deg);
+}
+
+.step summary:hover {
+  background: var(--hover);
+}
+
+.step-name {
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.specialist .step-name {
+  flex: 1;
+}
+
+.step .mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: #fff;
+}
+
+.step .mark svg {
+  width: 11px;
+  height: 11px;
+}
+
+.step .mark[data-state="running"] {
+  border: 2px solid var(--accent);
+  border-right-color: transparent;
+}
+
+.step .mark[data-state="done"] {
+  background: var(--pass);
+}
+
+.step .mark[data-state="failed"] {
+  background: var(--fail);
+}
+
+.step .mark[data-state="stopped"] {
+  background: var(--muted);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .step .mark[data-state="running"] {
+    animation: spin 0.9s linear infinite;
+  }
+}
+
+/* Without motion, a working mark is a still ring with a dot, not a spinner. */
+@media (prefers-reduced-motion: reduce) {
+  .step .mark[data-state="running"] {
+    border-right-color: var(--accent);
+  }
+
+  .step .mark[data-state="running"]::after {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+}
+
+/* How it went, in a word on its colour's tint, as Waypoint's green Complete. */
+.badge {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--tag);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.badge[data-state="done"] {
+  background: var(--pass-tint);
+  color: var(--pass-ink);
+}
+
+.badge[data-state="failed"] {
+  background: var(--fail-tint);
+  color: var(--fail);
+}
+
+.badge[data-state="running"] {
+  background: rgba(176, 52, 136, 0.1);
+  color: var(--accent-ink);
+}
+
+.skill {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: rgba(176, 52, 136, 0.1);
+  color: var(--accent-ink);
+  font: 600 11px/18px ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.step-body {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0 2px 14px;
+}
+
+.step-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.step-detail {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 10px;
+  margin: 6px 0 2px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.step-detail dt {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.step-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.step-detail code {
+  font: 12px ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* A specialist's answer, under its row, with its cited pages. */
+.step-summary {
+  margin: 6px 2px 0;
+  color: var(--muted);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .bubble.planner {
@@ -1519,67 +2273,9 @@ input[type="range"] {
   font-size: 13px;
 }
 
-.shelf-bubble {
-  position: absolute;
-  top: calc(100% + 10px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: max-content;
-  max-width: 300px;
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: 14px;
-  background: var(--panel-solid);
-  color: var(--ink);
-  font-size: 13.5px;
-  line-height: 1.35;
-  box-shadow: var(--panel-lift);
-  z-index: 5;
-  animation: bubble-in 0.25s ease-out;
-}
-
-.shelf-bubble::before {
-  content: "";
-  position: absolute;
-  top: -6px;
-  left: 50%;
-  width: 12px;
-  height: 12px;
-  background: var(--panel-solid);
-  transform: translateX(-50%) rotate(45deg);
-}
-
-@keyframes bubble-in {
-  from { opacity: 0; transform: translate(-50%, -4px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .shelf-bubble { animation: none; }
-}
-
 .doc-edit {
   color: var(--accent-ink);
   font-size: 13px;
-}
-
-.shelf .draft-icon {
-  position: relative;
-  display: grid;
-}
-
-.shelf .item .draft-tag {
-  position: absolute;
-  top: 6px;
-  right: -10px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
 .doc-open {
@@ -1700,52 +2396,6 @@ input[type="range"] {
   color: #fff;
 }
 
-.sub {
-  display: grid;
-  grid-template-columns: 18px 1fr;
-  gap: 8px;
-  padding: 2px 4px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.sub p {
-  margin: 0;
-  overflow-wrap: anywhere;
-  white-space: pre-line;
-}
-
-.sub .question {
-  color: var(--ink);
-  font-weight: 500;
-}
-
-.sub .mark {
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  margin-top: 1px;
-  border-radius: 50%;
-  border: 2px solid var(--accent);
-  border-right-color: transparent;
-  animation: spin 0.9s linear infinite;
-}
-
-.sub.done .mark {
-  border: 0;
-  background: var(--pass);
-  color: #fff;
-  animation: none;
-}
-
-.sub.stopped .mark {
-  border: 0;
-  background: var(--muted);
-  color: #fff;
-  animation: none;
-}
-
 /* The agent at work: three dots in its bubble. They pulse only for those who
    want motion, and hold still otherwise. */
 .bubble.typing {
@@ -1851,7 +2501,6 @@ input[type="range"] {
 
 /* Things to ask, offered until the viewer says something. */
 .suggestions {
-  grid-row: 3;
   padding: 0 14px 10px;
 }
 
@@ -1896,7 +2545,6 @@ input[type="range"] {
   padding: 0 14px;
   font-size: 13px;
   line-height: 1.35;
-  grid-row: 4;
 }
 
 .refusal:not(:empty) {
@@ -1909,11 +2557,9 @@ input[type="range"] {
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  grid-row: 5;
 }
 
 .chat form {
-  grid-row: 6;
   display: flex;
   gap: 8px;
   padding: 10px;
@@ -1945,79 +2591,6 @@ input[type="range"] {
   background: var(--fill-off);
   color: var(--muted);
   cursor: default;
-}
-
-/* Account --------------------------------------------------------------- */
-
-/* Floats in the top of the chat panel, clear of the Replay tag, so its arrival
-   moves nothing. */
-.account {
-  position: fixed;
-  top: 25px;
-  right: 18px;
-  z-index: 1;
-  width: var(--chat);
-  height: 28px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  pointer-events: none;
-}
-
-.account > * {
-  pointer-events: auto;
-}
-
-.account .tag {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.account button {
-  height: 28px;
-  padding: 0 12px;
-  border: 1px solid var(--hairline);
-  border-radius: 999px;
-  background: var(--field);
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.account button:hover {
-  background: var(--field-hover);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .account {
-    animation: appear 0.3s ease-out;
-  }
-}
-
-@keyframes appear {
-  from {
-    opacity: 0;
-  }
-}
-
-/* Test build ------------------------------------------------------------ */
-
-/* A tab in the top-right corner. At 12px tall it clears the folders on phones,
-   and 10px text keeps every letter inside it, so axe can check its contrast.
-   Fixed, so it moves nothing; clicks pass through it. */
-.build {
-  position: fixed;
-  top: 0;
-  right: 0;
-  z-index: 1;
-  padding: 0 8px;
-  border-radius: 0 0 0 8px;
-  font-size: 10px;
-  line-height: 12px;
-  pointer-events: none;
 }
 
 /* Quick Look ------------------------------------------------------------ */
@@ -2311,112 +2884,144 @@ input[type="range"] {
   margin: 0;
 }
 
-/* Thread ---------------------------------------------------------------- */
-
-.thread {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.thread path {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2;
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: draw 0.7s ease-out forwards;
-}
-
-@keyframes draw {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
 /* Small screens --------------------------------------------------------- */
 
+/* A phone: the workspace fills the screen, the chat is one of its tabs, and the
+   rail lies along the foot. */
 @media (max-width: 860px) {
-  :root {
-    --map-top: 175px;
-    --map-right: 0px;
-  }
-
-  html,
-  body {
-    overflow: auto;
-  }
-
-  /* The body is what scrolls, so the map and its needs scroll with the rest. */
-  body {
-    position: relative;
-  }
-
-  .map {
-    position: absolute;
-    height: 62vh;
-  }
-
-  .fade {
-    position: absolute;
-    height: 22vh;
-  }
-
-  /* Just above the study card, which comes up over the foot of the map, and on
-     the left, clear of the map's buttons. */
-  .credit {
-    position: absolute;
-    top: calc(62vh + var(--shelf) - 168px);
-    right: auto;
-    bottom: auto;
-    left: 8px;
-  }
-
-  .needs {
-    position: absolute;
-    height: 62vh;
-  }
-
-  /* At the foot of the map, clear of the cards listed at its top. */
-  .map-buttons {
-    position: absolute;
-    top: calc(62vh - 128px);
-    bottom: auto;
-  }
-
-  .shelf {
-    position: relative;
-    top: 0;
-    left: 0;
-    right: 0;
-    max-width: none;
-    margin: 12px 8px 0;
-  }
-
-  /* Just under the folders, and scrolls with them. */
-  header {
-    position: relative;
-  }
-
-  .account {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: auto;
-    left: 14px;
-    width: auto;
+  .app {
+    height: 100dvh;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 0;
     padding: 0;
   }
 
-  /* Room is held for the study card, so its arrival doesn't push the chat down. */
-  .stage {
-    position: relative;
-    inset: auto;
-    margin: calc(62vh - 150px) 12px 12px;
-    min-height: 640px;
-    align-content: end;
+  .workspace,
+  .chat {
+    grid-column: 1;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .workspace {
+    grid-row: 1 / 3;
+  }
+
+  .chat {
+    display: none;
+  }
+
+  .app[data-tab="chat"] .workspace {
+    grid-row: 1;
+  }
+
+  .app[data-tab="chat"] .chat {
+    display: grid;
+    grid-row: 2;
+    border-top: 1px solid var(--divider);
+  }
+
+  .headlines {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .rail {
+    grid-row: 3;
+    flex-direction: row;
+    gap: 2px;
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--divider);
+    background: var(--pane);
+    overflow-x: auto;
+  }
+
+  .rail .brand {
+    display: none;
+  }
+
+  .rail-foot {
+    flex-direction: row;
+    gap: 2px;
+    margin: 0 0 0 auto;
+  }
+
+  .rail-item {
+    width: 54px;
+  }
+
+  .rail-tag {
+    align-self: center;
+    margin: 0 4px;
+  }
+
+  /* Menus open up from the rail, across the screen. */
+  .popover,
+  .notice-list {
+    position: fixed;
+    inset: auto 8px 68px 8px;
+    width: auto;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  .phone-only {
+    display: inline-flex;
+  }
+
+  .workspace-head {
+    padding: 10px 10px 8px;
+  }
+
+  .workspace-head h1 {
+    flex-basis: 100%;
+    font-size: 19px;
+  }
+
+  .tabs {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .tab {
+    flex: 1;
+    justify-content: center;
+    padding: 0 6px;
+    font-size: 13px;
+  }
+
+  .tab svg {
+    display: none;
+  }
+
+  .study-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .study-page,
+  .files {
+    padding: 14px 12px 32px;
+  }
+
+  .headlines .figure {
+    font-size: 22px;
+  }
+
+  .toasts {
+    inset: auto 8px 72px 8px;
+    width: auto;
+  }
+
+  .map-top {
+    top: 8px;
+    left: 8px;
+    max-width: calc(100% - 60px);
+  }
+
+  .map-buttons {
+    top: 8px;
+    right: 8px;
   }
 
   .time {
@@ -2426,14 +3031,6 @@ input[type="range"] {
   .when {
     grid-column: 1 / -1;
     justify-items: start;
-  }
-
-  .chat {
-    position: relative;
-    inset: auto;
-    width: auto;
-    height: 420px;
-    margin: 0 12px 12px;
   }
 }
 
@@ -2477,13 +3074,41 @@ input[type="range"] {
 
   /* The panels are opaque, as forced colours keep a translucent background
      translucent. */
-  .shelf,
-  .card,
+  .workspace,
+  .chat,
   .time,
-  .chat {
+  .map-toolbar .tool,
+  .map-search,
+  .layers-panel,
+  .popover,
+  .map-notes {
     background: Canvas;
+    border: 1px solid CanvasText;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+
+  .tab[aria-selected="true"] {
+    border: 1px solid CanvasText;
+  }
+
+  .step summary,
+  .badge,
+  .step .mark,
+  .layers-panel .swatch {
+    forced-color-adjust: none;
+  }
+
+  .step summary {
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: inset 0 0 0 1px CanvasText;
+  }
+
+  .badge {
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: inset 0 0 0 1px CanvasText;
   }
 
   /* Markers keep their shapes, and a rated note's dot its colour, as the tests'
@@ -2517,9 +3142,8 @@ input[type="range"] {
   html,
   body,
   .tag,
-  .checks .label,
-  .sub,
-  .sub .question,
+  .step-summary,
+  .step-name,
   .exec-label,
   .exec-offer,
   .exec-note,
@@ -2539,7 +3163,7 @@ input[type="range"] {
   button,
   .figure,
   .finding,
-  .account button,
+  .rail-item,
   .need .create,
   .quicklook .act {
     color: ButtonText;
@@ -2576,30 +3200,10 @@ input[type="range"] {
 
 /* Notices --------------------------------------------------------------- */
 
-/* Left of the chat, level with the account row. The list opens below it, and
-   the toasts below the folders, over the map's top corner, so they never cover
-   the chat or a folder. */
-.bell {
-  position: fixed;
-  top: 21px;
-  right: calc(var(--chat) + 32px);
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border: 1px solid var(--hairline);
-  border-radius: 50%;
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: var(--shadow);
-}
-
-.bell:hover,
-.bell[aria-expanded="true"] {
-  background: rgba(255, 255, 255, 0.96);
+/* In the rail. The list opens beside it, and the toasts at the workspace's top
+   right, clear of the chat. */
+.notices {
+  position: relative;
 }
 
 .bell > span:first-child {
@@ -2609,8 +3213,8 @@ input[type="range"] {
 
 .bell .badge {
   position: absolute;
-  top: -5px;
-  right: -7px;
+  top: 2px;
+  right: 8px;
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
@@ -2642,9 +3246,9 @@ input[type="range"] {
 
 .toasts {
   position: fixed;
-  top: calc(30px + var(--shelf));
-  right: calc(var(--chat) + 32px);
-  z-index: 3;
+  top: 72px;
+  right: calc(var(--chat) + 2 * var(--gap) + 12px);
+  z-index: 7;
   width: 368px;
   margin: 0;
   padding: 0;
@@ -2760,12 +3364,9 @@ input[type="range"] {
 }
 
 .notice-list {
-  position: fixed;
-  top: 68px;
-  right: calc(var(--chat) + 32px);
-  z-index: 4;
+  bottom: 0;
   width: 380px;
-  max-height: calc(100vh - 92px);
+  max-height: calc(100vh - 40px);
   overflow-y: auto;
   padding: 6px;
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.86));
@@ -2949,39 +3550,6 @@ input[type="range"] {
   }
 }
 
-@media (max-width: 860px) {
-  /* Across from the account controls, under the folders. */
-  .bell {
-    position: absolute;
-    top: calc(100% + 4px);
-    right: 14px;
-  }
-
-  /* Under the bell, as the list is, so they scroll away with the folders and
-     never cover the card a planner is reading. One shows at a time. */
-  .toasts {
-    position: absolute;
-    top: calc(100% + 48px);
-    right: 8px;
-    left: 8px;
-    width: auto;
-  }
-
-  /* So a toast sliding in never widens the page. */
-  header {
-    overflow-x: clip;
-  }
-
-  .notice-list {
-    position: absolute;
-    top: calc(100% + 48px);
-    right: 8px;
-    left: 8px;
-    width: auto;
-    max-height: 70vh;
-  }
-}
-
 @media (forced-colors: active) {
   .bell .badge,
   .line .count,
@@ -3026,245 +3594,6 @@ input[type="range"] {
   .notice .study,
   .notice time {
     color: CanvasText;
-  }
-}
-
-/* The agents panel: the lead and its specialists while a run works, at the foot
-   of the map beside its buttons, in the panels' liquid glass. It folds to a pill. */
-.agents {
-  --muted: var(--muted-glass);
-  position: fixed;
-  z-index: 2;
-  right: calc(var(--map-right) + 128px);
-  bottom: var(--map-foot);
-  border: 1px solid var(--panel-rim);
-  background: var(--panel-solid);
-  box-shadow: var(--panel-sheen), var(--panel-lift);
-  color: var(--ink);
-}
-
-@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .agents {
-    background: var(--panel);
-    -webkit-backdrop-filter: var(--panel-frost);
-    backdrop-filter: var(--panel-frost);
-  }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .agents {
-    background: var(--panel-solid);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-
-.agents.panel {
-  width: min(360px, calc(100vw - 32px));
-  max-height: min(420px, 50vh);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  border-radius: 18px;
-  overflow: hidden;
-  font-size: 13px;
-}
-
-.agents .lead,
-.agents li {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 10px;
-}
-
-.agents .lead {
-  grid-template-columns: 18px minmax(0, 1fr) auto auto;
-  padding: 12px 12px 10px 14px;
-  border-bottom: 1px solid var(--hairline);
-}
-
-.agents h2 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.agents .words {
-  min-width: 0;
-}
-
-.agents p {
-  margin: 0;
-}
-
-.agents .question,
-.agents .doing {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.agents .question {
-  font-weight: 500;
-}
-
-.agents .doing,
-.agents .elapsed,
-.agents .spent {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.agents .elapsed {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  display: grid;
-  white-space: nowrap;
-}
-
-.agents .skill {
-  display: inline-block;
-  margin-right: 6px;
-  margin-top: 2px;
-  padding: 0 6px;
-  border-radius: 6px;
-  background: rgba(176, 52, 136, 0.1);
-  color: var(--accent-ink);
-  font: 600 11px/17px ui-monospace, "SF Mono", Menlo, monospace;
-}
-
-.agents .specialists {
-  margin: 0;
-  padding: 8px 12px 8px 14px;
-  list-style: none;
-  display: grid;
-  gap: 10px;
-  overflow-y: auto;
-}
-
-.agents .spent {
-  padding: 8px 14px 10px;
-  border-top: 1px solid var(--hairline);
-  font-variant-numeric: tabular-nums;
-}
-
-.agents .fold {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  margin: -3px -4px 0 0;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: none;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.agents .fold:hover {
-  background: var(--hairline);
-  color: var(--ink);
-}
-
-.agents .mark {
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  margin-top: 1px;
-  border-radius: 50%;
-  color: #fff;
-}
-
-.agents .mark[data-state="working"] {
-  border: 2px solid var(--accent);
-  border-right-color: transparent;
-}
-
-.agents .mark[data-state="done"] {
-  background: var(--pass);
-}
-
-.agents .mark[data-state="stopped"],
-.agents .mark[data-state="stale"] {
-  background: var(--muted);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .agents .mark[data-state="working"] {
-    animation: spin 0.9s linear infinite;
-  }
-
-  .agents.panel,
-  .agents.pill {
-    animation: appear 0.2s ease-out;
-  }
-}
-
-/* Without motion, a working mark is a still ring with a dot, not a spinner. */
-@media (prefers-reduced-motion: reduce) {
-  .agents .mark[data-state="working"] {
-    border-right-color: var(--accent);
-  }
-
-  .agents .mark[data-state="working"]::after {
-    content: "";
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent);
-  }
-}
-
-.agents.pill {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 14px 0 9px;
-  border-radius: 999px;
-  font: 600 13px/1 var(--font);
-  cursor: pointer;
-}
-
-.agents.pill .elapsed {
-  display: inline;
-  font-weight: 400;
-}
-
-.agents.pill:hover {
-  color: var(--accent-ink);
-}
-
-/* Where the card and the map's buttons leave too little room between them, above
-   the buttons and Reset view. */
-@media (min-width: 861px) and (max-width: 1231px) {
-  .agents {
-    right: calc(var(--map-right) + 16px);
-    bottom: calc(var(--map-foot) + 186px);
-  }
-
-  .agents.panel {
-    width: min(320px, calc(100vw - var(--map-right) - 432px));
-  }
-}
-
-@media (max-width: 860px) {
-  .agents {
-    right: 12px;
-    bottom: 12px;
-  }
-}
-
-@media (forced-colors: active) {
-  .agents {
-    border-color: CanvasText;
-    background: Canvas;
-  }
-
-  .agents .mark {
-    border: 2px solid CanvasText;
   }
 }
 
@@ -3337,8 +3666,12 @@ input[type="range"] {
    notices and Quick Look, in the panels' glass. A shade more opaque, as these sit
    right on the lines, and their muted text darker to match. */
 .map-buttons,
+.map-toolbar .tool,
+.map-search,
+.layers-panel,
+.time,
+.popover,
 .need,
-.bell,
 .toast,
 .notice-list,
 .quicklook .sheet {
@@ -3350,8 +3683,12 @@ input[type="range"] {
 
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   .map-buttons,
+  .map-toolbar .tool,
+  .map-search,
+  .layers-panel,
+  .time,
+  .popover,
   .need,
-  .bell,
   .toast,
   .notice-list,
   .quicklook .sheet {
@@ -3360,8 +3697,7 @@ input[type="range"] {
     backdrop-filter: var(--panel-frost);
   }
 
-  .bell:hover,
-  .bell[aria-expanded="true"] {
+  .map-toolbar .tool:hover {
     background: var(--chip-hover);
   }
 }
@@ -3414,13 +3750,7 @@ input[type="range"] {
 /* While the map moves the glass stops blurring, the GPU's biggest cost in a drag,
    and turns a little more opaque so the lines passing under it stay soft. It
    clears again once the map settles. */
-:root[data-moving] :is(.shelf, .card, .time, .chat, .agents) {
-  background: var(--moving);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-:root[data-moving] :is(.map-buttons, .need, .bell, .toast, .notice-list) {
+:root[data-moving] :is(.map-buttons, .map-toolbar .tool, .map-search, .layers-panel, .time, .need) {
   background: var(--moving-chip);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -3429,8 +3759,12 @@ input[type="range"] {
 /* Opaque for anyone who asks for less transparency. */
 @media (prefers-reduced-transparency: reduce) {
   .map-buttons,
+  .map-toolbar .tool,
+  .map-search,
+  .layers-panel,
+  .time,
+  .popover,
   .need,
-  .bell,
   .toast,
   .notice-list,
   .quicklook .sheet {
@@ -3451,8 +3785,12 @@ input[type="range"] {
 /* Forced colours: plain panes and fields, edged in the system's colours. */
 @media (forced-colors: active) {
   .map-buttons,
+  .map-toolbar .tool,
+  .map-search,
+  .layers-panel,
+  .time,
+  .popover,
   .need,
-  .bell,
   .toast,
   .notice-list,
   .quicklook .sheet,

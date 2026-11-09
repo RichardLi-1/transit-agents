@@ -86,6 +86,49 @@ class ToolLoopTest(unittest.IsolatedAsyncioTestCase):
             [(a["contextId"], a["page"]) for a in support.activities(study, "reading")], [(SOURCE, 1)]
         )
 
+    async def test_reports_each_tool_call_as_a_step_with_a_short_summary(self):
+        study = support.open_study("steps")
+        fake = FakeGemini(
+            lambda request: reply(
+                ("note", {"text": "hi"}),
+                ("read_page", {"contextId": SOURCE, "page": 1}),
+                ("nowhere", {}),
+            )
+            if request.turn == 0
+            else reply(text="Done.")
+        )
+
+        await run(fake, study, local=[Notes().tool])
+
+        called = support.activities(study, "tool.called")
+        finished = support.activities(study, "tool.finished")
+        self.assertEqual([c["name"] for c in called], ["read_page", "nowhere", "note"])
+        self.assertEqual([c.get("summary") for c in called], [f"{SOURCE} p. 1", None, "text: hi"])
+        # Each call's result is paired with it by id: whether it worked, how long it took, and a line on it.
+        results = {f["id"]: f for f in finished}
+        self.assertEqual([results[c["id"]]["ok"] for c in called], [True, False, True])
+        self.assertTrue(all(isinstance(f["ms"], int) for f in finished))
+        self.assertEqual(results[called[1]["id"]]["summary"], "You have no tool named nowhere.")
+        self.assertEqual(results[called[2]["id"]]["summary"], "8 characters")
+        # A page is never put in the log: only its size.
+        self.assertNotIn("1,680", json.dumps(finished))
+        self.assertTrue(all("subagentId" not in c for c in called))
+
+    def test_a_step_summary_is_one_short_line(self):
+        self.assertEqual(core.step_arguments("read_page", {"contextId": "plan", "page": 4}), "plan p. 4")
+        self.assertEqual(
+            core.step_arguments("search_sources", {"studyId": "s", "query": "riders\n per  km", "limit": 5, "ids": ["a", "b"], "x": {}}),
+            "query: riders per km, limit: 5, ids: 2 items",
+        )
+        self.assertLessEqual(len(core.step_arguments("record_finding", {"text": "word " * 100}) or ""), core.STEP_SUMMARY)
+        self.assertIsNone(core.step_arguments("get_study", {"studyId": "s"}))
+        self.assertEqual(core.step_answer({"output": [1, 2, 3]}), "3 results")
+        self.assertEqual(core.step_answer({"output": {"label": "Riders", "value": 1680.0}}), "Riders: 1680")
+        self.assertEqual(core.step_answer({"output": {"title": "Study", "figures": [1, 2]}}), "Study")
+        self.assertEqual(core.step_answer({"output": {"figures": [1, 2]}}), "2 figures")
+        self.assertEqual(core.step_answer({"output": "x" * 30_000, "note": "Cut"}), "30,000 characters (cut)")
+        self.assertEqual(core.step_answer({"error": "404 not_found:\n no study"}), "404 not_found: no study")
+
     async def test_offers_local_and_service_tools_but_never_report_activity(self):
         study = support.open_study("offered")
         fake = FakeGemini(lambda request: reply(text="Done."))

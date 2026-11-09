@@ -1,6 +1,6 @@
 // One interface for the map, wherever it runs: in a worker when the browser can
 // hand a canvas to one, otherwise on the main thread.
-import type { Camera, NetworkData, Point, TiltedView } from "./engine.ts";
+import type { Camera, LayerShapes, NetworkData, Point, TiltedView } from "./engine.ts";
 import { MapEngine } from "./engine.ts";
 
 export interface MapRenderer {
@@ -18,6 +18,11 @@ export interface MapRenderer {
   resize(width: number, height: number, ratio: number): void;
   // Light or dark, as the page is.
   setTheme(dark: boolean): void;
+  // An agent's layers: all of them, then which to draw, bottom first.
+  setLayers(layers: LayerShapes[]): void;
+  showLayers(ids: string[]): void;
+  // The TTC network under everything, or the layers alone.
+  setNetworkShown(shown: boolean): void;
 }
 
 class WorkerRenderer implements MapRenderer {
@@ -66,6 +71,15 @@ class WorkerRenderer implements MapRenderer {
   }
   setTheme(dark: boolean) {
     this.call("setTheme", dark);
+  }
+  setLayers(layers: LayerShapes[]) {
+    this.call("setLayers", layers);
+  }
+  showLayers(ids: string[]) {
+    this.call("showLayers", ids);
+  }
+  setNetworkShown(shown: boolean) {
+    this.call("setNetworkShown", shown);
   }
 }
 
