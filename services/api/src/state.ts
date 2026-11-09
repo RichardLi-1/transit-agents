@@ -11,6 +11,7 @@ import {
   type Decision,
   type Figure,
   type FigureView,
+  type Layer,
   type FindingView,
   type DocumentKind,
   type MediaType,
@@ -33,6 +34,14 @@ export type Need = Omit<NeedView, "status" | "requestedBy" | "requestedAt" | "cl
   failed?: { by: string; at: string; reason: string };
 };
 
+// A layer as the service keeps it: what the display sees, the hash of its features,
+// kept outside the log, and any totals the operation worked out, which figures cite.
+export type StoredLayer = Layer & {
+  sha256: string;
+  totals?: Record<string, { value: number; unit: string; label: string }>;
+  warnings?: string[];
+};
+
 export type Study = {
   id: string;
   title: string;
@@ -48,6 +57,8 @@ export type Study = {
   decisions: Decision[];
   stale: Set<string>;
   needs: Map<string, Need>;
+  // Map layers, in the order they were saved.
+  layers: Map<string, StoredLayer>;
 };
 
 export type State = {
@@ -368,6 +379,7 @@ export function apply(state: State, entry: Entry): void {
         decisions: [],
         stale: new Set(),
         needs: new Map(),
+        layers: new Map(),
       });
       return;
     }
@@ -556,6 +568,13 @@ export function apply(state: State, entry: Entry): void {
     case "document.created": {
       const document = data as unknown as { sha256: string; size: number; title: string; kind: DocumentKind };
       state.documents.set(document.sha256, { size: document.size, title: document.title, kind: document.kind });
+      return;
+    }
+
+    // A map layer. Its features are kept outside the log, by their hash.
+    case "layer.saved": {
+      const layer = data as unknown as Omit<StoredLayer, "createdBy" | "at">;
+      get(state.studies, entry.studyId).layers.set(layer.id, { ...layer, createdBy: entry.actor, at: entry.at });
       return;
     }
 

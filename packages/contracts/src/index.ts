@@ -111,7 +111,17 @@ const Computed = z.object({
   run: z.string().max(200).optional(),
 });
 
-export const Basis = z.discriminatedUnion("kind", [Cited, Derived, Computed]);
+// A total the service worked out itself, with its GIS tools, from an open dataset:
+// one of a map layer's totals. The layer names its dataset, whose publisher, licence
+// and retrieval date stand in for a page, and the operation that made it, which can
+// be run again.
+const Spatial = z.object({
+  kind: z.literal("spatial"),
+  layer: slug,
+  total: z.string().regex(/^[a-z][A-Za-z0-9]{0,40}$/, "A total's name, such as population"),
+});
+
+export const Basis = z.discriminatedUnion("kind", [Cited, Derived, Computed, Spatial]);
 export type Basis = z.infer<typeof Basis>;
 
 export const NewFigure = z.object({
@@ -402,6 +412,108 @@ export type DocumentView = {
   size: number;
 };
 
+// --- Maps and GIS ------------------------------------------------------------
+
+// An open dataset the service's GIS tools work on: where it came from, under what
+// licence, and the day it was fetched. A figure from a layer cites it.
+export const Dataset = z.object({
+  id: slug,
+  title: z.string().min(1).max(200),
+  publisher: z.string().min(1).max(200),
+  licence: z.string().min(1).max(100),
+  url: z.url({ protocol: /^https$/ }),
+  retrieved: z.iso.date(),
+});
+export type Dataset = z.infer<typeof Dataset>;
+
+// GET /v1/datasets: each dataset with what it covers, what to know before using it,
+// and, for an area dataset with counts, the variables overlay can total.
+export type DatasetInfo = Dataset & {
+  licenceUrl: string;
+  kind: LayerKind;
+  coverage: string;
+  notes: string;
+  // Only where it covers part of the city: west, south, east, north.
+  bbox?: [number, number, number, number];
+  variables?: Record<string, { label: string; unit: string }>;
+};
+
+export const LayerKind = z.enum(["points", "lines", "polygons"]);
+export type LayerKind = z.infer<typeof LayerKind>;
+
+// A map layer saved on a study, newest last in GET /v1/studies/:id/layers. Its
+// features are at GET /v1/studies/:id/layers/:layer/geojson, in WGS84. A layer made
+// from others names them and the operation, with its parameters, so it can be made
+// again.
+export const Layer = z.object({
+  id: slug,
+  title: z.string().min(1).max(80),
+  kind: LayerKind,
+  color: z
+    .string()
+    .regex(/^#[0-9a-f]{6}$/)
+    .optional(),
+  featureCount: z.number().int().nonnegative(),
+  // west, south, east, north. A plain array, as for Point.
+  bbox: z.array(z.number()).length(4) as unknown as z.ZodType<[number, number, number, number]>,
+  dataset: Dataset.optional(),
+  derivedFrom: z.array(slug).optional(),
+  operation: z.object({ name: z.string().min(1).max(40), params: z.record(z.string(), z.unknown()) }).optional(),
+  createdBy: z.string(),
+  at: z.string(),
+});
+export type Layer = z.infer<typeof Layer>;
+
+// The service logs one when a layer is saved, so the display can open its map. Only
+// the service: it isn't an Activity an agent can post.
+export const LayerAdded = z.object({ kind: z.literal("layer.added"), layerId: slug, title: z.string().min(1).max(80) });
+export type LayerAdded = z.infer<typeof LayerAdded>;
+
+// What the GIS tools take. id and title name the new layer; without them the
+// service makes them from the operation, so the same request gives the same layer.
+const LayerName = { id: slug.optional(), title: z.string().min(1).max(80).optional() };
+const Route = z.string().regex(/^[0-9A-Za-z]{1,6}$/, "A TTC route number, such as 52 or 510");
+
+export const RouteLayerRequest = z.object({ route: Route, ...LayerName });
+export type RouteLayerRequest = z.input<typeof RouteLayerRequest>;
+
+export const StudyLineRequest = z.object({ ...LayerName });
+export type StudyLineRequest = z.input<typeof StudyLineRequest>;
+
+// One named area of an area dataset, such as a neighbourhood: its name or id.
+export const AreaRequest = z.object({ dataset: slug, name: z.string().min(1).max(80), ...LayerName });
+export type AreaRequest = z.input<typeof AreaRequest>;
+
+export const BufferRequest = z.object({
+  layer: slug,
+  metres: z.number().min(10).max(3000),
+  ...LayerName,
+});
+export type BufferRequest = z.input<typeof BufferRequest>;
+
+export const OverlayRequest = z.object({
+  layer: slug,
+  dataset: slug,
+  // Census totals to record as figures, from the dataset's variables or their shares.
+  variables: z.array(z.string().regex(/^[a-z][A-Za-z0-9]{0,40}$/)).max(8).default([]),
+  ...LayerName,
+});
+export type OverlayRequest = z.input<typeof OverlayRequest>;
+
+export const PointsWithinRequest = z.object({
+  layer: slug,
+  dataset: slug,
+  // Collision years, both included.
+  from: z.number().int().min(1900).max(2100).optional(),
+  to: z.number().int().min(1900).max(2100).optional(),
+  // Only collisions where someone was killed.
+  fatal: z.boolean().optional(),
+  // Only collisions involving these road users.
+  involving: z.enum(["pedestrian", "cyclist", "motorcyclist"]).optional(),
+  ...LayerName,
+});
+export type PointsWithinRequest = z.input<typeof PointsWithinRequest>;
+
 export type NeedView = {
   id: string;
   title: string;
@@ -575,8 +687,9 @@ export const Escalation = z.object({
   message: z.number().int().positive().optional(),
 });
 export type Escalation = z.infer<typeof Escalation>;
-// What an activity entry in the log holds: what agents and people post, or a ping.
-export type LoggedActivity = Activity | Escalation;
+// What an activity entry in the log holds: what agents and people post, a ping, or
+// a layer the service saved.
+export type LoggedActivity = Activity | Escalation | LayerAdded;
 
 // POST /v1/studies/:id/escalate: the decision, or the answer's executive line, and
 // the answer's log position, which makes a second ping for it a repeat.

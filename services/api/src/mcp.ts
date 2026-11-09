@@ -134,6 +134,53 @@ export const TOOLS: Record<string, Spec> = {
     name: "withdraw_engagement_media",
     description: "Take down one generated image or video that shouldn't be shown, with a reason. The need is needed again. Planners only.",
   },
+  "GET /v1/datasets": {
+    name: "list_datasets",
+    description:
+      "List the open datasets the GIS tools work on: each one's id, publisher, licence, retrieval date, what it covers, what to know before using it, and for census areas, the variables overlay can total.",
+  },
+  "GET /v1/studies/:id/layers": {
+    name: "list_layers",
+    description: "List a study's map layers, newest last: id, title, kind, feature count, dataset and the operation that made each.",
+  },
+  "GET /v1/studies/:id/layers/:layer": {
+    name: "summarise_layer",
+    description:
+      "Summarise one map layer: its size (area in km² or length in km), its totals with the figure recording each, how they were weighted, warnings, and its first 10 rows, largest share first.",
+  },
+  "POST /v1/studies/:id/gis/route-stops": {
+    name: "route_stops",
+    description:
+      "Save a TTC route's stops as a map layer, from the GTFS: every stop its trips call at, all branches and both directions. Give the route number, such as 52. Returns the layer.",
+  },
+  "POST /v1/studies/:id/gis/route-shape": {
+    name: "route_shape",
+    description: "Save a TTC route's main shapes as a map layer of lines, from the GTFS. Give the route number, such as 52.",
+  },
+  "POST /v1/studies/:id/gis/study-line": {
+    name: "study_line",
+    description: "Save this study's line, as the map draws it, built and proposed parts, as a layer of lines. Buffer it for a corridor.",
+  },
+  "POST /v1/studies/:id/gis/area": {
+    name: "named_area",
+    description:
+      "Save one named area as a map layer, to work within: a neighbourhood from toronto-neighbourhoods, such as Thorncliffe Park, or a Neighbourhood Improvement Area from toronto-nia.",
+  },
+  "POST /v1/studies/:id/gis/buffer": {
+    name: "buffer",
+    description:
+      "Buffer a layer by some metres, such as 400 for a walk to a bus stop, into one area, saved as a new layer. Overlapping circles count once.",
+  },
+  "POST /v1/studies/:id/gis/overlay": {
+    name: "overlay",
+    description:
+      "Overlay an area layer, such as a buffer, with an area dataset from list_datasets: census-da-2021 for people, households, low income and commuting; toronto-nia or toronto-neighbourhoods for which areas it touches. Each area counts in proportion to its land inside the layer, an estimate that assumes even spread. Saves the areas as a layer and records the totals as figures: for census, the variables you name, or population and households.",
+  },
+  "POST /v1/studies/:id/gis/points-within": {
+    name: "points_within",
+    description:
+      "Count a point dataset's points inside an area layer: toronto-ksi collisions (narrow by years from and to, fatal, or involving a pedestrian, cyclist or motorcyclist), ttc-gtfs stops, or toronto-heritage-corridor properties. Saves the points as a layer and records the counts as figures.",
+  },
   "POST /v1/studies/:id/activity": {
     name: "report_activity",
     description: "Report progress, messages, tokens and cost. Report usage only with numbers you were given.",
@@ -230,6 +277,7 @@ export const NOT_TOOLS: Record<string, string> = {
   "POST /v1/studies/:id/needs/:need/failed": "Only the agent holding the request's claim says it failed, from its own code",
   "POST /v1/studies/:id/needs/:need/media": "A video is larger than an MCP message may be (4 MiB), so an agent posts the file here with its token",
   "GET /v1/media/:id": "Image and video bytes, for people to see. Each study's needs list their media",
+  "GET /v1/studies/:id/layers/:layer/geojson": "A layer's features, for the display's map. Too large for a model; summarise_layer gives an agent its totals and first rows",
   "POST /v1/guests": "Guest passes are for the display",
   "POST /v1/studies/:id/escalate": "A person's button under an answer: only a planner pings the executive on Slack, never an agent",
   "POST /v1/studies/:id/findings/:finding/review": "A person's button on an option's card. An agent proposes options, and only people hand one over for review",
@@ -246,6 +294,7 @@ const PATH_ARGUMENTS: Record<string, JsonSchema> = {
   figure: { type: "string", description: "Figure id" },
   finding: { type: "string", description: "Finding id" },
   need: { type: "string", description: "Engagement need id, from the study's needs" },
+  layer: { type: "string", description: "Map layer id, from list_layers" },
   media: { type: "string", description: "Media id, its sha256, from the need's media" },
   key: { type: "string", description: "Rule key, from list_rules" },
   name: { type: "string", description: "Skill name" },

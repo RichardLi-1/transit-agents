@@ -136,17 +136,19 @@ describe("mcp", () => {
     const [planner, agent, integration, viewer] = await Promise.all(
       ["planner-token", "agent-token", "integration-token", "viewer-token"].map(names),
     );
-    assert.equal(planner?.length, 35);
-    assert.equal(agent?.length, 26);
+    assert.equal(planner?.length, 45);
+    assert.equal(agent?.length, 36);
+    assert.ok(["route_stops", "buffer", "overlay", "points_within", "summarise_layer"].every((name) => agent?.includes(name)));
     assert.ok(agent?.includes("propose_alignment"));
     assert.ok(agent?.includes("create_document") && planner?.includes("create_document"));
     assert.ok(!integration?.includes("create_document") && !viewer?.includes("create_document"));
     assert.ok(agent?.includes("whoami"));
     assert.deepEqual(agent?.filter((name) => PLANNER_ONLY.includes(name)), []);
     assert.ok(agent?.includes("record_figure") && agent.includes("report_activity"));
-    assert.equal(integration?.length, 18);
+    assert.equal(integration?.length, 21);
     assert.ok(integration?.includes("add_source") && !integration.includes("record_figure"));
-    assert.equal(viewer?.length, 17);
+    assert.equal(viewer?.length, 20);
+    assert.ok(viewer?.includes("list_layers") && !viewer.includes("overlay"));
     assert.ok(viewer?.includes("read_page") && !viewer.includes("add_source"));
     for (const names of [planner, agent, integration, viewer]) assert.ok(names?.includes("search_sources"));
   });
