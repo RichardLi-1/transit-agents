@@ -54,7 +54,7 @@ citations. [score.ts](../evals/score.ts) compares it with the case.
 
 ## The current set
 
-158 cases, every one named by the skill it mainly tests, and each skill with at least
+178 cases, every one named by the skill it mainly tests, and each skill with at least
 8 of its own, split between `dev` and `test`, with at least one it should refuse or
 hand over. `npm run agent:cases` prints the counts:
 
@@ -74,23 +74,26 @@ hand over. `npm run agent:cases` prints the counts:
 | engagement-needs | 4 | 5 | | 4 | 9 |
 | tpap-brief | 4 | 4 | | 2 | 8 |
 | gis-analyst | 8 | 5 | | 3 | |
+| safety-audit | 5 | 5 | | 3 | 10 |
+| active-transportation | 5 | 5 | | 2 | 10 |
 
-- Behaviours: 85 answer, 29 flag, 18 refuse, 13 abstain.
-- Spatial cases' gold comes from the service's own GIS tools on the committed datasets ([spatial-gold.ts](../evals/spatial-gold.ts)). A test fails if a rebuilt dataset moves one. They cite datasets, which have no pages, so they score values and wording, not pages.
+- Behaviours: 110 answer, 33 flag, 18 refuse, 17 abstain.
+- Spatial cases' gold comes from the service's own GIS tools on the committed datasets ([spatial-gold.ts](../evals/spatial-gold.ts)), and the safety and active cases' from its safety and active transportation tools ([safety-gold.ts](../evals/safety-gold.ts)). A test fails if a rebuilt dataset moves one. They cite datasets, which have no pages, so they score values and wording, not pages. Bike share counts are on one day's station list, so a rebuild moves them.
 - Scored by script: all but 6. By rubric: draft-001, draft-002, monitor-001, bct-008,
   tpap-005 and tpap-006, each new one with its rubric written out.
 - Changed numbers, so remembering the published answer gives the wrong one: the four
   perturbed-* cases, svc-007, bca-002 and tcb-007.
 - Sources: the 2026 plan and the Service Standards; the Ontario Line's business cases
-  and Metrolinx's Business Case Manual; the TTC timetable in the repo
+  and Metrolinx's Business Case Manual; the City's Vision Zero plans and FHWA's Proven
+  Safety Countermeasures (safety-audit); the TTC timetable in the repo
   (gtfs-analyst); and inputs written for a case in `evals/inputs/`: proposals with the
   outcome removed, changed copies, planted instructions, a project's appraisal inputs
   for metrolinx-bca, and synthetic measured departures for trial-monitor.
 - `find-009`, `find-010` and `reconcile-002` name sources the eval service doesn't seed
   yet, so they are skipped, and trial-monitor runs 8 of its 9.
 
-**The 92 new cases await a planner's review** (`"review": "planner"`): every case
-except the 53 first ones. Their gold answers were read off the page the service
+**The 112 new cases await a planner's review** (`"review": "planner"`): every case
+except the 53 first ones and the 13 spatial ones. Their gold answers were read off the page the service
 serves, in read_page's numbering, or worked out with the skill's own script, which
 `goldFrom` names, but no planner has checked them, so they don't count in the paper
 until one has. A test case's answer is in no skill; the dev cases whose answers a skill
@@ -138,7 +141,7 @@ money, so the limit stays at 3 unless you raise it. Run the same cases again wit
 The current set can show that the system works and the method is sound, but not
 yet agent quality. Eight decisions is too few: five perfect answers still give a
 95% lower bound of 48%. A planner wrote none of the cases, 17 of the first 53 reuse the
-Lawrence proposal, and 92 of the 158 wait for a planner's review. With 4 or 5 test cases a skill, one case moves a skill's test
+Lawrence proposal, and 112 of the 178 wait for a planner's review. With 4 or 5 test cases a skill, one case moves a skill's test
 score by 20 to 25 points, so report each skill's counts with its rate, over at least
 3 runs.
 
