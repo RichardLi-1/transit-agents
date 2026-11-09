@@ -54,7 +54,7 @@ citations. [score.ts](../evals/score.ts) compares it with the case.
 
 ## The current set
 
-158 cases, every one named by the skill it mainly tests, and each skill with at least
+185 cases, every one named by the skill it mainly tests, and each skill with at least
 8 of its own, split between `dev` and `test`, with at least one it should refuse or
 hand over. `npm run agent:cases` prints the counts:
 
@@ -74,27 +74,32 @@ hand over. `npm run agent:cases` prints the counts:
 | engagement-needs | 4 | 5 | | 4 | 9 |
 | tpap-brief | 4 | 4 | | 2 | 8 |
 | gis-analyst | 8 | 5 | | 3 | |
+| equity-analysis | 5 | 4 | | 2 | 9 |
+| economic-development | 5 | 4 | | 1 | 9 |
+| stop-accessibility | 5 | 4 | | 1 | 9 |
 
-- Behaviours: 85 answer, 29 flag, 18 refuse, 13 abstain.
-- Spatial cases' gold comes from the service's own GIS tools on the committed datasets ([spatial-gold.ts](../evals/spatial-gold.ts)). A test fails if a rebuilt dataset moves one. They cite datasets, which have no pages, so they score values and wording, not pages.
+- Behaviours: 115 answer, 32 flag, 20 refuse, 18 abstain.
+- Spatial cases' gold comes from the service's own GIS tools on the committed datasets ([spatial-gold.ts](../evals/spatial-gold.ts)). A test fails if a rebuilt dataset moves one. They cite datasets, which have no pages, so they score values and wording, not pages. The equity-analysis, economic-development and stop-accessibility cases' gold comes the same way ([gis-skills-gold.ts](../evals/gis-skills-gold.ts)), and their two cases on what Metrolinx's Manual and the AODA regulation say cite pages.
 - Scored by script: all but 6. By rubric: draft-001, draft-002, monitor-001, bct-008,
   tpap-005 and tpap-006, each new one with its rubric written out.
 - Changed numbers, so remembering the published answer gives the wrong one: the four
   perturbed-* cases, svc-007, bca-002 and tcb-007.
 - Sources: the 2026 plan and the Service Standards; the Ontario Line's business cases
-  and Metrolinx's Business Case Manual; the TTC timetable in the repo
+  and Metrolinx's Business Case Manual; the AODA's Integrated Accessibility Standards,
+  O. Reg. 191/11; the TTC timetable in the repo
   (gtfs-analyst); and inputs written for a case in `evals/inputs/`: proposals with the
   outcome removed, changed copies, planted instructions, a project's appraisal inputs
   for metrolinx-bca, and synthetic measured departures for trial-monitor.
 - `find-009`, `find-010` and `reconcile-002` name sources the eval service doesn't seed
   yet, so they are skipped, and trial-monitor runs 8 of its 9.
 
-**The 92 new cases await a planner's review** (`"review": "planner"`): every case
+**The 119 new cases await a planner's review** (`"review": "planner"`): every case
 except the 53 first ones. Their gold answers were read off the page the service
 serves, in read_page's numbering, or worked out with the skill's own script, which
 `goldFrom` names, but no planner has checked them, so they don't count in the paper
 until one has. A test case's answer is in no skill; the dev cases whose answers a skill
-spells out are listed in [test_skills.py](../agents/tests/test_skills.py).
+spells out are listed in [test_skills.py](../agents/tests/test_skills.py), and for the three skills
+above, in each one's own test.
 
 ## What gets reported
 

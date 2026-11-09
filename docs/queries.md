@@ -100,7 +100,7 @@ Explain jargon in its source's own words, with the page, and say when no source 
 
 ## 12. Spatial
 
-Answer where-questions on open data with the service's GIS tools, citing the dataset. Values from [spatial-gold.ts](../evals/spatial-gold.ts).
+Answer where-questions on open data with the service's GIS tools, citing the dataset. Values from [spatial-gold.ts](../evals/spatial-gold.ts), and for the equity, economic development and stop accessibility skills, [gis-skills-gold.ts](../evals/gis-skills-gold.ts).
 
 - Residents within 400 m of the 52 Lawrence West's stops: about 83,643, area-weighted, 2021 Census.
 - KSI collisions within 400 m of the 52's stops, 2021 to 2025: 53, police-reported.
