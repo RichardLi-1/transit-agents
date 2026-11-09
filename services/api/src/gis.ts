@@ -6,7 +6,7 @@
 // Totals over areas are area-weighted: an area counts in proportion to its land
 // inside the layer, which assumes what it counts is spread evenly across it. The
 // census boundaries follow the shoreline, so an area's shape is its land.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { area as areaOf } from "@turf/area";
@@ -40,8 +40,8 @@ export type Made = {
   warnings?: string[];
 };
 
-type Area = Polygon | MultiPolygon;
-type Stored = DatasetInfo & { file: string };
+export type Area = Polygon | MultiPolygon;
+export type Stored = DatasetInfo & { file: string };
 
 // A buffer's circles have 16 sides a quarter, so a 400 m circle is 0.2% smaller than a true one.
 const STEPS = 16;
@@ -81,8 +81,8 @@ const NOUNS: Record<string, string> = {
 export const METHOD =
   "Area-weighted: each area counts in proportion to its land inside the layer, which assumes what it counts is spread evenly across the area. An estimate, not an exact count.";
 
-type Ttc = { timetableUntil: string; stops: [string, string, number, number][]; routes: Record<string, { long: string; type: number; color: string; stops: number[]; shapes: Position[][] }> };
-type Indexed = { feature: Feature<Area>; bbox: BBox; area: number };
+export type Ttc = { timetableUntil: string; stops: [string, string, number, number][]; routes: Record<string, { long: string; type: number; color: string; stops: number[]; shapes: Position[][] }> };
+export type Indexed = { feature: Feature<Area>; bbox: BBox; area: number };
 type Ksi = { years: [number, number]; lastDate: string; points: [number, number, number, number][] };
 
 const round = (n: number, places = 0) => Math.round(n * 10 ** places) / 10 ** places;
@@ -98,7 +98,7 @@ export class Gis {
     this.dir = dir;
   }
 
-  private read<T>(file: string): T {
+  read<T>(file: string): T {
     const known = this.cache.get(file);
     if (known) return known as T;
     const value = JSON.parse(gunzipSync(readFileSync(join(this.dir, file))).toString("utf8")) as T;
@@ -106,8 +106,11 @@ export class Gis {
     return value;
   }
 
+  // datasets.json, then any datasets-<name>.json another build script wrote beside it.
   private all(): Stored[] {
-    this.stored ??= JSON.parse(readFileSync(join(this.dir, "datasets.json"), "utf8")) as Stored[];
+    this.stored ??= ["datasets.json", ...readdirSync(this.dir).filter((f) => /^datasets-[a-z0-9-]+\.json$/.test(f)).sort()].flatMap(
+      (file) => JSON.parse(readFileSync(join(this.dir, file), "utf8")) as Stored[],
+    );
     return this.stored;
   }
 
@@ -127,7 +130,7 @@ export class Gis {
     return { id, title, publisher, licence, url, retrieved };
   }
 
-  private ttc(): Ttc {
+  ttc(): Ttc {
     return this.read<Ttc>("ttc.json.gz");
   }
 
@@ -160,7 +163,7 @@ export class Gis {
   }
 
   // Each area of a polygon dataset, with its bounding box and area in m².
-  private areas(id: string): Indexed[] {
+  areas(id: string): Indexed[] {
     const key = `areas:${id}`;
     const known = this.cache.get(key);
     if (known) return known as Indexed[];
@@ -265,7 +268,7 @@ export class Gis {
     if (withoutData) {
       warnings.push(`${withoutData} of ${features.length} areas lack a count asked for: Statistics Canada suppresses some counts for very small areas, so they add nothing to it.`);
     }
-    if (counts.length && inside < layerArea * 0.98) warnings.push(outsideWarning(layerArea, inside));
+    if (counts.length && inside < layerArea * 0.98) warnings.push(outsideWarning(layerArea, inside, info));
     return { kind: "polygons", features, dataset: this.cite(id), totals, warnings };
   }
 
@@ -331,7 +334,7 @@ export class Gis {
   }
 
   // A dataset that covers only part of the city answers only inside it.
-  private covers(info: Stored, box: BBox) {
+  covers(info: Stored, box: BBox) {
     if (info.bbox && !within(box, info.bbox)) {
       throw new GisError("outside_coverage", `"${info.id}" covers ${info.coverage}. This layer reaches beyond it, so its answer would be short`);
     }
@@ -341,17 +344,26 @@ export class Gis {
 // What a census total leaves out when part of the layer lies beyond the City's census
 // areas, said plainly, so no one reads the total as the whole layer's, or goes looking
 // for someone to ask about the rest: no dataset or source here names anyone.
-export function outsideWarning(layerArea: number, inside: number): string {
+// Another area dataset's warning names what it covers instead of the City.
+export function outsideWarning(layerArea: number, inside: number, info?: { id: string; coverage: string }): string {
   const outside = Math.max(0, layerArea - inside);
+  const share = `${round((outside / layerArea) * 100, 1)}% of the layer`;
+  const km2 = `${round(outside / 1e6, 2)} km²`;
+  if (info && info.id !== "census-da-2021") {
+    return (
+      `${share} is outside the areas of ${info.id} (${km2}): beyond ${info.coverage}, or on water. ` +
+      "Nothing there is counted: these totals are for the part inside it only. No dataset or source here covers the rest or names anyone to ask about it."
+    );
+  }
   return (
-    `${round((outside / layerArea) * 100, 1)}% of the layer is outside the census areas (${round(outside / 1e6, 2)} km²): beyond the City of Toronto, or on water. ` +
+    `${share} is outside the census areas (${km2}): beyond the City of Toronto, or on water. ` +
     "The census data here covers the City of Toronto only, so nobody living there is counted: these totals are for the part inside Toronto only. " +
     "No dataset or source here covers the rest or names anyone to ask about it."
   );
 }
 
 // A clipped area without the rings clipping left too small to be rings, or nothing.
-function clean(feature: Feature<Area>): Feature<Area> | undefined {
+export function clean(feature: Feature<Area>): Feature<Area> | undefined {
   const polygon = (rings: Position[][]) => {
     const kept = rings.filter((ring) => ring.length >= 4);
     return kept.length && kept[0] === rings[0] ? kept : undefined;
