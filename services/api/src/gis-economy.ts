@@ -173,7 +173,7 @@ export const ECONOMY_ROUTES: SkillRoute[] = [
     tool: "zoning_within",
     summary: "The land in an area layer each kind of zone covers, from Zoning By-law 569-2013, Don Mills corridor only, saved as a layer with totals recorded as figures",
     description:
-      "Measure the land in an area layer each kind of zone covers under Zoning By-law 569-2013 (toronto-zoning-corridor): residential, mixed use, commercial, employment industrial, institutional, open space, utility, in km² and as a share of the zoned land. Don Mills corridor only: it refuses a layer beyond it. Saves the zones as a layer and records the employment and residential totals as figures.",
+      "Measure the land in an area layer each kind of zone covers under Zoning By-law 569-2013 (toronto-zoning-corridor): residential, mixed use, commercial, employment industrial, institutional, open space, utility, in km² and as a share of the zoned land. Don Mills corridor only: it measures the part of the layer inside the corridor, and refuses a layer wholly beyond it. Saves the zones as a layer and records the employment and residential totals as figures.",
     body: EconomyRequest,
     run: (service, actor, studyId, body: Request) => zoningLayer(service, actor, studyId, body),
   },
