@@ -69,6 +69,7 @@ describe("scoreRun", () => {
       total: 6,
       passed: 3,
       byCapability: { find: { total: 3, passed: 1 }, check: { total: 3, passed: 2 } },
+      bySkill: { "ttc-standards": { total: 6, passed: 3 } },
     });
     assert.deepEqual(report.rubric, ["draft-001"]);
     assert.deepEqual(report.unknown, ["nope-001"]);
@@ -132,6 +133,8 @@ describe("formatReport", () => {
       "Passed: 3 of 6 (50%)",
       "  check  2 of 3 (67%)",
       "  find   1 of 3 (33%)",
+      "By skill:",
+      "  ttc-standards  3 of 6 (50%)",
       "Decisions: 2 of 3 correct (67%): 1 matched, 1 handed over. Rules-only control: 1 of 3 (33%)",
       "Hand-overs on judgement cases: 1 of 2 (50%)",
       "Citations, over 3 cases: recall 2 of 3 expected pages (67%), precision 2 of 3 given (67%)",

@@ -1,0 +1,12 @@
+Midtown Light Rail: appraisal inputs
+
+The Midtown Light Rail would run 7 km across midtown. This note gives the project's own inputs for its economic appraisal, from its design team, its demand model run and its wider economic impacts study.
+
+- The appraisal begins in 2025, its base year. All amounts are in millions of real 2025 dollars, as changes from business as usual.
+- The line would open in 2029.
+- Design is 35% complete. The capital cost's contingency was set by a quantitative cost risk analysis (QCRA).
+- Capital costs, before optimism bias: $150 million a year in each year from 2025 to 2028. Nothing has been spent yet.
+- Operating and maintenance costs: $8 million a year in each year from 2029 to 2088.
+- The capital and operating cost estimates already include escalation.
+- User and external benefits, from the project's demand model run: $35 million a year in each year from 2029 to 2088.
+- Wider economic impacts, from the wider economic impacts study: $6 million a year in each year from 2029 to 2088.

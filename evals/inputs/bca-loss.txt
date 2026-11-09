@@ -1,0 +1,12 @@
+Western Loop Shuttle: appraisal inputs
+
+The Western Loop Shuttle would replace two bus routes with one loop. This note gives the project's own inputs for its economic appraisal, from its design team and its demand model run.
+
+- The appraisal begins in 2025, its base year. All amounts are in millions of real 2025 dollars, as changes from business as usual.
+- The shuttle would start in 2027.
+- Design is 50% complete. The capital cost's contingency was set by a quantitative cost risk analysis (QCRA).
+- Capital costs, before optimism bias: $15 million a year in 2025 and in 2026. Nothing has been spent yet.
+- Operating and maintenance costs: $2 million a year in each year from 2027 to 2086.
+- The capital and operating cost estimates already include escalation.
+- User and external impacts, from the project's demand model run: a net loss of $1.5 million a year in each year from 2027 to 2086, as longer walks outweigh the time saved.
+- The project's analysis gives no wider economic impacts.

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { rulesOnlyDecision, scoreCase, summarize, type EvalCase } from "./score.ts";
+import { formatCounts } from "./count.ts";
+import { countBySkill, rulesOnlyDecision, scoreCase, summarize, type EvalCase } from "./score.ts";
 
 const cases: EvalCase[] = readFileSync(join(import.meta.dirname, "cases.jsonl"), "utf8")
   .trim()
@@ -112,11 +113,82 @@ describe("cases", () => {
       assert.doesNotMatch(text, /passes this metric|formally adopt|not adopted|does not pass/i, name);
     }
   });
+
+  it("each name a skill there is, and say how they are scored", () => {
+    const skills = new Set(readdirSync(join(import.meta.dirname, "..", "agents", "skills"), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name));
+    const behaviours = ["answer", "flag", "abstain", "refuse"];
+    for (const c of cases) {
+      assert.ok(skills.has(c.skill), `${c.id}: no skill ${c.skill}`);
+      assert.ok(["dev", "test", "future"].includes(c.split), c.id);
+      assert.ok(behaviours.includes(c.expect.behaviour), c.id);
+      assert.ok(c.review === undefined || c.review === "planner", c.id);
+      // A new rubric case says what a planner checks.
+      if (c.scorer === "rubric" && c.review) assert.ok(c.rubric?.length, `${c.id}: write its rubric`);
+      if (c.rubric) assert.equal(c.scorer, "rubric", c.id);
+    }
+  });
+
+  it("set up their study only as open_study takes it, and measure only what's there", () => {
+    const fields = ["brief", "routes", "line", "trial", "watch"];
+    for (const c of cases) {
+      for (const key of Object.keys(c.study ?? {})) assert.ok(fields.includes(key), `${c.id}: study takes no ${key}`);
+      if (c.measured) {
+        const measured = JSON.parse(readFileSync(join(import.meta.dirname, "inputs", `${c.measured}.json`), "utf8"));
+        assert.ok(measured.days.length, c.id);
+        assert.ok(c.study?.watch?.length, `${c.id}: measured departures need watched patterns`);
+      }
+    }
+  });
 });
 
 describe("summarize", () => {
-  it("counts by capability", () => {
+  it("counts by capability and by skill", () => {
     const score = { id: "find-001", passed: true, failures: [], citationRecall: 1, citationPrecision: 1, handedOver: false };
-    assert.deepEqual(summarize(cases, [score]), { total: 1, passed: 1, byCapability: { find: { total: 1, passed: 1 } } });
+    assert.deepEqual(summarize(cases, [score]), {
+      total: 1,
+      passed: 1,
+      byCapability: { find: { total: 1, passed: 1 } },
+      bySkill: { "ttc-standards": { total: 1, passed: 1 } },
+    });
+  });
+});
+
+describe("countBySkill", () => {
+  const expect = { behaviour: "answer" } as const;
+  const one = (id: string, skill: string, split: EvalCase["split"], more: Partial<EvalCase> = {}): EvalCase => ({
+    id,
+    capability: "find",
+    skill,
+    split,
+    query: "?",
+    expect,
+    ...more,
+  });
+
+  it("counts each skill's cases by split, its refusals and hand-overs, and those a planner must check", () => {
+    const counted = countBySkill([
+      one("a", "glossary", "dev"),
+      one("b", "glossary", "test", { review: "planner", expect: { behaviour: "refuse" } }),
+      one("c", "bca", "future", { expect: { behaviour: "flag" } }),
+      one("d", "glossary", "test", { expect: { behaviour: "abstain" } }),
+    ]);
+    assert.deepEqual(counted, [
+      { skill: "bca", dev: 0, test: 0, future: 1, handOver: 1, toReview: 0 },
+      { skill: "glossary", dev: 1, test: 2, future: 0, handOver: 1, toReview: 1 },
+    ]);
+    assert.deepEqual(formatCounts(counted).split("\n"), [
+      "skill     dev  test  future  all  refuse or flag  to review",
+      "bca         0     0       1    1               1          0",
+      "glossary    1     2       0    3               1          1",
+      "all         1     2       1    4               2          1",
+    ]);
+  });
+
+  it("gives every skill at least 8 cases of its own, split between dev and test, with one to refuse or hand over", () => {
+    for (const row of countBySkill(cases)) {
+      assert.ok(row.dev + row.test >= 8, `${row.skill}: ${row.dev + row.test} dev and test cases`);
+      assert.ok(row.dev >= 3 && row.test >= 3, `${row.skill}: ${row.dev} dev, ${row.test} test`);
+      assert.ok(row.handOver >= 1, `${row.skill}: nothing to refuse or hand over`);
+    }
   });
 });

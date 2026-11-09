@@ -22,12 +22,25 @@ export type Expectation = {
 export type EvalCase = {
   id: string;
   capability: string;
+  // The skill in agents/skills the case mainly tests, so a run with skills and one
+  // without show what each adds.
+  skill: string;
   split: "dev" | "test" | "future";
   query: string;
   context?: string[];
   inputs?: string[];
+  // The study the case runs in, as a planner would have opened it.
+  study?: { brief?: string; routes?: string[]; line?: string; trial?: { startedOn: string; reviewOn: string }; watch?: string[] };
+  // What the live feed measured for it: evals/inputs/<name>.json.
+  measured?: string;
   perturbed?: boolean;
   scorer?: "rubric";
+  // For a rubric case: what a planner checks the answer for.
+  rubric?: string[];
+  // A planner still has to check the gold answer before the case counts.
+  review?: "planner";
+  // How the gold answer was worked out, when not read off a page.
+  goldFrom?: string;
   expect: Expectation;
 };
 
@@ -110,16 +123,41 @@ export type Summary = {
   total: number;
   passed: number;
   byCapability: Record<string, { total: number; passed: number }>;
+  // Set beside a run without skills, this shows what each skill adds.
+  bySkill: Record<string, { total: number; passed: number }>;
 };
 
 export function summarize(cases: EvalCase[], scores: Score[]): Summary {
   const byCapability: Summary["byCapability"] = {};
-  const capability = new Map(cases.map((c) => [c.id, c.capability]));
-  for (const s of scores) {
-    const name = capability.get(s.id) ?? "unknown";
-    const row = (byCapability[name] ??= { total: 0, passed: 0 });
+  const bySkill: Summary["bySkill"] = {};
+  const byId = new Map(cases.map((c) => [c.id, c]));
+  const add = (rows: Summary["byCapability"], name: string, passed: boolean) => {
+    const row = (rows[name] ??= { total: 0, passed: 0 });
     row.total += 1;
-    if (s.passed) row.passed += 1;
+    if (passed) row.passed += 1;
+  };
+  for (const s of scores) {
+    const c = byId.get(s.id);
+    add(byCapability, c?.capability ?? "unknown", s.passed);
+    add(bySkill, c?.skill ?? "unknown", s.passed);
   }
-  return { total: scores.length, passed: scores.filter((s) => s.passed).length, byCapability };
+  return { total: scores.length, passed: scores.filter((s) => s.passed).length, byCapability, bySkill };
+}
+
+export type SkillCount = { skill: string; dev: number; test: number; future: number; handOver: number; toReview: number };
+
+// Each skill's cases by split, with how many it should refuse or hand over, and how
+// many still wait for a planner to check their gold answer: what the agent
+// catalogue's scorecard counts (docs/agents.md).
+export function countBySkill(cases: EvalCase[]): SkillCount[] {
+  const rows = new Map<string, SkillCount>();
+  for (const c of cases) {
+    const name = c.skill ?? "unknown";
+    const row = rows.get(name) ?? { skill: name, dev: 0, test: 0, future: 0, handOver: 0, toReview: 0 };
+    row[c.split] += 1;
+    if (c.expect.behaviour === "refuse" || c.expect.behaviour === "flag") row.handOver += 1;
+    if (c.review === "planner") row.toReview += 1;
+    rows.set(name, row);
+  }
+  return [...rows.values()].sort((a, b) => a.skill.localeCompare(b.skill));
 }
