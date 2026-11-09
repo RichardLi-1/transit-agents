@@ -171,6 +171,12 @@ QUOTES = [
     ("metrolinx-bcm-vol2", 103, "given a contingency uplift is applied on capital costs"),
     ("metrolinx-bcm-vol2", 179, "Dollar Value Real, year of evaluation"),
     ("metrolinx-bcm-vol2", 105, "used for illustrative purposes only"),
+    # gis-analyst
+    ("ttc-standards-2024", 10, "90% of the population and employment is within a 400 metre (5 minute) walk of transit service"),
+    ("ontario-line-ibc-2019", 38, "an 800m radius buffer (as the crow flies distance) around stations"),
+    ("ontario-line-ibc-2019", 38, "an 800-metre walkshed around stations, based on an assumed 2041 street network"),
+    ("ttc-anp-2026", 114, "boardings at all stops within 400m of a Neighbourhood Improvement Area (NIA), as designated by the City of Toronto"),
+    ("ttc-standards-2024", 24, "people with low income, women and shift workers"),
 ]
 
 
@@ -225,7 +231,7 @@ class TheSkillsTest(unittest.TestCase):
         listed = {skill["name"]: skill["description"] for skill in skills.list_skills()}
         expected = {
             *("ttc-standards", "consultation", "trial-monitor", "handover", "metrolinx-business-case"),
-            *("engagement-needs", "gtfs-analyst", "transit-cost-benchmark", "planning-glossary"),
+            *("engagement-needs", "gtfs-analyst", "transit-cost-benchmark", "planning-glossary", "gis-analyst"),
         }
         self.assertLessEqual(expected, listed.keys())
         self.assertEqual(listed, {skill.name: skill.description for skill in self.skills})
@@ -265,6 +271,9 @@ class TheSkillsTest(unittest.TestCase):
             "define-003": r"\"Ontario Regulation 231/08\" \(metrolinx-bcm-vol2 p\. 204",
             "define-004": r"These major changes require TTC Board approval\" \(ttc-anp-2026 p\. 113",
             "define-005": r"never OMSF, so OMSF has no expansion",
+            "spatial-011": r"A catchment's population isn't ridership",
+            "spatial-012": r"Heritage properties and green spaces cover the Don Mills corridor only",
+            "spatial-013": r"The census counts people in low income \(LIM-AT\), not households",
         }
         text = "\n".join(skill.body for skill in self.skills)
         cases = {case["id"]: case for case in map(json.loads, (ROOT / "evals" / "cases.jsonl").read_text().splitlines())}
