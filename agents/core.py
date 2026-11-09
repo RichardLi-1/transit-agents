@@ -13,6 +13,8 @@ import os
 import random
 import re
 import sys
+import time
+import uuid
 from collections.abc import Awaitable, Callable, Collection, Sequence
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -122,6 +124,15 @@ LAST_CALL = (
     "This is your last model call, and your tools are off. Answer now from what you have, "
     "and say what you couldn't find or check."
 )
+
+
+# Local tools that show their own steps: a specialist's question and answer are
+# subagent.started and subagent.finished, so its call isn't a tool step as well.
+OWN_STEPS = frozenset({"ask_specialist"})
+
+# How long a tool step's summary may be, in characters, and each argument in it.
+STEP_SUMMARY = 160
+STEP_VALUE = 60
 
 
 # What work() returns when the model gave no answer, instead of one.
@@ -801,7 +812,13 @@ async def _answer_calls(
     for i, function_call in enumerate(calls):
         tool = local_tools.get(function_call.name or "")
         if tool is None:
-            answers[i] = await _call_service(session, study, function_call, service_names)
+            answers[i] = await _stepped(
+                session,
+                study,
+                function_call.name or "",
+                function_call.args or {},
+                lambda c=function_call: _call_service(session, study, c, service_names),
+            )
             continue
         made[tool.name] = made.get(tool.name, 0) + 1
         if tool.at_once is not None and made[tool.name] > tool.at_once:
@@ -815,7 +832,7 @@ async def _answer_calls(
 
     async def run(tool: LocalTool, arguments: dict[str, Any]) -> dict[str, Any]:
         try:
-            return await _call_local(tool, arguments)
+            return await _stepped(session, study, tool.name, arguments, lambda: _call_local(tool, arguments))
         except SpendCapReached as error:
             # Visitors' budget ran out. The other calls aren't cancelled: each finishes
             # the model call it has sent, so what Gemini bills is counted, then stops.
@@ -836,6 +853,101 @@ async def _answer_calls(
         types.Part(function_response=types.FunctionResponse(id=c.id, name=c.name, response=answers[i]))
         for i, c in enumerate(calls)
     ]
+
+
+async def _stepped(
+    session: ClientSession, study: str, name: str, arguments: dict[str, Any], run: Callable[[], Awaitable[dict[str, Any]]]
+) -> dict[str, Any]:
+    """Run one tool call, and report it to the study as a step: tool.called, then
+    tool.finished with whether it worked, how long it took and a short summary.
+
+    The summaries are a line each, such as a page cited or a count of results, never
+    a whole page. The steps only show the work, so the service refusing one, as an
+    older service would, never stops the call. A tool in OWN_STEPS reports its own."""
+    if name in OWN_STEPS:
+        return await run()
+    step = f"t{uuid.uuid4().hex[:12]}"
+    called: dict[str, Any] = {"id": step, "name": clip(name or "unknown", 100), **_whose()}
+    if said := step_arguments(name, arguments):
+        called["summary"] = said
+    await _step(session, study, "tool.called", called)
+    started = time.monotonic()
+    try:
+        answer = await run()
+    except Exception:
+        with contextlib.suppress(Exception):
+            await _step(session, study, "tool.finished", {"id": step, "ok": False, "ms": _since(started)})
+        raise
+    finished: dict[str, Any] = {"id": step, "ok": "error" not in answer, "ms": _since(started)}
+    if said := step_answer(answer):
+        finished["summary"] = said
+    await _step(session, study, "tool.finished", finished)
+    return answer
+
+
+def _since(started: float) -> int:
+    return max(0, round((time.monotonic() - started) * 1000))
+
+
+async def _step(session: ClientSession, study: str, kind: str, fields: dict[str, Any]) -> None:
+    with contextlib.suppress(ToolError):
+        await report(session, study, kind, **fields)
+
+
+def _short(value: Any) -> str | None:
+    """One argument's value, short: a number or words, or a list's length. Nothing else."""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, int):
+        return f"{value:,}"
+    if isinstance(value, float):
+        return f"{value:g}"
+    if isinstance(value, str) and value.strip():
+        return clip(" ".join(value.split()), STEP_VALUE)
+    if isinstance(value, list):
+        return f"{len(value)} {'item' if len(value) == 1 else 'items'}"
+    return None
+
+
+def step_arguments(name: str, arguments: dict[str, Any]) -> str | None:
+    """A tool call's arguments in a line, such as "ttc-anp-2026 p. 115" for a page read.
+
+    The study is left out: the step is in it already."""
+    if name == "read_page" and arguments.get("contextId"):
+        page = arguments.get("page")
+        return clip(f"{arguments['contextId']}{f' p. {page}' if page is not None else ''}", STEP_SUMMARY)
+    parts = []
+    for key, value in arguments.items():
+        if key == "studyId":
+            continue
+        short = _short(value)
+        if short is not None:
+            parts.append(f"{key}: {short}")
+    return clip(", ".join(parts), STEP_SUMMARY) if parts else None
+
+
+def step_answer(answer: dict[str, Any]) -> str | None:
+    """What a tool call gave back, in a line: its error, or a count, a label or a size."""
+    if "error" in answer:
+        return clip(" ".join(str(answer["error"]).split()), STEP_SUMMARY)
+    output = answer.get("output")
+    cut = " (cut)" if "note" in answer else ""
+    if isinstance(output, list):
+        return f"{len(output):,} {'result' if len(output) == 1 else 'results'}{cut}"
+    if isinstance(output, dict):
+        for key in ("label", "title", "name", "id"):
+            named = output.get(key)
+            if isinstance(named, str) and named.strip():
+                value = output.get("value")
+                shown = f"{named}: {value:g}" if isinstance(value, (int, float)) and not isinstance(value, bool) else named
+                return clip(" ".join(shown.split()) + cut, STEP_SUMMARY)
+        for key, value in output.items():
+            if isinstance(value, list):
+                return f"{len(value):,} {key}{cut}"
+        return f"{len(output)} {'field' if len(output) == 1 else 'fields'}{cut}"
+    if isinstance(output, str):
+        return f"{len(output):,} characters{cut}"
+    return None
 
 
 async def _call_service(

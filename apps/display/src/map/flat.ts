@@ -1,6 +1,6 @@
 // A flat map for when WebGL is missing or lost. No tilt or fog: just the network,
 // the study line and its vehicles, so the display is never blank.
-import { FIELD_OF_VIEW, isRail, type Camera, type NetworkData, type NetworkRoute, type Point } from "./engine.ts";
+import { FIELD_OF_VIEW, isRail, type Camera, type LayerShapes, type NetworkData, type NetworkRoute, type Point } from "./engine.ts";
 import { LINE_COLORS } from "./views.ts";
 
 // How the flat map frames the ground: the point on the ground at the middle of the
@@ -57,6 +57,25 @@ export class FlatMap {
 
   setVehicles(data: ArrayLike<number>) {
     this.vehicles = data;
+    this.draw();
+  }
+
+  private layers = new Map<string, LayerShapes>();
+  private shownLayers: string[] = [];
+  private networkShown = true;
+
+  setLayers(layers: LayerShapes[]) {
+    this.layers = new Map(layers.map((layer) => [layer.id, layer]));
+    this.draw();
+  }
+
+  showLayers(ids: string[]) {
+    this.shownLayers = ids;
+    this.draw();
+  }
+
+  setNetworkShown(shown: boolean) {
+    this.networkShown = shown;
     this.draw();
   }
 
@@ -127,20 +146,46 @@ export class FlatMap {
     };
     context.lineCap = "round";
     context.lineJoin = "round";
-    context.lineWidth = ratio;
-    context.strokeStyle = "rgba(218, 37, 29, 0.4)";
-    const rail = data.polylines.filter((line) => isRail(data.routes[line.route] as NetworkRoute));
-    for (const line of data.polylines) if (!rail.includes(line)) trace(line);
-    for (const [width, casing] of [
-      [7, true],
-      [4, false],
-    ] as const) {
-      context.lineWidth = width * ratio;
-      for (const line of rail) {
-        const route = data.routes[line.route] as NetworkRoute;
-        context.strokeStyle = casing ? (this.dark ? "#161618" : "#ffffff") : `#${LINE_COLORS[route.id] ?? route.color}`;
-        trace(line);
+    const ground = this.dark ? "#161618" : "#ffffff";
+    if (this.networkShown) {
+      context.lineWidth = ratio;
+      context.strokeStyle = "rgba(218, 37, 29, 0.4)";
+      const rail = data.polylines.filter((line) => isRail(data.routes[line.route] as NetworkRoute));
+      for (const line of data.polylines) if (!rail.includes(line)) trace(line);
+      for (const [width, casing] of [
+        [7, true],
+        [4, false],
+      ] as const) {
+        context.lineWidth = width * ratio;
+        for (const line of rail) {
+          const route = data.routes[line.route] as NetworkRoute;
+          context.strokeStyle = casing ? ground : `#${LINE_COLORS[route.id] ?? route.color}`;
+          trace(line);
+        }
       }
+    }
+
+    // An agent's layers: polygons filled by winding, so overlaps unite and holes stay open.
+    const shown = this.shownLayers.flatMap((id) => this.layers.get(id) ?? []);
+    const stroke = (points: Point[], close = false) => {
+      points.forEach(([x, y], i) => {
+        const [sx, sy] = toScreen(x, y);
+        if (i === 0) context.moveTo(sx, sy);
+        else context.lineTo(sx, sy);
+      });
+      if (close) context.closePath();
+    };
+    for (const layer of shown) {
+      if (!layer.polygons.length) continue;
+      context.beginPath();
+      for (const polygon of layer.polygons) for (const ring of polygon) stroke(ring, true);
+      context.globalAlpha = 0.26;
+      context.fillStyle = `#${layer.color}`;
+      context.fill("nonzero");
+      context.globalAlpha = 1;
+      context.lineWidth = 1.75 * ratio;
+      context.strokeStyle = `#${layer.color}`;
+      context.stroke();
     }
 
     context.lineWidth = 7 * ratio;
@@ -163,6 +208,31 @@ export class FlatMap {
       }
     }
     context.setLineDash([]);
+
+    for (const layer of shown) {
+      for (const [width, color] of [
+        [7, ground],
+        [4, `#${layer.color}`],
+      ] as const) {
+        context.lineWidth = width * ratio;
+        context.strokeStyle = color;
+        for (const line of layer.lines) {
+          context.beginPath();
+          stroke(line);
+          context.stroke();
+        }
+      }
+      context.fillStyle = `#${layer.color}`;
+      context.strokeStyle = ground;
+      context.lineWidth = 2 * ratio;
+      for (let i = 0; i + 1 < layer.points.length; i += 2) {
+        const [x, y] = toScreen(layer.points[i] as number, layer.points[i + 1] as number);
+        context.beginPath();
+        context.arc(x, y, 5.5 * ratio, 0, Math.PI * 2);
+        context.fill();
+        context.stroke();
+      }
+    }
 
     for (let i = 0; i < this.vehicles.length; i += 3) {
       const [x, y] = toScreen(this.vehicles[i] as number, this.vehicles[i + 1] as number);

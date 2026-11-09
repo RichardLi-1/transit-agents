@@ -33,8 +33,6 @@ type Highlights = Record<string, Marks>;
 
 const place = ([x, y, w, h]: Box) => ({ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` });
 
-const THREAD_MS = 750;
-
 let highlights: Promise<Highlights> | undefined;
 const loadHighlights = () => (highlights ??= fetch("/sources/highlights.json").then((r) => r.json() as Promise<Highlights>));
 
@@ -55,7 +53,6 @@ export function QuickLook({ opened, contexts, onClose }: Props) {
   // Nothing scrolls until the dialog shows, which can be after the image loads.
   const [shown, setShown] = useState(false);
 
-  // The thread to the source folder draws first, then the page opens over it.
   useEffect(() => {
     const element = dialog.current;
     if (!element) return;
@@ -65,12 +62,8 @@ export function QuickLook({ opened, contexts, onClose }: Props) {
       setShown(false);
       return;
     }
-    const wait = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : THREAD_MS;
-    const timer = window.setTimeout(() => {
-      if (!element.open) element.showModal();
-      setShown(true);
-    }, wait);
-    return () => window.clearTimeout(timer);
+    if (!element.open) element.showModal();
+    setShown(true);
   }, [opened]);
 
   const source = opened?.sources[index];

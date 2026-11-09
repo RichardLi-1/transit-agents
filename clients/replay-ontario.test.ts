@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { executiveDecision } from "@transit-agents/contracts";
-import { answer } from "./replay-ontario.ts";
+import { answer, PLAN } from "./replay-ontario.ts";
 import { GAP, ONTARIO } from "./seed-ontario.ts";
 
 // The values the service holds once the seed's figures are recorded.
@@ -33,6 +33,14 @@ describe("the Ontario Line's answer", () => {
       assert.ok(line.startsWith(`- ${text.slice(0, -1)} (`), line);
       assert.ok(line.endsWith(` p. ${citation.page}).`), line);
     }
+  });
+
+  it("plans as a numbered list, one line for each question it asks, which the chat shows as a list", () => {
+    const steps = PLAN.split("\n").filter((line) => /^\d+\. /.test(line));
+    assert.deepEqual(
+      steps.map((line) => Number(line.split(".")[0])),
+      [1, 2, 3, 4, 5],
+    );
   });
 
   it("ends asking for an executive's decision, which the display offers to ping about", () => {

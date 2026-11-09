@@ -209,8 +209,44 @@ void main() {
   color = vec4(rgb * alpha, alpha);
 }`;
 
+// An agent's layers. Polygons are filled through the stencil: each ring's fan
+// counts up or down by its winding, and the colour goes where the count isn't
+// zero, so overlapping shapes unite and holes stay open, with no triangulation.
+const FILL_VERTEX = `${HEADER}
+in vec2 aPosition;
+void main() { gl_Position = uViewProjection * vec4(aPosition, 0.0, 1.0); }`;
+
+const FILL_FRAGMENT = `#version 300 es
+precision highp float;
+uniform vec4 uColor;
+out vec4 color;
+void main() { color = vec4(uColor.rgb * uColor.a, uColor.a); }`;
+
+// A layer's points: a dot in its colour, ringed in the ground's.
+const POINT_VERTEX = `${HEADER}
+in vec2 aPosition;
+uniform float uSize;
+void main() {
+  gl_Position = uViewProjection * vec4(aPosition, 0.0, 1.0);
+  gl_PointSize = uSize;
+}`;
+
+const POINT_FRAGMENT = `#version 300 es
+precision highp float;
+uniform vec3 uColor;
+uniform vec3 uRim;
+out vec4 color;
+void main() {
+  float r = length(gl_PointCoord - 0.5) * 2.0;
+  float outer = 1.0 - smoothstep(0.84, 1.0, r);
+  float core = 1.0 - smoothstep(0.58, 0.7, r);
+  color = vec4(mix(uRim, uColor, core) * outer, outer);
+}`;
+
 function compile(gl: WebGL2RenderingContext, vertex: string, fragment: string): WebGLProgram {
   const program = gl.createProgram();
+  // Every program reads its position first, so one vertex array serves the fill and the points.
+  gl.bindAttribLocation(program, 0, "aPosition");
   for (const [type, source] of [
     [gl.VERTEX_SHADER, vertex],
     [gl.FRAGMENT_SHADER, fragment],
@@ -307,6 +343,29 @@ function ribbon(points: Point[], color: Vec3, casing: Vec3, out: number[], along
 // Each layer's full width in CSS pixels at the camera's target: glow, casing, line.
 const RAIL_WIDTHS: Vec3 = [16, 8, 5];
 const STUDY_WIDTHS: Vec3 = [30, 14, 9];
+// An agent's lines, and the edges of its polygons, which have no glow.
+const LAYER_LINE_WIDTHS: Vec3 = [12, 7, 4];
+const LAYER_EDGE_WIDTHS: Vec3 = [0, 3.5, 1.75];
+// How much of a polygon's colour fills it, and a point's size in CSS pixels.
+const LAYER_FILL = 0.26;
+const LAYER_POINT_PX = 13;
+
+// What one of an agent's layers is, in the shape the map draws it. Its colour is
+// hex without the #.
+export type LayerShapes = { id: string; color: string; points: number[]; lines: Point[][]; polygons: Point[][][] };
+
+type GpuLayer = {
+  color: Vec3;
+  fans: WebGLVertexArrayObject | null;
+  fanCount: number;
+  cover: WebGLVertexArrayObject | null;
+  edges: WebGLVertexArrayObject | null;
+  edgeCount: number;
+  lines: WebGLVertexArrayObject | null;
+  lineCount: number;
+  points: WebGLVertexArrayObject | null;
+  pointCount: number;
+};
 
 export class MapEngine {
   private readonly gl: WebGL2RenderingContext;
@@ -314,6 +373,8 @@ export class MapEngine {
   private readonly network: WebGLProgram;
   private readonly ribbons: WebGLProgram;
   private readonly vehicles: WebGLProgram;
+  private readonly fill: WebGLProgram;
+  private readonly dots: WebGLProgram;
 
   private networkVao: WebGLVertexArrayObject | null = null;
   private networkIndexCount = 0;
@@ -342,13 +403,16 @@ export class MapEngine {
   private reported = "";
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
-    const gl = canvas.getContext("webgl2", { antialias: true, alpha: true, premultipliedAlpha: true }) as WebGL2RenderingContext | null;
+    // A stencil, for filling an agent's polygons.
+    const gl = canvas.getContext("webgl2", { antialias: true, alpha: true, premultipliedAlpha: true, stencil: true }) as WebGL2RenderingContext | null;
     if (!gl) throw new Error("WebGL2 is not available");
     this.gl = gl;
     this.canvas = canvas;
     this.network = compile(gl, NETWORK_VERTEX, COLOR_FRAGMENT);
     this.ribbons = compile(gl, RIBBON_VERTEX, RIBBON_FRAGMENT);
     this.vehicles = compile(gl, VEHICLE_VERTEX, VEHICLE_FRAGMENT);
+    this.fill = compile(gl, FILL_VERTEX, FILL_FRAGMENT);
+    this.dots = compile(gl, POINT_VERTEX, POINT_FRAGMENT);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   }
@@ -362,6 +426,87 @@ export class MapEngine {
     this.dark = dark;
     if (this.data) this.setNetwork(this.data);
     this.rebuildStudy();
+    this.setLayers(this.layerData);
+  }
+
+  // The TTC network under everything, which the planner can hide to see an agent's layers alone.
+  private networkShown = true;
+  setNetworkShown(shown: boolean) {
+    this.networkShown = shown;
+    this.requestDraw();
+  }
+
+  private layerData: LayerShapes[] = [];
+  // Each layer as uploaded, so hiding and showing one uploads nothing.
+  private readonly built = new Map<string, GpuLayer>();
+  private shownLayers: string[] = [];
+
+  // Every layer the study has, whether shown or not. Given again only when they change.
+  setLayers(layers: LayerShapes[]) {
+    this.layerData = layers;
+    for (const gpu of this.built.values()) {
+      for (const vao of [gpu.fans, gpu.cover, gpu.edges, gpu.lines, gpu.points]) if (vao) this.gl.deleteVertexArray(vao);
+    }
+    this.built.clear();
+    for (const layer of layers) this.built.set(layer.id, this.upload(layer));
+    this.requestDraw();
+  }
+
+  // The layers to draw, bottom first.
+  showLayers(ids: string[]) {
+    this.shownLayers = ids;
+    this.requestDraw();
+  }
+
+  private upload(layer: LayerShapes): GpuLayer {
+    const { gl } = this;
+    const casing: Vec3 = this.dark ? DARK_GROUND : [1, 1, 1];
+    const positions = (data: number[]) => {
+      if (!data.length) return null;
+      const vao = gl.createVertexArray();
+      gl.bindVertexArray(vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+      // The fill and point programs both read the position first.
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      gl.bindVertexArray(null);
+      return vao;
+    };
+    {
+      const color = hexToRgb(layer.color);
+      const fans: number[] = [];
+      const edges: number[] = [];
+      let [minX, minY, maxX, maxY] = [Infinity, Infinity, -Infinity, -Infinity];
+      for (const polygon of layer.polygons) {
+        for (const ring of polygon) {
+          const first = ring[0] as Point;
+          for (let i = 1; i + 1 < ring.length; i++) fans.push(...first, ...(ring[i] as Point), ...(ring[i + 1] as Point));
+          for (const [x, y] of ring) {
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+          }
+          ribbon([...ring, first], color, casing, edges, null);
+        }
+      }
+      const lines: number[] = [];
+      for (const line of layer.lines) ribbon(line, color, casing, lines, null);
+      const cover = fans.length ? [minX, minY, maxX, minY, maxX, maxY, minX, minY, maxX, maxY, minX, maxY] : [];
+      return {
+        color,
+        fans: positions(fans),
+        fanCount: fans.length / 2,
+        cover: positions(cover),
+        edges: edges.length ? this.ribbonVao(new Float32Array(edges)) : null,
+        edgeCount: edges.length / FLOATS,
+        lines: lines.length ? this.ribbonVao(new Float32Array(lines)) : null,
+        lineCount: lines.length / FLOATS,
+        points: positions(layer.points),
+        pointCount: layer.points.length / 2,
+      };
+    }
   }
 
   setNetwork(data: NetworkData) {
@@ -606,7 +751,8 @@ export class MapEngine {
     const { gl, canvas, camera } = this;
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clearStencil(0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
     if (!this.networkVao) return;
 
     const { eye, viewProjection } = cameraView(camera, canvas.width / canvas.height);
@@ -619,13 +765,15 @@ export class MapEngine {
       gl.uniform2fv(gl.getUniformLocation(program, "uFog"), fog);
     };
 
-    shared(this.network);
-    gl.uniform1f(gl.getUniformLocation(this.network, "uUnit"), this.unit);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.routeTexture);
-    gl.uniform1i(gl.getUniformLocation(this.network, "uRoutes"), 0);
-    gl.bindVertexArray(this.networkVao);
-    gl.drawElements(gl.LINES, this.networkIndexCount, gl.UNSIGNED_INT, 0);
+    if (this.networkShown) {
+      shared(this.network);
+      gl.uniform1f(gl.getUniformLocation(this.network, "uUnit"), this.unit);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.routeTexture);
+      gl.uniform1i(gl.getUniformLocation(this.network, "uRoutes"), 0);
+      gl.bindVertexArray(this.networkVao);
+      gl.drawElements(gl.LINES, this.networkIndexCount, gl.UNSIGNED_INT, 0);
+    }
 
     // Metres a CSS pixel spans at the camera's target, and a gentle growth as the
     // map zooms in, as transit maps thicken their lines.
@@ -634,6 +782,7 @@ export class MapEngine {
     const layers = (vao: WebGLVertexArrayObject | null, count: number, widths: Vec3, dash: Vec3) => {
       gl.bindVertexArray(vao);
       widths.forEach((px, layer) => {
+        if (!px) return;
         gl.uniform1f(gl.getUniformLocation(this.ribbons, "uLayer"), layer);
         gl.uniform1f(gl.getUniformLocation(this.ribbons, "uWidth"), (px / 2) * zoom * metresPerPixel);
         gl.uniform1f(gl.getUniformLocation(this.ribbons, "uFeather"), Math.min(2 / (px * zoom), 1));
@@ -645,16 +794,67 @@ export class MapEngine {
       gl.blendEquation(gl.FUNC_ADD);
     };
 
+    const shown = this.shownLayers.flatMap((id) => this.built.get(id) ?? []);
+
     shared(this.ribbons);
     gl.uniform1f(gl.getUniformLocation(this.ribbons, "uProgress"), 2);
     gl.uniform1f(gl.getUniformLocation(this.ribbons, "uFogged"), 1);
-    gl.uniform1f(gl.getUniformLocation(this.ribbons, "uMute"), this.studyCount ? RAIL_MUTE : 0);
-    layers(this.railVao, this.railCount, RAIL_WIDTHS, NO_DASH);
+    gl.uniform1f(gl.getUniformLocation(this.ribbons, "uMute"), this.studyCount || shown.length ? RAIL_MUTE : 0);
+    if (this.networkShown) layers(this.railVao, this.railCount, RAIL_WIDTHS, NO_DASH);
+
+    // Polygon fills under the study's line, so the line stays clear.
+    if (shown.some((layer) => layer.fanCount)) {
+      shared(this.fill);
+      const color = gl.getUniformLocation(this.fill, "uColor");
+      gl.enable(gl.STENCIL_TEST);
+      for (const layer of shown) {
+        if (!layer.fanCount) continue;
+        gl.colorMask(false, false, false, false);
+        gl.stencilFunc(gl.ALWAYS, 0, 0xff);
+        gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
+        gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
+        gl.bindVertexArray(layer.fans);
+        gl.drawArrays(gl.TRIANGLES, 0, layer.fanCount);
+        gl.colorMask(true, true, true, true);
+        // Where the count isn't zero, and back to zero there for the next layer.
+        gl.stencilFunc(gl.NOTEQUAL, 0, 0xff);
+        gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);
+        gl.uniform4f(color, ...layer.color, LAYER_FILL);
+        gl.bindVertexArray(layer.cover);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+      }
+      gl.disable(gl.STENCIL_TEST);
+      shared(this.ribbons);
+    }
+
     if (this.studyVao) {
       gl.uniform1f(gl.getUniformLocation(this.ribbons, "uFogged"), 0);
       gl.uniform1f(gl.getUniformLocation(this.ribbons, "uMute"), 0);
       gl.uniform1f(gl.getUniformLocation(this.ribbons, "uProgress"), this.studyProgress);
       layers(this.studyVao, this.studyCount, STUDY_WIDTHS, this.studyDash);
+    }
+
+    // Edges and lines over the study's line: they are what was just asked for.
+    if (shown.length) {
+      gl.uniform1f(gl.getUniformLocation(this.ribbons, "uFogged"), 0);
+      gl.uniform1f(gl.getUniformLocation(this.ribbons, "uMute"), 0);
+      gl.uniform1f(gl.getUniformLocation(this.ribbons, "uProgress"), 2);
+      for (const layer of shown) {
+        if (layer.edgeCount) layers(layer.edges, layer.edgeCount, LAYER_EDGE_WIDTHS, NO_DASH);
+        if (layer.lineCount) layers(layer.lines, layer.lineCount, LAYER_LINE_WIDTHS, NO_DASH);
+      }
+      if (shown.some((layer) => layer.pointCount)) {
+        shared(this.dots);
+        const ratio = canvas.height / (this.size[1] || canvas.height);
+        gl.uniform1f(gl.getUniformLocation(this.dots, "uSize"), LAYER_POINT_PX * ratio);
+        gl.uniform3fv(gl.getUniformLocation(this.dots, "uRim"), this.dark ? DARK_GROUND : [1, 1, 1]);
+        for (const layer of shown) {
+          if (!layer.pointCount) continue;
+          gl.uniform3fv(gl.getUniformLocation(this.dots, "uColor"), layer.color);
+          gl.bindVertexArray(layer.points);
+          gl.drawArrays(gl.POINTS, 0, layer.pointCount);
+        }
+      }
     }
 
     if (this.vehicleCount) {

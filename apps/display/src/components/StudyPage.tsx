@@ -1,13 +1,19 @@
+// The study, as a page of its own: the figures it leads with, its tests, what
+// isn't known yet, its notes, the decision, and every figure with where it comes
+// from. Each number and note opens its source.
+import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { Assumption, CheckView, FigureView, FindingView, Outcome, StudyView, Timeline } from "@transit-agents/contracts";
+import type { Assumption, CheckView, Context, FigureView, FindingView, Outcome, StudyView, Timeline } from "@transit-agents/contracts";
 import { api } from "../api.ts";
 import { recordedBy } from "../actors.ts";
 import { amount, citesAPage, otherFigures, trialDays, unitAfter } from "../figures.ts";
 import { gap } from "../gap.ts";
 import { refusal, setNotice } from "../notice.ts";
+import type { Layer } from "../map/layers.ts";
+import { shortName } from "../runs.ts";
+import { spatialLayer } from "../spatial.ts";
 import { canDecide, signIn, type Session } from "../session.ts";
 import { CheckIcon, CrossIcon, StaleIcon } from "./icons.tsx";
-import { studyColor } from "../map/views.ts";
 
 const SYMBOL = { ">=": "≥", ">": ">", "<=": "≤", "<": "<" } as const;
 const STATUS_TEXT = { pass: "Passes", fail: "Fails", stale: "Out of date", unverified: "Awaiting a planner" } as const;
@@ -32,11 +38,6 @@ const HEADLINES: Record<string, { figure: string; caption: string }[]> = {
     { figure: "don-mills-usage", caption: "Don Mills Station riders a weekday" },
   ],
 };
-// What the solid and dashed parts of a study's line stand for, where it has both.
-const KEYS: Record<string, [solid: string, dashed: string]> = {
-  "ontario-line-don-mills": ["Under construction", "Proposed"],
-};
-
 // Below this many departures, a percentage says more about chance than service.
 const MIN_SAMPLE = 20;
 const whole = new Intl.NumberFormat("en-CA", { maximumFractionDigits: 0 });
@@ -233,136 +234,158 @@ function Results({ timeline, trialStart }: { timeline: Timeline | null; trialSta
   );
 }
 
-// Whether a scrolling element has more below what shows, so the card can fade
-// its bottom edge as a sign that it scrolls.
-function useMoreBelow(ref: { current: HTMLElement | null }): boolean {
-  const [below, setBelow] = useState(false);
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const check = () => setBelow(element.scrollTop + element.clientHeight < element.scrollHeight - 2);
-    check();
-    const observer = new ResizeObserver(check);
-    observer.observe(element);
-    for (const child of element.children) observer.observe(child);
-    const mutations = new MutationObserver(check);
-    mutations.observe(element, { childList: true, subtree: true, attributes: true, attributeFilter: ["open"] });
-    element.addEventListener("scroll", check, { passive: true });
-    return () => {
-      observer.disconnect();
-      mutations.disconnect();
-      element.removeEventListener("scroll", check);
-    };
-  }, [ref]);
-  return below;
-}
-
 type Props = {
   study: StudyView;
   session: Session | null;
-  studies: StudyView[];
   assumptions: Assumption[];
+  contexts: Context[];
   // The log position the display opened at: figures recorded after it are new.
   since: number | null;
   timeline: Timeline | null;
-  onSelect: (id: string) => void;
   onPreview: (view: StudyView | null) => void;
   onFigure: (id: string, element: Element) => void;
   onCitation: (item: CheckView | FindingView, element: Element) => void;
+  // Opens the map on a layer.
+  onLayer: (id: string) => void;
 };
 
-// How many figures the card leads with. Everything else is under Details.
-const LEADS = 2;
-
-// A test: its figure, which opens its working, against its rule.
-function Check({ check, opens, onFigure }: { check: CheckView; opens: string; onFigure: Props["onFigure"] }) {
+// A test: its status, its figure, which opens its working, against its rule, and the rule's page.
+function Check({ check, opens, onFigure, onCitation }: { check: CheckView; opens: string; onFigure: Props["onFigure"]; onCitation: Props["onCitation"] }) {
   return (
-    <li>
-      <Status status={check.status} />
-      <button type="button" class="figure" data-figure={check.figure} onClick={(event) => onFigure(check.figure, event.currentTarget)}>
-        {signed(check.actual)}
-        <span class="sr-only">{opens}</span>
-      </button>
-      <span class="label">{check.label}</span>
-      <span class="rule">
+    <tr>
+      <td>
+        <Status status={check.status} />
+      </td>
+      <th scope="row">{check.label}</th>
+      <td class="num">
+        <button type="button" class="figure" data-figure={check.figure} onClick={(event) => onFigure(check.figure, event.currentTarget)}>
+          {signed(check.actual)}
+          <span class="sr-only">{opens}</span>
+        </button>
+      </td>
+      <td class="num rule">
         <span aria-hidden="true">{SYMBOL[check.op]}</span>
         <span class="sr-only">{check.op.startsWith(">") ? "at least" : "under"}</span> {number.format(check.threshold)}
-      </span>
-    </li>
+      </td>
+      <td>
+        {check.rule && (
+          <button type="button" class="cite-page" onClick={(event) => onCitation(check, event.currentTarget)}>
+            p. {check.rule.page}
+            <span class="sr-only">, the rule's page</span>
+          </button>
+        )}
+      </td>
+    </tr>
   );
 }
 
-// One of the study's other figures, under Details.
-function Other({ figure, fresh, opens, onFigure }: { figure: FigureView; fresh: boolean; opens: string; onFigure: Props["onFigure"] }) {
+type Summary = Pick<Layer, "id" | "title" | "dataset">;
+
+// Each layer's summary, for the figures measured on it, so they cite its dataset.
+function useLayerSummaries(studyId: string, ids: string[]): Record<string, Summary> {
+  const [found, setFound] = useState<Record<string, Summary>>({});
+  const key = [...new Set(ids)].sort().join(",");
+  useEffect(() => {
+    if (!key) return;
+    let live = true;
+    void Promise.all(
+      key.split(",").map(async (id) => {
+        const response = await api(`/v1/studies/${encodeURIComponent(studyId)}/layers/${encodeURIComponent(id)}`).catch(() => undefined);
+        const body = response?.ok ? ((await response.json().catch(() => null)) as (Summary & { layer?: Summary }) | null) : null;
+        const layer = body?.layer ?? body;
+        return [id, layer && typeof layer.title === "string" ? layer : { id, title: id }] as const;
+      }),
+    ).then((pairs) => live && setFound(Object.fromEntries(pairs)));
+    return () => {
+      live = false;
+    };
+  }, [studyId, key]);
+  return found;
+}
+
+const retrievedOn = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
+
+// A figure measured on a map layer cites the layer's data: who published it, under
+// what licence, where, and when it was retrieved. Its name opens the layer on the map.
+function SpatialSource({ figure, layer, onLayer }: { figure: FigureView; layer: Summary | undefined; onLayer: (id: string) => void }) {
+  const id = spatialLayer(figure) as string;
+  const dataset = layer?.dataset;
+  const retrieved = dataset?.retrieved && !Number.isNaN(Date.parse(dataset.retrieved)) ? retrievedOn.format(Date.parse(dataset.retrieved)) : dataset?.retrieved;
   return (
-    <li class={fresh ? "new" : undefined}>
-      <button type="button" class="figure" data-figure={figure.id} onClick={(event) => onFigure(figure.id, event.currentTarget)}>
-        {amount(figure)}
-        <span class="sr-only">{opens}</span>
+    <span class="spatial">
+      <button type="button" class="cite-page" data-figure={figure.id} onClick={() => onLayer(id)}>
+        {layer?.title ?? id}
+        <span class="sr-only">{`, ${figure.label}, show on the map`}</span>
       </button>
-      <span class="label">
-        {figure.label}
-        {unitAfter(figure.unit) && <span class="unit">, {unitAfter(figure.unit)}</span>}
-      </span>
-    </li>
+      {dataset && (
+        <span class="dataset">
+          {[dataset.publisher, dataset.licence, retrieved && `retrieved ${retrieved}`].filter(Boolean).join(" · ")}{" "}
+          {dataset.url && (
+            <a href={dataset.url} target="_blank" rel="noopener noreferrer">
+              Data<span class="sr-only">: {dataset.title}</span>
+            </a>
+          )}
+        </span>
+      )}
+    </span>
   );
 }
 
-export function StudyCard({ study, session, studies, assumptions, since, timeline, onSelect, onPreview, onFigure, onCitation }: Props) {
-  // What a figure's button opens: its pages, or, with none, how it's worked out.
-  const opens = (id: string) => (citesAPage(id, study.figures, assumptions) ? ", show source" : ", show working");
+// Where a figure comes from, in a few words: a source and its page, or its working.
+function basisOf(figure: FigureView, contexts: Context[]): string {
+  const { basis } = figure;
+  if (basis.kind === "cited") return `${shortName(basis.citation.contextId, contexts)} p. ${basis.citation.page}`;
+  return basis.kind === "derived" ? "Worked out" : "Computed";
+}
+
+// A part of the page, under its heading.
+function Part({ id, title, extra, children, kind }: { id: string; title: string; extra?: ComponentChildren; children: ComponentChildren; kind?: string }) {
+  return (
+    <section class={kind ? `part ${kind}` : "part"} aria-labelledby={id}>
+      <h2 id={id}>
+        {title}
+        {extra}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+const day = new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric" });
+// Who recorded a figure, in a word or two: "lead", "scripted replay", "planner ana".
+const by = (actor: string) => recordedBy(actor).replace(/^(Recorded|Set) by (the )?/, "");
+
+export function StudyPage({ study, session, assumptions, contexts, since, timeline, onPreview, onFigure, onCitation, onLayer }: Props) {
   const { decision } = study;
-  const all = (HEADLINES[study.id] ?? []).flatMap(({ figure: id, caption }) => {
+  const headlines = (HEADLINES[study.id] ?? []).flatMap(({ figure: id, caption }) => {
     const figure = study.figures.find((f) => f.id === id);
     return figure ? [{ figure, caption }] : [];
   });
-  // The card leads with two figures: a study's chosen headlines, or else its first tests.
-  const headlines = all.slice(0, LEADS);
-  const checks = headlines.length ? [] : study.checks.slice(0, LEADS);
-  const foldedChecks = study.checks.filter((check) => !checks.includes(check));
-  const key = KEYS[study.id];
-  const card = useRef<HTMLElement>(null);
-  const below = useMoreBelow(card);
-  // Every other figure, so all an agent records can be opened here.
-  const others = otherFigures(study.figures, [...study.checks.map((check) => check.figure), ...headlines.map(({ figure }) => figure.id)]);
+  const gaps = study.findings.filter((finding) => gap(finding.text));
+  const notes = study.findings.filter((finding) => !gap(finding.text));
   const awaiting = study.findings.some((finding) => finding.tone === "unrated") || study.checks.some((check) => check.status === "unverified");
   const passed = study.checks.filter((check) => check.status === "pass").length;
   const status = awaiting ? "Awaiting a planner" : study.checks.length ? `${passed} of ${study.checks.length} tests pass` : null;
   const isFresh = (figure: FigureView) => since !== null && figure.seq > since;
-  const fresh = others.reduce((sum, group) => sum + group.figures.filter(isFresh).length, 0);
-  const details = foldedChecks.length + study.findings.length + others.length + (key ? 1 : 0);
+  const figures = otherFigures(study.figures, []).flatMap((group) => group.figures);
+  const fresh = figures.filter(isFresh).length;
+  const layers = useLayerSummaries(study.id, figures.flatMap((figure) => spatialLayer(figure) ?? []));
+  // What a figure's button opens: its pages, or, with none, how it's worked out. A
+  // figure measured on a map layer, or worked out from one, cites the layer instead.
+  const opens = (id: string) => {
+    try {
+      return citesAPage(id, study.figures, assumptions) ? ", show source" : ", show working";
+    } catch {
+      return ", show working";
+    }
+  };
 
   return (
-    <section ref={card} class={below ? "card below" : "card"} data-study={study.id} aria-labelledby="study-heading">
-      <h2 id="study-heading" class="sr-only">
-        Study
-      </h2>
-      {studies.length > 1 ? (
-        // A select can't wrap, so the title shows as text and the select lies over it.
-        <div class="title picker">
-          <span aria-hidden="true">{study.title}</span>
-          <select aria-label="Study" value={study.id} onChange={(event) => onSelect(event.currentTarget.value)}>
-            {studies.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.title}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : (
-        <p class="title">{study.title}</p>
-      )}
-
-      {checks.length > 0 && (
-        <ul class="checks">
-          {checks.map((check) => (
-            <Check key={check.id} check={check} opens={opens(check.figure)} onFigure={onFigure} />
-          ))}
-        </ul>
-      )}
+    <article class="study-page" data-study={study.id} aria-labelledby="study-title">
+      {study.brief && <p class="brief">{study.brief}</p>}
 
       {headlines.length > 0 && (
-        <ul class="headlines">
+        <ul class="headlines" aria-label="Headline figures">
           {headlines.map(({ figure, caption }) => (
             <li key={figure.id}>
               <button type="button" class="figure" data-figure={figure.id} onClick={(event) => onFigure(figure.id, event.currentTarget)}>
@@ -378,81 +401,128 @@ export function StudyCard({ study, session, studies, assumptions, since, timelin
         </ul>
       )}
 
-      {decision ? (
-        <p class="decision">
-          <span>{ANALYSIS[decision.analysis]}</span>
-          <span aria-hidden="true">→</span>
-          <span class="sr-only">, decision: </span>
-          <strong>{OUTCOME[decision.outcome]}</strong>
-          {decision.override && <span class="override">Override</span>}
-        </p>
-      ) : (
-        <>
-          {status && (
-            <p class={awaiting ? "awaiting" : "awaiting passed"}>
-              <span class="dot" aria-hidden="true" />
-              {status}
-            </p>
+      <div class="study-grid">
+        <div class="study-main">
+          {study.checks.length > 0 && (
+            <Part id="checks-title" title="Checks">
+              <table class="checks">
+                <thead>
+                  <tr>
+                    <th scope="col">
+                      <span class="sr-only">Status</span>
+                    </th>
+                    <th scope="col">Test</th>
+                    <th scope="col" class="num">
+                      Value
+                    </th>
+                    <th scope="col" class="num">
+                      Rule
+                    </th>
+                    <th scope="col">
+                      <span class="sr-only">Rule's page</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {study.checks.map((check) => (
+                    <Check key={check.id} check={check} opens={opens(check.figure)} onFigure={onFigure} onCitation={onCitation} />
+                  ))}
+                </tbody>
+              </table>
+            </Part>
           )}
-          <Decide studyId={study.id} session={session} />
-        </>
-      )}
 
-      <Results timeline={timeline} trialStart={study.trial?.startedOn} />
-
-      {details > 0 && (
-        <details class="details">
-          <summary>
-            Details
-            {fresh > 0 && <span class="fresh"> · {fresh} new</span>}
-          </summary>
-          <div class="details-body">
-            {key && (
-              <p class="key" style={{ "--line": `#${studyColor(study.line)}` }}>
-                <span>
-                  <span class="swatch" aria-hidden="true" />
-                  <span class="sr-only">Solid line: </span>
-                  {key[0]}
-                </span>
-                <span>
-                  <span class="swatch dashed" aria-hidden="true" />
-                  <span class="sr-only">Dashed line: </span>
-                  {key[1]}
-                </span>
-              </p>
-            )}
-            {foldedChecks.length > 0 && (
-              <ul class="checks">
-                {foldedChecks.map((check) => (
-                  <Check key={check.id} check={check} opens={opens(check.figure)} onFigure={onFigure} />
-                ))}
-              </ul>
-            )}
-            {study.findings.length > 0 && (
+          {gaps.length > 0 && (
+            <Part id="gaps-title" title="Not known yet">
               <ul class="findings">
-                {study.findings.map((finding) => (
+                {gaps.map((finding) => (
                   <Note key={finding.id} finding={finding} onCitation={onCitation} />
                 ))}
               </ul>
-            )}
-            {others.length > 0 && (
-              <div class="more">
-                {others.map((group) => (
-                  <div key={group.by}>
-                    {others.length > 1 && <p class="by">{recordedBy(group.by)}</p>}
-                    <ul>
-                      {group.figures.map((figure) => (
-                        <Other key={figure.id} figure={figure} fresh={isFresh(figure)} opens={opens(figure.id)} onFigure={onFigure} />
-                      ))}
-                    </ul>
-                  </div>
+            </Part>
+          )}
+
+          {notes.length > 0 && (
+            <Part id="notes-title" title="Findings">
+              <ul class="findings">
+                {notes.map((finding) => (
+                  <Note key={finding.id} finding={finding} onCitation={onCitation} />
                 ))}
-              </div>
+              </ul>
+            </Part>
+          )}
+        </div>
+
+        <div class="study-side">
+          <Part id="decision-title" title="Decision" kind="decision-part">
+            {decision ? (
+              <p class="decision">
+                <span>{ANALYSIS[decision.analysis]}</span>
+                <span aria-hidden="true">→</span>
+                <span class="sr-only">, decision: </span>
+                <strong>{OUTCOME[decision.outcome]}</strong>
+                {decision.override && <span class="override">Override</span>}
+              </p>
+            ) : (
+              <>
+                {status && (
+                  <p class={awaiting ? "awaiting" : "awaiting passed"}>
+                    <span class="dot" aria-hidden="true" />
+                    {status}
+                  </p>
+                )}
+                <Decide studyId={study.id} session={session} />
+              </>
             )}
-            <Sliders study={study} onPreview={onPreview} />
+            <Results timeline={timeline} trialStart={study.trial?.startedOn} />
+          </Part>
+          <Sliders study={study} onPreview={onPreview} />
+        </div>
+      </div>
+
+      {figures.length > 0 && (
+        <Part id="figures-title" title="Figures" kind="figures-part" extra={fresh > 0 && <span class="fresh">{`${fresh} new`}</span>}>
+          <div class="table-scroll" tabIndex={0} role="region" aria-label="Figures table">
+            <table class="figures">
+              <thead>
+                <tr>
+                  <th scope="col">Figure</th>
+                  <th scope="col" class="num">
+                    Value
+                  </th>
+                  <th scope="col">Source</th>
+                  <th scope="col">By</th>
+                  <th scope="col">Recorded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {figures.map((figure) => (
+                  <tr key={figure.id} class={isFresh(figure) ? "new" : undefined}>
+                    <th scope="row">
+                      {figure.label}
+                      {unitAfter(figure.unit) && <span class="unit">, {unitAfter(figure.unit)}</span>}
+                    </th>
+                    <td class="num">{amount(figure)}</td>
+                    <td>
+                      {spatialLayer(figure) ? (
+                        <SpatialSource figure={figure} layer={layers[spatialLayer(figure) as string]} onLayer={onLayer} />
+                      ) : (
+                        <button type="button" class="cite-page" data-figure={figure.id} onClick={(event) => onFigure(figure.id, event.currentTarget)}>
+                          {basisOf(figure, contexts)}
+                          <span class="sr-only">{`, ${figure.label}${opens(figure.id)}`}</span>
+                        </button>
+                      )}
+                    </td>
+                    <td class="by">{by(figure.recordedBy)}</td>
+                    <td class="by">{day.format(Date.parse(figure.recordedAt))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </details>
+        </Part>
       )}
-    </section>
+    </article>
   );
 }
+

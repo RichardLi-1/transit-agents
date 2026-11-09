@@ -1,3 +1,7 @@
+// The chat, always beside the workspace: what the planner asked, and the agents at
+// work as Waypoint shows them: the lead's plan, each specialist it asked with the
+// tools that specialist called, and each of the lead's own tool calls, each with
+// how it went and what it was called with a click away. Then the answer.
 import { Fragment } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { EXECUTIVE } from "@transit-agents/contracts";
@@ -7,12 +11,15 @@ import { withCites } from "../cites.ts";
 import { echoesDocument } from "../echo.ts";
 import { refusal, setNotice, unsaid, useNotice } from "../notice.ts";
 import { plain, plainBold } from "../plain.ts";
-import { EMPTY_USAGE, type Store } from "../store.ts";
+import { elapsed, specialistState, type Run } from "../runs.ts";
+import { duration, grouped, planOf, stepName, stepState, type Grouped, type StepState, type ToolStep } from "../steps.ts";
+import { EMPTY_USAGE, type Store, type Subagent } from "../store.ts";
 import { unasked, withAsked, type Asked } from "../suggestions.ts";
 import { foldAt, waiting } from "../typing.ts";
 import { DocumentCard } from "./DocumentCard.tsx";
 import { ExecutiveCard, withoutExecutive, type Ping } from "./ExecutiveCard.tsx";
-import { CheckIcon, SendIcon, StaleIcon } from "./icons.tsx";
+import { CheckIcon, CrossIcon, SendIcon, StaleIcon } from "./icons.tsx";
+import { RunLine, useNow } from "./RunLine.tsx";
 
 const number = new Intl.NumberFormat("en-CA");
 
@@ -51,7 +58,140 @@ type Props = {
   ping: Ping;
   // Opens a cited page, as a figure's source opens.
   onPage: (contextId: string, page: number, element: Element) => void;
+  // Shows the intersection simulator, replaying a run, in its tab.
+  onSimulator: () => void;
 };
+
+const BADGE: Record<StepState, string> = { running: "Working", done: "Complete", failed: "Failed", stopped: "Stopped" };
+
+// A step's mark: turning while it works, a tick once it's complete, a cross or a dash otherwise.
+function Mark({ state }: { state: StepState }) {
+  return (
+    <span class="mark" data-state={state} aria-hidden="true">
+      {state === "done" ? <CheckIcon /> : state === "failed" ? <CrossIcon /> : state === "stopped" ? <StaleIcon /> : null}
+    </span>
+  );
+}
+
+const Badge = ({ state }: { state: StepState }) => (
+  <span class="badge" data-state={state}>
+    {BADGE[state]}
+  </span>
+);
+
+// One tool call: its name and how it went, and, opened, what it was called with,
+// what came back and how long it took.
+function ToolRow({ step, open }: { step: ToolStep; open: boolean }) {
+  const state = stepState(step, open);
+  return (
+    <details class="step tool" data-state={state}>
+      <summary>
+        <Mark state={state} />
+        <span class="step-name">{stepName(step.name)}</span>
+        <Badge state={state} />
+      </summary>
+      <dl class="step-detail">
+        {step.summary && (
+          <>
+            <dt>Input</dt>
+            <dd>{step.summary}</dd>
+          </>
+        )}
+        {step.result && (
+          <>
+            <dt>Result</dt>
+            <dd>{step.result}</dd>
+          </>
+        )}
+        {step.ms !== undefined && (
+          <>
+            <dt>Time</dt>
+            <dd>{duration(step.ms)}</dd>
+          </>
+        )}
+        <dt>Tool</dt>
+        <dd>
+          <code>{step.name}</code>
+        </dd>
+      </dl>
+    </details>
+  );
+}
+
+// A specialist the lead asked: its question, its skill and how it's going, the
+// tools it called folded under it, and its answer once it's back.
+function Specialist({ item, run, open, now, ids, onPage }: { item: Grouped<Subagent>; run: Run | null; open: boolean; now: number; ids: string[]; onPage: Props["onPage"] }) {
+  const tracked = run?.specialists.find((s) => s.id === item.id);
+  const followed = tracked && run ? specialistState(tracked, run, now) : null;
+  const state: StepState =
+    item.summary !== undefined ? (item.ok === false ? "stopped" : "done") : followed === "stale" || (!open && !followed) ? "stopped" : "running";
+  const meta = [
+    tracked && elapsed(tracked.startedAt, tracked.finishedAt ?? now),
+    tracked?.tokens ? `${number.format(tracked.tokens)} tokens` : null,
+    item.tools.length ? `${item.tools.length} ${item.tools.length === 1 ? "tool call" : "tool calls"}` : null,
+  ].filter(Boolean);
+  return (
+    <div class="step specialist" data-state={state}>
+      <details>
+        <summary>
+          <Mark state={state} />
+          <span class="step-name">{item.question}</span>
+          {tracked?.skill && (
+            <span class="skill">
+              <span class="sr-only">Skill </span>
+              {tracked.skill}
+            </span>
+          )}
+          <Badge state={state} />
+        </summary>
+        <div class="step-body">
+          {meta.length > 0 && <p class="step-meta">{meta.join(" · ")}</p>}
+          {item.tools.length > 0 && (
+            <ol class="tool-list" aria-label="Tool calls">
+              {item.tools.map((step) => (
+                <li key={step.id}>
+                  <ToolRow step={step} open={open} />
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </details>
+      {item.summary && (
+        <p class="step-summary">
+          <Text text={item.summary} ids={ids} onPage={onPage} />
+        </p>
+      )}
+    </div>
+  );
+}
+
+// An agent's words at rest: a plan's numbered list as a list, anything else as written.
+function Words({ text, ids, onPage }: { text: string; ids: string[]; onPage: Props["onPage"] }) {
+  const plan = planOf(text);
+  if (!plan) return <Text text={text} ids={ids} onPage={onPage} />;
+  return (
+    <>
+      {plan.lead && (
+        <span class="plan-lead">
+          <Text text={plan.lead} ids={ids} onPage={onPage} />
+        </span>
+      )}
+      <ol class="plan">
+        {plan.steps.map((step, i) => (
+          <li key={i}>
+            <Text text={step} ids={ids} onPage={onPage} />
+          </li>
+        ))}
+      </ol>
+      {plan.after && (
+        <span class="plan-after">
+          <Text text={plan.after} ids={ids} onPage={onPage} />
+        </span>
+      )}
+    </>
+  );
+}
 
 // A piece of an answer with its **bold** parts drawn bold.
 const bolded = (piece: string, at: number) =>
@@ -81,7 +221,6 @@ const executive = (message: { from: string; text: string }) => message.from === 
 // the viewer: the display opens it from that line, for the viewer to try.
 const SIMULATOR_LINE = /^Opening the intersection simulator:/;
 const simulator = (message: { from: string; text: string }) => message.from === "agent" && SIMULATOR_LINE.test(message.text.trim());
-const openSimulator = () => window.open("/simulator/#replay", "simulator", "popup,width=1440,height=860");
 
 // How fast a new answer types out, in characters a second.
 const STREAM_CPS = 320;
@@ -124,7 +263,7 @@ function Streamed({ text, ids, onPage, onDone }: { text: string; ids: string[]; 
   );
 }
 
-export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
+export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Props) {
   const ids = store.contexts.map((context) => context.id);
   const [text, setText] = useState("");
   // Whether the earlier messages show, and the studies the viewer has said something in.
@@ -153,10 +292,13 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
   const escalations = store.escalations.filter((e) => e.studyId === studyId);
   // An answer that types out shows its executive card once it's whole.
   const [, typed] = useState(0);
+  const tools = store.tools.filter((t) => t.studyId === studyId);
   // Messages, sub-agents and documents in the order the log has them.
   const items = [...messages, ...subagents, ...documents].sort((a, b) => a.seq - b.seq);
   // Whether any of this study's chat is the scripted replay's, whatever came after.
   const replay = items.some((item) => item.replay);
+  const agentRun = (studyId && store.runs[studyId]) || null;
+  const now = useNow(Boolean(agentRun && !agentRun.finishedAt));
   // The open study's spend, not every study's.
   const usage = (studyId && store.usage[studyId]) || EMPTY_USAGE;
   const spent = spentUsd(usage);
@@ -166,7 +308,7 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
   const working = waiting(run, items, store.since);
   // Anything the agent does: a word, a sub-agent's step, a run starting or ending,
   // a model call or a page read. Each puts off saying it has stopped.
-  const pulse = [studyId, items.length, subagents.filter((s) => s.summary !== undefined).length, run, usage.calls, store.reading].join("|");
+  const pulse = [studyId, items.length, subagents.filter((s) => s.summary !== undefined).length, tools.length, tools.filter((t) => t.ok !== undefined).length, run, usage.calls, store.reading].join("|");
   const [stalled, setStalled] = useState(false);
   useEffect(() => {
     setStalled(false);
@@ -180,9 +322,16 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
   const earlier = items.filter((item) => item.seq <= since).length;
   const urls = documents.map((d) => d.url);
   // The lead's "Document ready" line repeats its document's card, so only the card shows.
-  const shown = (expanded ? items : items.filter((item) => item.seq > since)).filter(
+  const kept = (expanded ? items : items.filter((item) => item.seq > since)).filter(
     (item) => !("text" in item && item.from === "agent" && echoesDocument(item.text, urls)),
   );
+  // Each specialist with the tools it called, and the lead's own calls where they come.
+  const shown = grouped(
+    kept.filter((item): item is Exclude<(typeof kept)[number], Subagent> => !("question" in item)),
+    kept.filter((item): item is Subagent => "question" in item),
+    tools.filter((t) => expanded || t.seq > since),
+  );
+  const open = run !== undefined;
   const question = messages.filter((m) => m.from === "planner").at(-1)?.text;
   const left = studyId ? unasked(asked, studyId) : [];
 
@@ -236,8 +385,12 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
   };
 
   return (
-    <aside class="chat" aria-label="Agent">
-      {replay && <p class="tag">Replay</p>}
+    <aside id="chat" class="chat" aria-labelledby="chat-title">
+      <header class="chat-head">
+        <h2 id="chat-title">Chat</h2>
+        {replay && <p class="tag">Replay</p>}
+        <RunLine run={agentRun} study={store.studies.find((s) => s.id === studyId)?.title ?? studyId ?? ""} />
+      </header>
       <div class="log" ref={log} role="log" aria-live="polite" tabIndex={0} aria-label="Agent activity" onScroll={onScroll}>
         {earlier > 0 && (
           <button type="button" class="earlier" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
@@ -249,7 +402,7 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
             <DocumentCard key={`d${item.seq}`} document={item} />
           ) : "text" in item ? (
             <Fragment key={`m${item.seq}`}>
-              <p class={`bubble ${item.from}`} data-seq={item.seq}>
+              <div class={`bubble ${item.from}`} data-seq={item.seq}>
                 {item.replay && <span class="sr-only">Replay: </span>}
                 {streams.current.get(item.seq) ? (
                   <Streamed
@@ -259,24 +412,26 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
                     onDone={() => {
                       if (streams.current.get(item.seq)) {
                         typed((n) => n + 1);
-                        // An answer that arrived live opens the simulator itself, if the browser lets it.
-                        if (simulator(item)) openSimulator();
+                        // An answer that arrived live opens the simulator itself, in its tab.
+                        if (simulator(item)) onSimulator();
                       }
                       streams.current.set(item.seq, false);
                     }}
                   />
+                ) : item.from === "agent" ? (
+                  <Words text={executive(item) ? withoutExecutive(item.text) : item.text} ids={ids} onPage={onPage} />
                 ) : (
-                  <Text text={executive(item) ? withoutExecutive(item.text) : item.text} ids={ids} onPage={onPage} />
+                  <Text text={item.text} ids={ids} onPage={onPage} />
                 )}
-              </p>
+              </div>
               {simulator(item) && !streams.current.get(item.seq) && (
                 <div class="doc-card sim-card">
                   <p>
                     <span class="doc-title">Intersection Simulator 4.2</span>
                     <span class="doc-kind">Don Mills & Eglinton, sample data</span>
                   </p>
-                  <button type="button" class="doc-open" onClick={() => openSimulator()}>
-                    Open the simulator<span class="sr-only"> in a new window</span>
+                  <button type="button" class="doc-open" onClick={onSimulator}>
+                    Open the simulator
                   </button>
                 </div>
               )}
@@ -290,20 +445,10 @@ export function Chat({ store, studyId, canPost, ping, onPage }: Props) {
                 />
               )}
             </Fragment>
+          ) : "question" in item ? (
+            <Specialist key={`s${item.id}`} item={item} run={agentRun} open={open} now={now} ids={ids} onPage={onPage} />
           ) : (
-            <div key={`s${item.id}`} class={`sub${item.summary ? (item.ok ? " done" : " stopped") : ""}`}>
-              <span class="mark" aria-hidden="true">
-                {item.summary && (item.ok ? <CheckIcon /> : <StaleIcon />)}
-              </span>
-              <div>
-                <p class="question">{item.question}</p>
-                {item.summary && (
-                  <p>
-                    <Text text={item.summary} ids={ids} onPage={onPage} />
-                  </p>
-                )}
-              </div>
-            </div>
+            <ToolRow key={`t${item.id}`} step={item} open={open} />
           ),
         )}
         {/* Added once as a run starts, so the log says it once; the dots move, the words don't. */}

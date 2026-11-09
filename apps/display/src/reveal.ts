@@ -33,7 +33,7 @@ type Found = { focus: HTMLElement; glow?: HTMLElement } | { press: HTMLElement }
 // The element to focus and the area to light, or a button to press that opens
 // what to focus.
 function find(target: Target, studyId: string): Found | null {
-  const card = query(`.card[data-study="${CSS.escape(studyId)}"]`);
+  const card = query(`.study-page[data-study="${CSS.escape(studyId)}"]`);
   if (!card) return null;
   switch (target.kind) {
     case "finding": {
@@ -114,7 +114,7 @@ export async function reveal(target: Target, studyId: string): Promise<void> {
     return;
   }
   // It never showed, such as a need off the map: the study's card, at least.
-  const card = query(`.card[data-study="${CSS.escape(studyId)}"]`);
+  const card = query(`.study-page[data-study="${CSS.escape(studyId)}"]`);
   if (!card || mine !== pending) return;
   card.setAttribute("tabindex", "-1");
   card.focus({ preventScroll: true });

@@ -39,3 +39,8 @@ export const STUDY_COLORS: Record<string, string> = {
   "ontario-line-don-mills": LINE_COLORS["3"] as string,
 };
 export const studyColor = (line: string | null | undefined) => (line && STUDY_COLORS[line]) || "b03488";
+
+// What the solid and dashed parts of a study's line stand for, where it has both.
+export const LINE_KEYS: Record<string, [solid: string, dashed: string]> = {
+  "ontario-line-don-mills": ["Under construction", "Proposed"],
+};

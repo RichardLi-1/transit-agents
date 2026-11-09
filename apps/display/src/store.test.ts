@@ -65,6 +65,39 @@ describe("subagents", () => {
   });
 });
 
+describe("tool steps", () => {
+  it("pairs each call with how it went, by id, and starts afresh with each run", () => {
+    let store = reduce(initial, activity({ kind: "tool.called", id: "t1", name: "read_page", subagentId: "a1", summary: "plan p. 4" }));
+    store = reduce(store, activity({ kind: "tool.called", id: "t2", name: "get_study" }));
+    store = reduce(store, activity({ kind: "tool.finished", id: "t1", ok: true, ms: 120, summary: "2,410 characters" }));
+    assert.deepEqual(
+      store.tools.map(({ id, name, subagentId, summary, ok, ms, result }) => ({ id, name, subagentId, summary, ok, ms, result })),
+      [
+        { id: "t1", name: "read_page", subagentId: "a1", summary: "plan p. 4", ok: true, ms: 120, result: "2,410 characters" },
+        { id: "t2", name: "get_study", subagentId: undefined, summary: undefined, ok: undefined, ms: undefined, result: undefined },
+      ],
+    );
+    store = reduce(store, activity({ kind: "run.started" }));
+    assert.deepEqual(store.tools, []);
+  });
+});
+
+describe("the map coming into view", () => {
+  it("asks for it as a layer is added, or a planner asks about the map, once the display is open", () => {
+    let store = reduce(initial, activity({ kind: "layer.added", layerId: "stops", title: "Stops" }), false);
+    assert.equal(store.mapAsk, null);
+    assert.deepEqual(store.layers.map((l) => [l.layerId, l.title]), [["stops", "Stops"]]);
+    store = reduce(store, activity({ kind: "layer.added", layerId: "buffer", title: "Buffer" }));
+    assert.equal(store.mapAsk?.seq, store.layers[1]?.seq);
+    store = reduce(store, activity({ kind: "message", text: "Show the stops on the map" }, "planner:ana"));
+    assert.equal(store.mapAsk?.seq, store.messages[0]?.seq);
+    const before = store.mapAsk;
+    store = reduce(store, activity({ kind: "message", text: "Here is the map you asked for." }));
+    store = reduce(store, activity({ kind: "message", text: "What would it cost?" }, "planner:ana"));
+    assert.equal(store.mapAsk, before);
+  });
+});
+
 describe("replay", () => {
   it("stays marked on its own messages, whatever comes after in any study", () => {
     let store = reduce(initial, activity({ kind: "message", text: "Scripted." }, "agent:replay"));
