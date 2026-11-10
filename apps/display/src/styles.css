@@ -666,58 +666,129 @@ a {
 
 /* Study ------------------------------------------------------------------ */
 
+/* One column, with room around it: the figures it leads with and the decision,
+   then the first of what isn't known yet, then what's folded away. */
 .study-page {
   display: grid;
-  gap: 36px;
-  max-width: 940px;
-  padding: 10px 32px 56px;
+  gap: 40px;
+  max-width: 900px;
+  padding: 6px 32px 64px;
 }
 
 .brief {
-  max-width: 64ch;
-  margin: 0;
+  max-width: 68ch;
+  margin: -8px 0 0;
   color: var(--muted);
-  font-size: var(--t-lead);
   line-height: 1.5;
   text-wrap: pretty;
 }
 
-.study-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
-  align-items: start;
-  gap: 36px;
-}
-
-.study-main,
-.study-side {
-  display: grid;
-  gap: 36px;
-  min-width: 0;
-}
-
 .part {
   display: grid;
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
 }
 
 .part h2 {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 6px;
 }
 
+.part h2 .n,
 .part h2 .fresh {
-  color: var(--ink);
+  font-weight: 500;
   letter-spacing: 0;
-  text-transform: none;
 }
 
+/* The decision: where the study stands and the form, on an inset card. */
 .decision-part {
+  gap: 12px;
   padding: 18px 20px 20px;
   border-radius: var(--radius-card);
   background: var(--inset);
+}
+
+.decision-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.decision-row .decide {
+  flex: 1 1 360px;
+  max-width: 460px;
+}
+
+/* A part folded away: its heading and count on a row, a chevron at its end. */
+.fold summary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+  padding: 12px 48px 12px 20px;
+  border-radius: var(--radius-card);
+  background: var(--inset);
+  list-style: none;
+  cursor: pointer;
+}
+
+.fold summary::-webkit-details-marker {
+  display: none;
+}
+
+.fold summary:hover {
+  background: var(--press);
+}
+
+.fold summary::after {
+  content: "";
+  position: absolute;
+  right: 22px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -6px;
+  border-right: 1.5px solid var(--ink);
+  border-bottom: 1.5px solid var(--ink);
+  transform: rotate(45deg);
+}
+
+.fold details[open] > summary::after {
+  margin-top: -2px;
+  transform: rotate(-135deg);
+}
+
+.fold-body {
+  padding: 16px 0 0;
+}
+
+.fold + .fold {
+  margin-top: -28px;
+}
+
+/* What isn't known yet past the first few: a click away. */
+.show-all {
+  justify-self: start;
+  min-height: 34px;
+  margin-left: 20px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--well);
+  box-shadow: var(--well-edge);
+  font-size: var(--t-ui);
+  font-weight: 500;
+}
+
+.show-all:hover {
+  box-shadow: var(--well-edge), 0 0 0 1.5px var(--ink);
+}
+
+.findings[hidden] {
+  display: none;
 }
 
 /* The study's tables: tests, figures and files. */
@@ -1660,10 +1731,11 @@ a {
 
 .findings {
   list-style: none;
+  max-width: 72ch;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
 /* The status column is only as wide as its mark. */
@@ -1739,16 +1811,17 @@ a {
 }
 
 .headlines .label {
-  order: -1;
   text-wrap: balance;
 }
 
+/* As large as a tile holds on one line. */
 .headlines .figure {
   margin-left: -6px;
-  font-size: var(--t-figure);
+  font-size: clamp(26px, 2.2vw, var(--t-figure));
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.1;
+  white-space: nowrap;
 }
 
 /* Text starts after a gutter that holds the note's marker. */
@@ -1974,7 +2047,7 @@ a {
 .sliders {
   display: grid;
   gap: 4px;
-  padding: 4px 20px;
+  max-width: 460px;
 }
 
 .sliders label {
@@ -3616,10 +3689,6 @@ input[type="range"] {
 
   .workspace-head .tabs {
     border-radius: 28px;
-  }
-
-  .study-grid {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .study-page,

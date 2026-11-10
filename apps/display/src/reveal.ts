@@ -21,10 +21,13 @@ const needCard = (id: string) =>
 const within = (area: HTMLElement, first = FOCUSABLE) =>
   area.matches(FOCUSABLE) ? area : (area.querySelector<HTMLElement>(first) ?? area.querySelector<HTMLElement>(FOCUSABLE) ?? area);
 
-// Notes and most figures are folded under the card's Details: every fold around
-// one opens, so it can take focus.
+// Notes, tests and figures are folded under the study's disclosures, and a list
+// may show only its first few: every fold around one opens, and its list's Show
+// all, so it can take focus.
 function unfold(element: HTMLElement | null): HTMLElement | null {
   for (let fold = element?.closest("details"); fold; fold = fold.parentElement?.closest("details")) fold.open = true;
+  const rest = element?.closest<HTMLElement>("[data-more][hidden]");
+  if (rest) document.querySelector<HTMLElement>(`[aria-controls="${CSS.escape(rest.id)}"][aria-expanded="false"]`)?.click();
   return element;
 }
 
