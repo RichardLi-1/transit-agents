@@ -600,9 +600,11 @@ a {
   white-space: nowrap;
 }
 
-/* The tabs, as a floating glass pill. */
+/* The tabs, as a floating glass pill, at the head's right edge on every tab: the
+   Map tab's title shrinks to a pill of its own, and the tabs mustn't follow it. */
 .tabs {
   flex: none;
+  margin-left: auto;
   display: flex;
   gap: 2px;
   padding: 4px;
@@ -3773,17 +3775,25 @@ input[type="range"] {
     padding: 12px 10px 8px;
   }
 
+  /* The title's row is 36px tall on every tab, as a plain title or the Map tab's
+     pill, and the head keeps its padding, so the tabs below never move. */
   .workspace-head h1 {
     flex-basis: 100%;
     padding-left: 6px;
     font-size: 20px;
+    line-height: 36px;
+  }
+
+  .app[data-tab="map"] .workspace-head {
+    padding-left: 10px;
   }
 
   .app[data-tab="map"] .workspace-head h1 {
     flex: 0 1 auto;
     max-width: 100%;
-    padding: 6px 16px;
+    padding: 5px 16px; /* with its 1px rim, 36px, as the plain title is */
     font-size: 17px;
+    line-height: 24px;
   }
 
   .tabs {
