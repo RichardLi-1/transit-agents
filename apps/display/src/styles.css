@@ -61,7 +61,7 @@
   /* Glass: clear rather than frosted, the map behind it blurred and brighter; light
      catching the top-left edge and glowing inside the rim; a crisp dark hairline
      and a deep shadow outside, so each pane stands off the map. */
-  --glass: linear-gradient(155deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.46) 55%, rgba(255, 255, 255, 0.56));
+  --glass: linear-gradient(155deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.6) 55%, rgba(255, 255, 255, 0.68));
   --glass-chip: linear-gradient(155deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.66));
   --glass-solid: #f7f7f6;
   --glass-rim: rgba(255, 255, 255, 0.7);
@@ -84,6 +84,8 @@
     0 8px 20px -6px rgba(28, 25, 23, 0.18);
   --frost: blur(8px) saturate(200%) brightness(1.06);
   --frost-chip: blur(6px) saturate(200%) brightness(1.06);
+  --glass-menu: linear-gradient(155deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.84));
+  --frost-menu: blur(24px) saturate(180%);
   /* A row of glass inside a glass pane, which can't blur twice. */
   --row: rgba(255, 255, 255, 0.6);
   --row-hover: rgba(255, 255, 255, 0.9);
@@ -152,8 +154,8 @@
     --press: rgba(255, 255, 255, 0.14);
     --tag: rgba(255, 255, 255, 0.12);
     --bubble: #3a3633;
-    --glass: linear-gradient(155deg, rgba(54, 50, 47, 0.7), rgba(30, 27, 25, 0.54) 55%, rgba(44, 40, 37, 0.62));
-    --glass-chip: linear-gradient(155deg, rgba(58, 54, 51, 0.86), rgba(36, 32, 30, 0.74));
+    --glass: linear-gradient(155deg, rgba(54, 50, 47, 0.82), rgba(30, 27, 25, 0.72) 55%, rgba(44, 40, 37, 0.78));
+    --glass-chip: linear-gradient(155deg, rgba(58, 54, 51, 0.88), rgba(36, 32, 30, 0.8));
     --glass-solid: #1f1c1a;
     --glass-rim: rgba(255, 255, 255, 0.14);
     --sheen:
@@ -175,6 +177,7 @@
       0 8px 20px -6px rgba(0, 0, 0, 0.55);
     --frost: blur(8px) saturate(170%) brightness(0.92);
     --frost-chip: blur(6px) saturate(170%) brightness(0.92);
+    --glass-menu: linear-gradient(155deg, rgba(50, 46, 43, 0.92), rgba(30, 27, 25, 0.86));
     --row: rgba(255, 255, 255, 0.07);
     --row-hover: rgba(255, 255, 255, 0.13);
     --row-edge: 0 0 0 0.5px rgba(255, 255, 255, 0.12), inset 1px 1px 0 -0.25px rgba(255, 255, 255, 0.14);
@@ -208,6 +211,8 @@
     --chip-lift: 0 1px 4px rgba(0, 0, 0, 0.2);
     --frost: none;
     --frost-chip: none;
+    --frost-menu: none;
+    --glass-menu: #fff;
     --row: #fff;
     --row-hover: #f5f5f4;
     --row-edge: 0 0 0 1px #1c1917;
@@ -230,6 +235,7 @@
     --glass: #000;
     --glass-chip: #000;
     --glass-solid: #000;
+    --glass-menu: #000;
     --glass-rim: #f5f5f4;
     --row: #000;
     --row-hover: #1c1917;
@@ -332,20 +338,39 @@ a {
   padding: var(--gap);
 }
 
-/* The panes that float as glass: the rail and the chat. */
+/* The panes that float as glass: the rail and the chat. The rail's glass is
+   drawn behind it, not on it, so its menus and toasts can blur what's under them
+   and the toasts place themselves on the window. It lies over the workspace, so
+   its menus do too. */
 .rail,
 .chat {
   position: relative;
   z-index: 2;
   min-height: 0;
-  border: 1px solid var(--glass-rim);
   border-radius: var(--radius-pane);
+}
+
+.rail {
+  z-index: 4;
+}
+
+.rail::before,
+.chat {
+  border: 1px solid var(--glass-rim);
   background: var(--glass-solid);
   box-shadow: var(--sheen), var(--lift);
 }
 
-/* Small glass over the map or the backdrop: the tabs, the map's tools and cards,
-   menus and toasts. */
+.rail::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* Small glass over the map or the backdrop: the tabs, the map's tools and cards. */
 .workspace-head .tabs,
 .map-toolbar .tool,
 .map-search,
@@ -354,17 +379,24 @@ a {
 .map-notes,
 .time,
 .need,
-.popover,
-.notice-list,
-.toast,
 .app[data-tab="map"] .workspace-head h1 {
   border: 1px solid var(--glass-rim);
   background: var(--glass-solid);
   box-shadow: var(--chip-sheen), var(--chip-lift);
 }
 
+/* Menus and toasts: glass that blurs more and lets less through, as they lie over
+   words. */
+.popover,
+.notice-list,
+.toast {
+  border: 1px solid var(--glass-rim);
+  background: var(--glass-solid);
+  box-shadow: var(--chip-sheen), var(--lift);
+}
+
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .rail,
+  .rail::before,
   .chat {
     background: var(--glass);
     -webkit-backdrop-filter: var(--frost);
@@ -379,13 +411,18 @@ a {
   .map-notes,
   .time,
   .need,
-  .popover,
-  .notice-list,
-  .toast,
   .app[data-tab="map"] .workspace-head h1 {
     background: var(--glass-chip);
     -webkit-backdrop-filter: var(--frost-chip);
     backdrop-filter: var(--frost-chip);
+  }
+
+  .popover,
+  .notice-list,
+  .toast {
+    background: var(--glass-menu);
+    -webkit-backdrop-filter: var(--frost-menu);
+    backdrop-filter: var(--frost-menu);
   }
 }
 
@@ -608,14 +645,15 @@ a {
   padding: 0 6px;
   border-radius: 10px;
   background: var(--tag);
-  color: inherit;
+  color: var(--ink);
   font-size: var(--t-small);
   line-height: 20px;
   text-align: center;
 }
 
 .tab[aria-selected="true"] .count {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--on-primary);
+  color: var(--primary);
 }
 
 /* An agent is reading a source. */
@@ -2372,6 +2410,27 @@ input[type="range"] {
   background: var(--row-hover);
 }
 
+/* Opened, a line becomes a card to read on, its line as the card's head. */
+.step[open] {
+  border-radius: var(--radius-row);
+  background: var(--pane);
+  box-shadow: var(--pane-lift);
+}
+
+.step[open] > summary {
+  background: none;
+  box-shadow: none;
+}
+
+.step[open] > summary:hover {
+  background: var(--hover);
+}
+
+.tool-list .step[open] {
+  background: none;
+  box-shadow: none;
+}
+
 /* A call inside an opened line: plain, a rule's width from the edge. */
 .tool-list .step summary {
   min-height: 34px;
@@ -2486,7 +2545,7 @@ input[type="range"] {
 .step-body {
   display: grid;
   gap: 10px;
-  padding: 12px 6px 6px 12px;
+  padding: 4px 10px 10px 14px;
 }
 
 .step-meta {
@@ -2539,7 +2598,7 @@ input[type="range"] {
 
 /* The plan, opened: its lead-in, its questions, numbered, and what follows. */
 .plan-body {
-  padding: 12px 6px 6px 12px;
+  padding: 4px 14px 12px;
   font-size: var(--t-text);
   line-height: 1.45;
   white-space: pre-line;
@@ -3548,7 +3607,8 @@ input[type="range"] {
    more opaque so the lines passing under it stay soft. It clears again once the
    map settles. */
 :root[data-moving]
-  :is(.rail, .chat, .workspace-head .tabs, .map-toolbar .tool, .map-search, .layers-panel, .map-buttons, .map-notes, .time, .need, .app[data-tab="map"] .workspace-head h1) {
+  :is(.chat, .workspace-head .tabs, .map-toolbar .tool, .map-search, .layers-panel, .map-buttons, .map-notes, .time, .need, .app[data-tab="map"] .workspace-head h1),
+:root[data-moving] .rail::before {
   background: var(--moving);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -3559,7 +3619,7 @@ input[type="range"] {
 /* Opaque for anyone who asks for less transparency, and the backdrop stays the
    map's own ground. */
 @media (prefers-reduced-transparency: reduce) {
-  .rail,
+  .rail::before,
   .chat,
   .workspace-head .tabs,
   .map-toolbar .tool,
@@ -3668,9 +3728,12 @@ input[type="range"] {
     flex-direction: row;
     gap: 2px;
     padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
-    border-width: 1px 0 0;
     border-radius: 0;
     overflow-x: auto;
+  }
+
+  .rail::before {
+    border-width: 1px 0 0;
   }
 
   .rail .brand {
@@ -3806,7 +3869,7 @@ input[type="range"] {
 @media (forced-colors: active) {
   /* Plain panes and fields, edged in the system's colours, as forced colours keep
      a translucent background translucent and would show the map through. */
-  .rail,
+  .rail::before,
   .chat,
   .workspace::before,
   .workspace-head .tabs,
