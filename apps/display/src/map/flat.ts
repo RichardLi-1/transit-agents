@@ -1,6 +1,7 @@
 // A flat map for when WebGL is missing or lost. No tilt or fog: just the network,
 // the study line and its vehicles, so the display is never blank.
 import { FIELD_OF_VIEW, isRail, type Camera, type LayerShapes, type NetworkData, type NetworkRoute, type Point } from "./engine.ts";
+import type { GlassRect, Rgb } from "./glass.ts";
 import { LINE_COLORS } from "./views.ts";
 
 // How the flat map frames the ground: the point on the ground at the middle of the
@@ -78,6 +79,11 @@ export class FlatMap {
     this.networkShown = shown;
     this.draw();
   }
+
+  // The flat map draws no glass: it never says it has, so the page's CSS blurs the
+  // panes, and pauses while the map moves, as a canvas redrawn on the main thread
+  // has no frame to spare.
+  setGlassRects(_rects: GlassRect[], _ground: Rgb, _version: number) {}
 
   // Null frames the study again. There is no tilt.
   setCamera(camera: Camera | null) {

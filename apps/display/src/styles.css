@@ -431,6 +431,16 @@ a {
   }
 }
 
+/* The glass the map blurs itself: on the Map tab the renderer blurs the map under
+   these panes as it draws it (src/map/glass.ts), and marks each once it has, so
+   the browser blurs nothing under them, and a drag costs about what it would with
+   no blur at all. The pane keeps its fill, rim and sheen. */
+.rail[data-gpu-glass]::before,
+:is(.chat, .workspace-head .tabs, .map-toolbar .tool, .map-search, .layers-panel, .map-buttons, .map-notes, .time, .app[data-tab="map"] .workspace-head h1)[data-gpu-glass] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 /* Rail ------------------------------------------------------------------- */
 
 .rail {
@@ -3697,13 +3707,13 @@ input[type="range"] {
 
 /* While the map moves --------------------------------------------------- */
 
-/* The glass stops blurring, the GPU's biggest cost in a drag, and turns a little
-   more opaque so the lines passing under it stay soft: the panes, the cards that
-   move with the map, and a menu or toast over it. It clears again once the map
-   settles. */
+/* The glass the browser blurs stops, the GPU's biggest cost in a drag, and turns a
+   little more opaque so the lines passing under it stay soft: the cards that move
+   with the map, the menus and toasts, and every pane the map doesn't blur itself,
+   as on the flat map. It clears again once the map settles. */
 :root[data-moving]
-  :is(.chat, .workspace-head .tabs, .map-toolbar .tool, .map-search, .layers-panel, .map-buttons, .map-notes, .time, .need, .popover, .notice-list, .toast, .app[data-tab="map"] .workspace-head h1),
-:root[data-moving] .rail::before {
+  :is(.chat, .workspace-head .tabs, .map-toolbar .tool, .map-search, .layers-panel, .map-buttons, .map-notes, .time, .need, .popover, .notice-list, .toast, .app[data-tab="map"] .workspace-head h1):not([data-gpu-glass]),
+:root[data-moving] .rail:not([data-gpu-glass])::before {
   background: var(--moving);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
