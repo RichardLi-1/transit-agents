@@ -4,6 +4,7 @@ import { serve } from "@hono/node-server";
 import { AccessMode, Role } from "@transit-agents/contracts";
 import { mkdirSync } from "node:fs";
 import { createApp, plannerName, type Actor } from "./app.ts";
+import { ImageryTiles } from "./imagery.ts";
 import { auth0Settings } from "./auth0.ts";
 import { VisitorBudget } from "./budget.ts";
 import { loadSchedule, Measurements, openMeasurements } from "./collector.ts";
@@ -103,6 +104,8 @@ const app = createApp({
   staticDir: join(root, "apps/display/dist"),
   live: measurements,
   timeline: (id, view) => buildTimeline(view, measurements, id),
+  // Kept with the data, so one folder holds everything the service made or fetched.
+  imagery: new ImageryTiles(join(dataDir, "tiles/imagery")),
   publicUrl: process.env.PUBLIC_URL,
   guests,
   budget,

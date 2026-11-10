@@ -63,6 +63,7 @@ import { GIS_SKILL_ROUTES } from "./gis-skills.ts";
 import { activeLayer, firstLastMileLayer } from "./gis-active.ts";
 import { ksiHotspotsLayer, ksiProfileLayer, ksiTrendLayer } from "./gis-safety.ts";
 import { issueGuest, userAudience, verifyGuest } from "./guests.ts";
+import type { ImageryTiles } from "./imagery.ts";
 import { EVERYONE, visible, type Entry } from "./log.ts";
 import { VisitorLimits } from "./limits.ts";
 import { checkOrigin, fixedAddress, mcp, rpcError } from "./mcp.ts";
@@ -120,6 +121,8 @@ export type AppOptions = {
   slack?: Pick<Slack, "sendAndWait"> | null;
   executive?: Executive;
   clock?: () => Date;
+  // Aerial photo tiles for the map, kept on disk. Without them, there are none.
+  imagery?: Pick<ImageryTiles, "get">;
 };
 
 // The principal is the credential behind a request, which a name alone can't tell
@@ -970,6 +973,20 @@ export function createApp(options: AppOptions) {
       roles: anyone,
       public: true,
       handler: (c) => serveMedia(c, service.mediaFile(c.req.param("id") as string)),
+    },
+    {
+      method: "get",
+      path: "/v1/tiles/imagery/:z/:x/:y",
+      summary: "An aerial photo of Toronto, as a 256-pixel Web Mercator tile from the City of Toronto, under the Open Government Licence – Toronto. Needs no token",
+      roles: anyone,
+      public: true,
+      handler: async (c) => {
+        const [z, x, y] = ["z", "x", "y"].map((name) => Number(c.req.param(name)));
+        const tile = await options.imagery?.get(z as number, x as number, y as number);
+        if (!tile) throw new ApiError(404, "not_found", "No aerial photo there");
+        // A tile of a year's photos never changes, so the browser keeps it.
+        return c.body(tile.body as Uint8Array<ArrayBuffer>, 200, { "content-type": tile.type, "cache-control": "public, max-age=2592000" });
+      },
     },
     {
       method: "post",
