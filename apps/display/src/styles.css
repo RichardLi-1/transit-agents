@@ -4130,3 +4130,82 @@ input[type="range"] {
     color: ButtonText;
   }
 }
+
+/* Squircles ------------------------------------------------------------- */
+
+/* Where the browser draws them, every pane, card and menu has continuous corners,
+   as Apple's do: a squircle rather than a quarter circle. A squircle reads tighter
+   than a circle of the same radius, so the radii grow by about a quarter. Pills and
+   dots stay round, as Apple's capsules do: every rule that makes one is listed. */
+@supports (corner-shape: squircle) {
+  :root {
+    --radius-pane: 32px;
+    --radius-card: 20px;
+    --radius-row: 15px;
+  }
+
+  *,
+  *::before,
+  *::after {
+    corner-shape: squircle;
+  }
+
+  .segmented .options,
+  .segmented label,
+  .studies-list .swatch,
+  .tabs,
+  .tab,
+  .tab .busy-dot,
+  .app[data-tab="map"] .workspace-head h1,
+  .show-all,
+  .files-bar .add,
+  .busy,
+  .icon-link,
+  .map-toolbar .tool,
+  .map-search input,
+  .layers-panel,
+  .layers-fold,
+  .layers-panel .swatch,
+  .layers-panel .tool,
+  .map-buttons,
+  .map-buttons button,
+  .map-notes,
+  .pin .dot,
+  .need .spinner,
+  .need .create,
+  .need .action,
+  .status,
+  .finding .dot,
+  .awaiting .dot,
+  .sign-in,
+  .decide select,
+  .decide input,
+  .decide button,
+  .override,
+  .round,
+  .speed,
+  .legend .dot,
+  .tag,
+  .run-line .mark,
+  .step .mark,
+  .step .mark[data-state="running"]::after,
+  .badge,
+  .doc-open,
+  .exec-ping,
+  .exec-check,
+  .stalled .retry,
+  .typing .dots span,
+  .earlier,
+  .chat form,
+  .chat input,
+  .chat button[type="submit"],
+  .quicklook .close,
+  .quicklook .tabs button,
+  .quicklook .act,
+  .glyph,
+  .toast .review,
+  .notice .dot,
+  .switches .knob::after {
+    corner-shape: round;
+  }
+}
