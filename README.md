@@ -324,3 +324,7 @@ documents included as text, and the US Federal Highway Administration's Proven
 Safety Countermeasures, a US government work in the public domain. The Ontario Line and its
 proposed extension are drawn from [OpenStreetMap](https://www.openstreetmap.org/copyright),
 © OpenStreetMap contributors, under the Open Database License.
+
+The display is set in [Google Sans](https://github.com/googlefonts/googlesans),
+under the SIL Open Font License 1.1, served from `apps/display/public/fonts` with
+its licence and how it was cut down (`CREDITS.md` there).
