@@ -133,6 +133,30 @@ is an estimate. A buffer is a straight-line distance, not a walk along streets.
 The data is in `services/api/assets/gis` (about 0.9 MB), made by
 `scripts/build-gis-data.ts`, with its credits.
 
+## 14. Glass over the map
+
+The panes over the map are glass: the map shows through them, blurred. With CSS
+backdrop-filter the browser blurs the map again under every pane on every frame
+the map moves, the GPU's biggest cost in a drag, so the blur paused while the map
+moved. Now the map's renderer blurs itself (`apps/display/src/map/glass.ts`): it
+draws the map small, a texel to every two CSS pixels, blurs it under each pane,
+reading only inside the pane as Chrome does, and lays the blur inside the pane's
+round or squircle corners as it draws the map at full size, in the same pass. The
+browser blurs nothing under those panes, and the blur stays while the map moves.
+
+On a 150-step drag at 2× on an M4 (median of four interleaved runs), the
+browser's draw work is 102 ms with the map's blur, against 97 ms with no blur,
+114 ms with the blur paused and 588 ms with the browser blurring every pane. The
+map's own passes are small, but on a GPU already busy the drag took about 30%
+longer than with no blur, where the browser's blur took 110% longer. At rest the
+two blurs differ by a fifth of a level in 255 on average.
+
+The cards that move with the map, the menus and the toasts keep CSS blur, and
+pause it while the map moves: a toast left blurring made a drag cost two and a
+half times as much. So does every pane on the flat map and behind the other
+tabs, where the map is still. Anyone who asks for less transparency, more
+contrast or forced colours gets solid panes, with no blur at all.
+
 ## For the owner to decide
 
 - Keep the legend words "Live" and "Scheduled"? They are the display's only
