@@ -240,6 +240,9 @@
     --glass-solid: #000;
     --glass-menu: #000;
     --glass-rim: #f5f5f4;
+    --frost: none;
+    --frost-chip: none;
+    --frost-menu: none;
     --row: #000;
     --row-hover: #1c1917;
     --row-edge: 0 0 0 1px #f5f5f4;
