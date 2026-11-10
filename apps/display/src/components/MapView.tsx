@@ -16,6 +16,7 @@ import { ScheduledVehicles, type StudyLine } from "../map/vehicles.ts";
 import { LINE_KEYS, OVERVIEW, studyColor, VIEWS } from "../map/views.ts";
 import type { Simulator } from "../simulator.ts";
 import { clockAt, dateToMs, DAY_MS } from "../time.ts";
+import { Basemap } from "./Basemap.tsx";
 import { LineIcon } from "./icons.tsx";
 import { Layers } from "./Layers.tsx";
 import { Needs } from "./Needs.tsx";
@@ -29,6 +30,9 @@ const optionLines = (study: StudyView | null) =>
 const LIVE_REFRESH_MS = 15_000;
 const LINE_DRAW_MS = 1800;
 const CAMERA_MS = 1400;
+// The aerial photos' credit, as their licence asks, while they show.
+const IMAGERY_CREDIT = { text: "Imagery © City of Toronto, Open Government Licence – Toronto", url: "https://open.toronto.ca/open-data-licence/" };
+
 // How close a search result brings the camera, in metres.
 const PLACE_DISTANCE = 2600;
 
@@ -114,6 +118,8 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, fres
   still.current = ambient;
   const [flat, setFlat] = useState(false);
   const [networkShown, setNetworkShown] = useState(true);
+  // The ground as aerial photos rather than plain.
+  const [imagery, setImagery] = useState(false);
   const [needsShown, setNeedsShown] = useState(true);
   const [refreshed, setRefreshed] = useState(0);
   const [searching, setSearching] = useState(false);
@@ -175,6 +181,7 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, fres
     map.setLayers(layerShapes);
     map.showLayers(shownIds ? shownIds.split(",") : []);
     map.setNetworkShown(networkShown);
+    map.setImagery(imagery);
   };
 
   const fallBack = () => {
@@ -271,6 +278,10 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, fres
   useEffect(() => {
     renderer.current?.setNetworkShown(networkShown);
   }, [networkShown, flat]);
+
+  useEffect(() => {
+    renderer.current?.setImagery(imagery);
+  }, [imagery, flat]);
 
   // Options proposed while the study shows replace its proposed part where it is.
   const optionCount = optionLines(study).length;
@@ -382,6 +393,7 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, fres
   const shownLine = ready && lineKey ? lines.current[lineKey] : undefined;
   const label = describe(study, Boolean(shownLine?.proposed?.length), layers.shown.length);
   const credits = [
+    ...(imagery ? [IMAGERY_CREDIT] : []),
     ...(shownLine?.credit ? [shownLine.credit] : []),
     ...layers.shown.flatMap(({ layer }) => {
       const text = creditOf(layer);
@@ -410,10 +422,7 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, fres
 
       <div class="map-top">
         <div class="map-toolbar" role="group" aria-label="Map tools">
-          <button type="button" class="tool wide" aria-pressed={networkShown} onClick={() => setNetworkShown(!networkShown)}>
-            <LineIcon name="layers" size={18} />
-            Basemap
-          </button>
+          <Basemap imagery={imagery} network={networkShown} onImagery={setImagery} onNetwork={setNetworkShown} />
           <button ref={searchButton} type="button" class="tool" aria-label="Search the map" title="Search" aria-expanded={searching} aria-controls="map-search" onClick={() => (searching ? closeSearch() : setSearching(true))}>
             <LineIcon name="search" size={18} />
           </button>

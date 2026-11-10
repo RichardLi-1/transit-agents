@@ -2,6 +2,7 @@
 // the study line and its vehicles, so the display is never blank.
 import { FIELD_OF_VIEW, isRail, type Camera, type LayerShapes, type NetworkData, type NetworkRoute, type Point } from "./engine.ts";
 import type { GlassRect, Rgb } from "./glass.ts";
+import { cornersOf, tilesOver, tileUrl } from "./tiles.ts";
 import { LINE_COLORS } from "./views.ts";
 
 // How the flat map frames the ground: the point on the ground at the middle of the
@@ -85,6 +86,46 @@ export class FlatMap {
   // has no frame to spare.
   setGlassRects(_rects: GlassRect[], _ground: Rgb, _version: number) {}
 
+  // The ground as aerial photos, or plain: the same tiles as the tilted map's, at
+  // the zoom nearest a photo pixel to a device pixel, each laid by its corners.
+  private imageryShown = false;
+  private readonly photos = new Map<string, HTMLImageElement>();
+  setImagery(shown: boolean) {
+    this.imageryShown = shown;
+    this.draw();
+  }
+
+  private photo(url: string): HTMLImageElement {
+    let image = this.photos.get(url);
+    if (image) {
+      // Most lately drawn last, so the oldest go first.
+      this.photos.delete(url);
+    } else {
+      image = new Image();
+      image.decoding = "async";
+      image.onload = () => this.drawSoon();
+      image.src = url;
+    }
+    this.photos.set(url, image);
+    // More than a view needs (tilesOver's limit), so a view never drops its own.
+    for (const old of this.photos.keys()) {
+      if (this.photos.size <= 240) break;
+      this.photos.delete(old);
+    }
+    return image;
+  }
+
+  // Once a frame however many photos arrive in it.
+  private soon = 0;
+  private drawSoon() {
+    if (!this.soon) {
+      this.soon = requestAnimationFrame(() => {
+        this.soon = 0;
+        this.draw();
+      });
+    }
+  }
+
   // Null frames the study again. There is no tilt.
   setCamera(camera: Camera | null) {
     this.camera = camera && { ...camera };
@@ -139,8 +180,31 @@ export class FlatMap {
       this.onView(view);
     }
 
+    if (this.imageryShown) {
+      // The ground under the canvas's corners, the screen's mapping undone.
+      const ground = ([sx, sy]: Point): Point => {
+        const [ex, ey] = [(sx - middle[0]) / zoom, -(sy - middle[1]) / zoom];
+        return [centre[0] + ex * cos + ey * sin, centre[1] - ex * sin + ey * cos];
+      };
+      const box = [ground([0, 0]), ground([width, 0]), ground([width, height]), ground([0, height])];
+      for (const tile of tilesOver(box, zoom)) {
+        const image = this.photo(tileUrl(tile));
+        if (!image.complete || !image.naturalWidth) continue;
+        const [nw, ne, , sw] = cornersOf(tile).map(([x, y]) => toScreen(x, y)) as [Point, Point, Point, Point];
+        // A hair over a tile's size, so no seam shows between neighbours.
+        context.setTransform((ne[0] - nw[0]) / 256, (ne[1] - nw[1]) / 256, (sw[0] - nw[0]) / 256, (sw[1] - nw[1]) / 256, nw[0], nw[1]);
+        context.drawImage(image, 0, 0, 256.6, 256.6);
+      }
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      if (this.dark) {
+        context.fillStyle = "rgba(0, 0, 0, 0.22)";
+        context.fillRect(0, 0, width, height);
+      }
+    }
+
     // Buses and streetcars in TTC Red, thin; rail lines in their own colours on a
-    // casing of the ground's colour, with round joins, as on the tilted map.
+    // casing of the ground's colour, with round joins, as on the tilted map. Over
+    // the photos the buses dim, so the rail lines lead.
     const trace = (line: (typeof data.polylines)[number]) => {
       context.beginPath();
       for (let i = 0; i < line.count; i++) {
@@ -156,7 +220,7 @@ export class FlatMap {
     const ground = this.dark ? "#161618" : "#ffffff";
     if (this.networkShown) {
       context.lineWidth = ratio;
-      context.strokeStyle = "rgba(218, 37, 29, 0.4)";
+      context.strokeStyle = this.imageryShown ? "rgba(218, 37, 29, 0.25)" : "rgba(218, 37, 29, 0.4)";
       const rail = data.polylines.filter((line) => isRail(data.routes[line.route] as NetworkRoute));
       for (const line of data.polylines) if (!rail.includes(line)) trace(line);
       for (const [width, casing] of [

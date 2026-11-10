@@ -28,6 +28,8 @@ export interface MapRenderer {
   // the page's ground: the map blurs itself under them, and says so by `version`
   // once it has (glass.ts).
   setGlassRects(rects: GlassRect[], ground: Rgb, version: number): void;
+  // The ground as aerial photos, or plain.
+  setImagery(shown: boolean): void;
 }
 
 type Message = "lost" | { view: TiltedView } | { glass: number };
@@ -92,6 +94,9 @@ class WorkerRenderer implements MapRenderer {
   }
   setGlassRects(rects: GlassRect[], ground: Rgb, version: number) {
     this.call("setGlassRects", rects, ground, version);
+  }
+  setImagery(shown: boolean) {
+    this.call("setImagery", shown);
   }
 }
 
