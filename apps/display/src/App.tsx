@@ -116,6 +116,8 @@ export function App() {
   }, []);
   // The chat is a tab only on a phone. Wider, it's always beside the workspace.
   const current: Tab = tab === "chat" && !phone ? "study" : tab;
+  // Off the Map tab the map is the backdrop, blurred and still, so time stops too.
+  const ambient = current !== "map";
   useEffect(() => {
     if (current === "sim") setSimulator((now) => now ?? { src: "/simulator/", key: 0 });
   }, [current]);
@@ -137,6 +139,9 @@ export function App() {
   useEffect(() => {
     if (!trial) clock.backToNow();
   }, [clock, studyId, Boolean(trial)]);
+  useEffect(() => {
+    if (ambient) clock.pause();
+  }, [clock, ambient]);
 
   useEffect(() => {
     if (!studyId || !reads) return;
@@ -260,6 +265,9 @@ export function App() {
 
   const layerCount = store.layers.filter((layer) => layer.studyId === studyId).length;
   const layerVersion = `${layerCount}`;
+  // Layers agents added since the page opened, which open the Layers panel.
+  const since = store.since;
+  const freshLayers = since === null ? "" : store.layers.flatMap((layer) => (layer.studyId === studyId && layer.seq > since ? [layer.layerId] : [])).join(",");
   const visible = TABS.filter((t) => phone || !t.phoneOnly);
   // Arrows, Home and End move along the tabs and open the one they reach.
   const onTabKey = (event: KeyboardEvent) => {
@@ -338,15 +346,27 @@ export function App() {
           )}
         </section>
 
-        <section id="panel-map" class="panel map-panel" role="tabpanel" aria-labelledby="tab-map" hidden={current !== "map"}>
+        {/* Always there: the whole app's backdrop, blurred and still behind the other
+            tabs, and in front, to use, on this one. */}
+        <section
+          id="panel-map"
+          class="map-panel"
+          role="tabpanel"
+          aria-labelledby="tab-map"
+          data-ambient={ambient || undefined}
+          aria-hidden={ambient || undefined}
+          inert={ambient}
+        >
           <MapView
             study={shown}
             simulator={clock}
             canCreate={canCreate(session?.me ?? null)}
             reads={reads}
             layerVersion={layerVersion}
+            freshLayers={freshLayers}
             picked={selected}
             focus={focusLayer}
+            ambient={ambient}
             onNeed={openNeed}
             onViewer={setViewing}
           >

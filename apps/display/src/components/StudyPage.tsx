@@ -1,6 +1,7 @@
-// The study, as a page of its own: the figures it leads with, its tests, what
-// isn't known yet, its notes, the decision, and every figure with where it comes
-// from. Each number and note opens its source.
+// The study, as a page of its own: the figures it leads with and the decision,
+// then the first of what isn't known yet, and its tests, notes and every figure
+// with where it comes from folded away, each a click from open. Each number and
+// note opens its source.
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Assumption, CheckView, Context, FigureView, FindingView, Outcome, StudyView, Timeline } from "@transit-agents/contracts";
@@ -339,15 +340,58 @@ function basisOf(figure: FigureView, contexts: Context[]): string {
 }
 
 // A part of the page, under its heading.
-function Part({ id, title, extra, children, kind }: { id: string; title: string; extra?: ComponentChildren; children: ComponentChildren; kind?: string }) {
+function Part({ id, title, children, kind }: { id: string; title: string; children: ComponentChildren; kind?: string }) {
   return (
     <section class={kind ? `part ${kind}` : "part"} aria-labelledby={id}>
-      <h2 id={id}>
-        {title}
-        {extra}
-      </h2>
+      <h2 id={id}>{title}</h2>
       {children}
     </section>
+  );
+}
+
+// A part folded away under its heading and how many it holds, opened at a click.
+function Fold({ id, title, count, extra, children }: { id: string; title: string; count: number; extra?: ComponentChildren; children: ComponentChildren }) {
+  return (
+    <section class="part fold" aria-labelledby={id}>
+      <details>
+        <summary>
+          <h2 id={id}>
+            {title} <span class="n">({count})</span>
+            {extra}
+          </h2>
+        </summary>
+        <div class="fold-body">{children}</div>
+      </details>
+    </section>
+  );
+}
+
+// What isn't known yet shows its first few; the rest are a click away.
+const FIRST_GAPS = 2;
+
+function Gaps({ gaps, onCitation }: { gaps: FindingView[]; onCitation: Props["onCitation"] }) {
+  const [all, setAll] = useState(false);
+  const rest = gaps.slice(FIRST_GAPS);
+  return (
+    <>
+      <ul class="findings">
+        {gaps.slice(0, FIRST_GAPS).map((finding) => (
+          <Note key={finding.id} finding={finding} onCitation={onCitation} />
+        ))}
+      </ul>
+      {rest.length > 0 && (
+        <>
+          <ul id="gaps-more" class="findings" data-more hidden={!all}>
+            {rest.map((finding) => (
+              <Note key={finding.id} finding={finding} onCitation={onCitation} />
+            ))}
+          </ul>
+          <button type="button" class="show-all" aria-expanded={all} aria-controls="gaps-more" onClick={() => setAll(!all)}>
+            {all ? "Show fewer" : `Show all (${gaps.length})`}
+          </button>
+        </>
+      )}
+    </>
   );
 }
 
@@ -388,100 +432,92 @@ export function StudyPage({ study, session, assumptions, contexts, since, timeli
         <ul class="headlines" aria-label="Headline figures">
           {headlines.map(({ figure, caption }) => (
             <li key={figure.id}>
-              <button type="button" class="figure" data-figure={figure.id} onClick={(event) => onFigure(figure.id, event.currentTarget)}>
-                {amount(figure)}
-                <span class="sr-only">{`, ${figure.label}${opens(figure.id)}`}</span>
-              </button>
               {/* The button's name says the full label, so the caption isn't read twice. */}
               <span class="label" aria-hidden="true">
                 {caption}
               </span>
+              <button type="button" class="figure" data-figure={figure.id} onClick={(event) => onFigure(figure.id, event.currentTarget)}>
+                {amount(figure)}
+                <span class="sr-only">{`, ${figure.label}${opens(figure.id)}`}</span>
+              </button>
             </li>
           ))}
         </ul>
       )}
 
-      <div class="study-grid">
-        <div class="study-main">
-          {study.checks.length > 0 && (
-            <Part id="checks-title" title="Checks">
-              <table class="checks">
-                <thead>
-                  <tr>
-                    <th scope="col">
-                      <span class="sr-only">Status</span>
-                    </th>
-                    <th scope="col">Test</th>
-                    <th scope="col" class="num">
-                      Value
-                    </th>
-                    <th scope="col" class="num">
-                      Rule
-                    </th>
-                    <th scope="col">
-                      <span class="sr-only">Rule's page</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {study.checks.map((check) => (
-                    <Check key={check.id} check={check} opens={opens(check.figure)} onFigure={onFigure} onCitation={onCitation} />
-                  ))}
-                </tbody>
-              </table>
-            </Part>
-          )}
-
-          {gaps.length > 0 && (
-            <Part id="gaps-title" title="Not known yet">
-              <ul class="findings">
-                {gaps.map((finding) => (
-                  <Note key={finding.id} finding={finding} onCitation={onCitation} />
-                ))}
-              </ul>
-            </Part>
-          )}
-
-          {notes.length > 0 && (
-            <Part id="notes-title" title="Findings">
-              <ul class="findings">
-                {notes.map((finding) => (
-                  <Note key={finding.id} finding={finding} onCitation={onCitation} />
-                ))}
-              </ul>
-            </Part>
+      <Part id="decision-title" title="Decision" kind="decision-part">
+        <div class="decision-row">
+          {decision ? (
+            <p class="decision">
+              <span>{ANALYSIS[decision.analysis]}</span>
+              <span aria-hidden="true">→</span>
+              <span class="sr-only">, decision: </span>
+              <strong>{OUTCOME[decision.outcome]}</strong>
+              {decision.override && <span class="override">Override</span>}
+            </p>
+          ) : (
+            <>
+              {status && (
+                <p class={awaiting ? "awaiting" : "awaiting passed"}>
+                  <span class="dot" aria-hidden="true" />
+                  {status}
+                </p>
+              )}
+              <Decide studyId={study.id} session={session} />
+            </>
           )}
         </div>
+        <Results timeline={timeline} trialStart={study.trial?.startedOn} />
+        <Sliders study={study} onPreview={onPreview} />
+      </Part>
 
-        <div class="study-side">
-          <Part id="decision-title" title="Decision" kind="decision-part">
-            {decision ? (
-              <p class="decision">
-                <span>{ANALYSIS[decision.analysis]}</span>
-                <span aria-hidden="true">→</span>
-                <span class="sr-only">, decision: </span>
-                <strong>{OUTCOME[decision.outcome]}</strong>
-                {decision.override && <span class="override">Override</span>}
-              </p>
-            ) : (
-              <>
-                {status && (
-                  <p class={awaiting ? "awaiting" : "awaiting passed"}>
-                    <span class="dot" aria-hidden="true" />
-                    {status}
-                  </p>
-                )}
-                <Decide studyId={study.id} session={session} />
-              </>
-            )}
-            <Results timeline={timeline} trialStart={study.trial?.startedOn} />
-          </Part>
-          <Sliders study={study} onPreview={onPreview} />
-        </div>
-      </div>
+      {gaps.length > 0 && (
+        <Part id="gaps-title" title="Not known yet">
+          <Gaps gaps={gaps} onCitation={onCitation} />
+        </Part>
+      )}
+
+      {study.checks.length > 0 && (
+        <Fold id="checks-title" title="Checks" count={study.checks.length}>
+          <table class="checks">
+            <thead>
+              <tr>
+                <th scope="col">
+                  <span class="sr-only">Status</span>
+                </th>
+                <th scope="col">Test</th>
+                <th scope="col" class="num">
+                  Value
+                </th>
+                <th scope="col" class="num">
+                  Rule
+                </th>
+                <th scope="col">
+                  <span class="sr-only">Rule's page</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {study.checks.map((check) => (
+                <Check key={check.id} check={check} opens={opens(check.figure)} onFigure={onFigure} onCitation={onCitation} />
+              ))}
+            </tbody>
+          </table>
+        </Fold>
+      )}
+
+      {notes.length > 0 && (
+        <Fold id="notes-title" title="Findings" count={notes.length}>
+          <ul class="findings">
+            {notes.map((finding) => (
+              <Note key={finding.id} finding={finding} onCitation={onCitation} />
+            ))}
+          </ul>
+        </Fold>
+      )}
 
       {figures.length > 0 && (
-        <Part id="figures-title" title="Figures" kind="figures-part" extra={fresh > 0 && <span class="fresh">{`${fresh} new`}</span>}>
+        <Fold id="figures-title" title="Figures" count={figures.length} extra={fresh > 0 && <span class="fresh">{` · ${fresh} new`}</span>}>
           <div class="table-scroll" tabIndex={0} role="region" aria-label="Figures table">
             <table class="figures">
               <thead>
@@ -520,7 +556,7 @@ export function StudyPage({ study, session, assumptions, contexts, since, timeli
               </tbody>
             </table>
           </div>
-        </Part>
+        </Fold>
       )}
     </article>
   );

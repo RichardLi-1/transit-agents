@@ -109,3 +109,33 @@ export function planOf(text: string): { lead: string; steps: string[]; after: st
   if (steps.length < 2) return null;
   return { lead: lines.slice(0, first).join("\n").trim(), steps, after: lines.slice(end).join("\n").trim() };
 }
+
+// Calls standing alone side by side, as the lead's own often are, folded into one
+// row, so the chat shows a run of them once. A call alone stays as it is.
+export type ToolRun = { run: ToolStep[] };
+
+export function foldRuns<I>(items: (I | ToolStep)[], isTool: (item: I | ToolStep) => item is ToolStep): (I | ToolStep | ToolRun)[] {
+  const out: (I | ToolStep | ToolRun)[] = [];
+  let run: ToolStep[] = [];
+  const close = () => {
+    if (run.length === 1) out.push(run[0] as ToolStep);
+    else if (run.length > 1) out.push({ run });
+    run = [];
+  };
+  for (const item of items) {
+    if (isTool(item)) run.push(item);
+    else {
+      close();
+      out.push(item);
+    }
+  }
+  close();
+  return out;
+}
+
+// How a run of calls went, taken together: working while any is, failed if any
+// failed, stopped if any was left unanswered, and complete once all are back well.
+export function togetherState(states: StepState[]): StepState {
+  for (const state of ["running", "failed", "stopped"] as const) if (states.includes(state)) return state;
+  return "done";
+}

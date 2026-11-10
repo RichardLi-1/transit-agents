@@ -77,10 +77,10 @@ const version = (need: NeedView) => `${need.status} ${need.failedAt ?? ""}`;
 
 const actionOf = (status: NeedStatus) => (status === "failed" ? "Try again" : "Create");
 
-// The panels over the map, in the cards' coordinates: the folders, the map's
-// buttons, the study card and the time bar. A place under one can't be pointed at,
-// and a card keeps off them.
-const PANELS = ".map-toolbar, .map-search:not([hidden]), .layers-panel, .map-buttons, .map-foot > *";
+// The panes over the map, in the cards' coordinates: the rail, the chat, the title
+// and tabs, the map's tools and buttons, the Layers panel and the time bar. A place
+// under one can't be pointed at, and a card keeps off them.
+const PANELS = ".rail, .chat, .workspace-head > *, .map-toolbar, .map-search:not([hidden]), .layers-panel, .map-buttons, .map-foot > *";
 
 function panels(list: HTMLElement): DOMRect[] {
   const origin = list.getBoundingClientRect();
@@ -133,9 +133,10 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
       const project = view ? projector(view) : null;
       const width = view?.width ?? element.clientWidth;
       const height = view?.height ?? element.clientHeight;
-      // Cards keep clear of the panels along the top and the side of the map.
+      // Cards keep clear of the panes along the top and the sides of the map.
       const style = getComputedStyle(element);
       const top = parseFloat(style.getPropertyValue("--map-top")) || EDGE;
+      const left = (parseFloat(style.getPropertyValue("--map-left")) || 0) + EDGE;
       const right = width - (parseFloat(style.getPropertyValue("--map-right")) || 0) - EDGE;
       const over = panels(element);
       // The cards pinned, and those to list once every pinned one is placed.
@@ -150,16 +151,16 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
         const at = project?.(toPoint(Number(pin.dataset.lat), Number(pin.dataset.lon))) ?? null;
         const [cardWidth, cardHeight] = sizeOf(card);
         pin.style.visibility = "visible";
-        const shown = at && at[0] >= 0 && at[0] <= width && at[1] >= 0 && at[1] <= height && !over.some((rect) => covers(rect, at[0], at[1]));
+        const shown = at && at[0] >= left && at[0] <= right && at[1] >= 0 && at[1] <= height && !over.some((rect) => covers(rect, at[0], at[1]));
         const [x, y] = at ?? [0, 0];
         // Beside a panel it would cover, to its right if there's room, never under it.
         const beside = (cardTop: number) => {
-          let left = Math.max(EDGE, Math.min(x - cardWidth / 2, right - cardWidth));
+          let from = Math.max(left, Math.min(x - cardWidth / 2, right - cardWidth));
           for (const rect of over) {
-            if (!overlap(new DOMRect(left, cardTop, cardWidth, cardHeight), rect)) continue;
-            left = rect.right + EDGE <= right - cardWidth ? rect.right + EDGE : Math.max(EDGE, rect.left - EDGE - cardWidth);
+            if (!overlap(new DOMRect(from, cardTop, cardWidth, cardHeight), rect)) continue;
+            from = rect.right + EDGE <= right - cardWidth ? rect.right + EDGE : Math.max(left, rect.left - EDGE - cardWidth);
           }
-          return new DOMRect(left, cardTop, cardWidth, cardHeight);
+          return new DOMRect(from, cardTop, cardWidth, cardHeight);
         };
         const clear = (rect: DOMRect) => ![...over, ...pinned].some((other) => overlap(rect, other));
         // Clear but for a little, which a card already there is allowed, so it stays put.
@@ -199,7 +200,7 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
         const last = pin.dataset.side === "listed" ? pin.dataset.spot?.split(",").map(Number) : undefined;
         if (last && last.length === 2) {
           const kept = new DOMRect(last[0], last[1], cardWidth, cardHeight);
-          if (kept.bottom <= height - EDGE && kept.right <= right && ![...over, ...pinned].some((other) => overlap(shrink(kept), other))) {
+          if (kept.left >= left && kept.bottom <= height - EDGE && kept.right <= right && ![...over, ...pinned].some((other) => overlap(shrink(kept), other))) {
             pinned.push(kept);
             cards.push({ pin, rect: kept });
             pin.style.transform = `translate(${kept.left}px, ${kept.top}px)`;
@@ -210,7 +211,7 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
         let spot: DOMRect | undefined;
         let least = Infinity;
         for (let y = top; least > 0 && y + cardHeight <= height - EDGE; y += 12) {
-          for (let x = EDGE * 3; x + cardWidth <= right; x += 16) {
+          for (let x = left + EDGE * 2; x + cardWidth <= right; x += 16) {
             const rect = new DOMRect(x, y, cardWidth, cardHeight);
             if (over.some((other) => overlap(rect, other))) continue;
             const covered = pinned.reduce((sum, other) => sum + area(rect, other), 0);
@@ -218,7 +219,7 @@ function useFollow(feed: ViewFeed, list: { current: HTMLUListElement | null }, n
             if (!covered) break;
           }
         }
-        spot ??= new DOMRect(EDGE * 3, top, cardWidth, cardHeight);
+        spot ??= new DOMRect(left + EDGE * 2, top, cardWidth, cardHeight);
         pinned.push(spot);
         cards.push({ pin, rect: spot });
         pin.dataset.side = "listed";
