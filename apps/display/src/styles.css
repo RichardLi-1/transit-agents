@@ -2948,8 +2948,21 @@ input[type="range"] {
   background: none;
 }
 
+/* Focus shows as a thin ink edge on the whole capsule, not the blue ring: the
+   caret already says where typing goes. Forced colours keep a system outline. */
 .chat input:focus-visible {
-  outline-offset: 0;
+  outline: none;
+}
+
+.chat form:focus-within {
+  box-shadow: var(--row-edge), 0 0 0 1.5px var(--muted), 0 4px 14px -6px rgba(28, 25, 23, 0.18);
+}
+
+@media (forced-colors: active) {
+  .chat input:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 0;
+  }
 }
 
 .chat button[type="submit"] {
