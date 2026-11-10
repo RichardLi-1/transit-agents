@@ -149,21 +149,20 @@ export const PLAN = [
   "The extension is hypothetical, so every figure is the Ontario Line's own, a TTC count, or a formula over them with Metrolinx's rules and values planners set. Page numbers count the PDF's pages.",
 ].join("\n");
 
-// The answer: the precedent cost and its basis, then each gap on the card with its
-// next step, who to contact and its page, as agents/skills/handover sets out. It
-// opens with "ready for planners", the words that mark the replay's hand-over, and
-// ends with the executive decision it needs, as the lead's answers do.
+// The answer, brief as the lead's are: the precedent cost in one line, the two gaps
+// that matter most with their next step, who to contact and page, as
+// agents/skills/handover sets out, and the executive decision it needs. It opens with
+// "Ready for planners", the words that mark the replay's hand-over.
 export function answer(value: Value, findings: { text: string; citation: Citation }[]): string {
-  const gaps = findings.filter((finding) => GAP.test(finding.text));
+  // The two gaps that matter most, as the lead's answers give them: the card lists the rest.
+  const gaps = findings.filter((finding) => GAP.test(finding.text)).slice(0, 2);
   return [
-    `First pass, ready for planners, not a final answer. At the Ontario Line's 2019 median of ${millions(value("ol-cost-per-km"))} a km, ` +
-      `a Class 5 estimate with ${whole(value("ol-contingency"))}% contingency (IBC pp. 76-77), the ${tenth(value(LENGTH))} km up Don Mills Road would cost ` +
-      `${millions(value("ext-capital-cost"))} in 2019 dollars, or ${millions(value("ext-capital-cost-ob"))} with optimism bias (BCM p. 103).`,
+    `Ready for planners: the ${tenth(value(LENGTH))} km up Don Mills Road would cost about **${millions(value("ext-capital-cost"))}** in 2019 dollars, ` +
+      `at the Ontario Line's median ${millions(value("ol-cost-per-km"))} a km (IBC pp. 76-77), or ${millions(value("ext-capital-cost-ob"))} with optimism bias (BCM p. 103).`,
     [
       "Not known yet:",
       ...gaps.map(({ text, citation }) => `- ${text.replace(/\.$/, "")} (${SHORT[citation.contextId] ?? citation.contextId} p. ${citation.page}).`),
     ].join("\n"),
-    "Before anyone relies on the cost, a planner confirms the optimism bias adjustment and rebases the dollars (BCM pp. 103, 179).",
     // Committing billions is above a planner's authority, so the display offers to ping the executive.
     "Executive decision required: whether to fund the extension's next stage of design.",
   ].join("\n\n");

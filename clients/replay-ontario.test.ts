@@ -19,15 +19,16 @@ describe("the Ontario Line's answer", () => {
 
   it("gives the precedent cost with its basis, as a first pass", () => {
     const [first = ""] = lines;
-    assert.match(first, /^First pass, ready for planners, not a final answer\./);
-    assert.match(first, /\$613 M a km, a Class 5 estimate with 30% contingency \(IBC pp\. 76-77\)/);
-    assert.match(first, /\$3,678 M in 2019 dollars, or \$4,640 M with optimism bias \(BCM p\. 103\)/);
+    assert.match(first, /^Ready for planners: /);
+    assert.match(first, /\*\*\$3,678 M\*\* in 2019 dollars, at the Ontario Line's median \$613 M a km \(IBC pp\. 76-77\)/);
+    assert.match(first, /or \$4,640 M with optimism bias \(BCM p\. 103\)/);
+    assert.ok(first.split(/\s+/).length <= 60, first);
   });
 
-  it("then lists what isn't known yet: each gap on the card, with its next step, who to contact and its page", () => {
-    const gaps = ONTARIO.findings.filter((finding) => GAP.test(finding.text));
+  it("then lists the two gaps that matter most, each with its next step, who to contact and its page", () => {
+    const gaps = ONTARIO.findings.filter((finding) => GAP.test(finding.text)).slice(0, 2);
     const at = lines.indexOf("Not known yet:");
-    assert.ok(gaps.length >= 4 && at > 0);
+    assert.ok(gaps.length === 2 && at > 0);
     for (const [i, { text, citation }] of gaps.entries()) {
       const line = lines[at + 1 + i] ?? "";
       assert.ok(line.startsWith(`- ${text.slice(0, -1)} (`), line);
