@@ -78,6 +78,8 @@ type Props = {
   reads: boolean;
   // Changes as agents add layers, so the list is asked for again.
   layerVersion: string;
+  // The layers agents added since the page opened, by id, joined by commas.
+  freshLayers?: string;
   // The study the planner chose, which brings the camera back to it.
   picked?: string | null;
   // A layer to show and zoom to, as a figure measured on it asks; n counts each ask.
@@ -94,7 +96,7 @@ type Props = {
 // The map pane: the WebGL map, or the flat one where WebGL is missing, with the
 // tools along its top, the agents' layers, the engagement needs pinned to their
 // places, and the credits its data asks for at its foot.
-export function MapView({ study, simulator, canCreate, reads, layerVersion, picked = null, focus = null, ambient = false, onNeed, onViewer, children }: Props) {
+export function MapView({ study, simulator, canCreate, reads, layerVersion, freshLayers = "", picked = null, focus = null, ambient = false, onNeed, onViewer, children }: Props) {
   const glCanvas = useRef<HTMLCanvasElement>(null);
   const flatCanvas = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<Renderer | null>(null);
@@ -406,9 +408,6 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, pick
           <button type="button" class="tool" aria-label="Engagement needs" title="Engagement needs" aria-pressed={needsShown} onClick={() => setNeedsShown(!needsShown)}>
             <LineIcon name="needs" size={18} />
           </button>
-          <button type="button" class="tool" aria-label="Download shown layers" title="Download" disabled={!layers.shown.length} onClick={saveAll}>
-            <LineIcon name="download" size={18} />
-          </button>
         </div>
         <div id="map-search" class="map-search" hidden={!searching} onKeyDown={(event) => event.key === "Escape" && closeSearch()}>
           <input
@@ -439,6 +438,7 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, pick
         </div>
         <Layers
           listed={layers.listed}
+          fresh={freshLayers}
           hidden={(id) => !layers.shown.some(({ layer }) => layer.id === id)}
           removed={layers.removed}
           onToggle={layers.toggle}

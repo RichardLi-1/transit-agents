@@ -265,6 +265,9 @@ export function App() {
 
   const layerCount = store.layers.filter((layer) => layer.studyId === studyId).length;
   const layerVersion = `${layerCount}`;
+  // Layers agents added since the page opened, which open the Layers panel.
+  const since = store.since;
+  const freshLayers = since === null ? "" : store.layers.flatMap((layer) => (layer.studyId === studyId && layer.seq > since ? [layer.layerId] : [])).join(",");
   const visible = TABS.filter((t) => phone || !t.phoneOnly);
   // Arrows, Home and End move along the tabs and open the one they reach.
   const onTabKey = (event: KeyboardEvent) => {
@@ -360,6 +363,7 @@ export function App() {
             canCreate={canCreate(session?.me ?? null)}
             reads={reads}
             layerVersion={layerVersion}
+            freshLayers={freshLayers}
             picked={selected}
             focus={focusLayer}
             ambient={ambient}

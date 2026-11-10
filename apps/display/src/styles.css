@@ -1233,28 +1233,56 @@ a {
   padding: 7px 12px;
 }
 
-/* The agents' layers, each a row of colour, name and tools. */
+/* The agents' layers: a pill with their count, which opens to a row each of
+   colour, name and tools. */
 .layers-panel {
+  padding: 4px;
+  border-radius: 999px;
+  font-size: var(--t-ui);
+}
+
+.layers-panel.open {
   width: min(340px, 100%);
   padding: 6px 6px 8px;
   border-radius: 20px;
-  font-size: var(--t-ui);
 }
 
 .layers-panel header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 2px 4px 10px;
-  color: var(--muted);
+  gap: 2px;
 }
 
 .layers-panel h2 {
   flex: 1;
   margin: 0;
-  color: var(--ink);
   font-size: var(--t-ui);
   font-weight: 500;
+}
+
+.layers-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.layers-fold:hover {
+  background: var(--hover);
+}
+
+.layers-fold[aria-expanded="true"] svg:last-child {
+  transform: rotate(180deg);
+}
+
+.layers-panel.open ul {
+  margin-top: 4px;
 }
 
 .layers-panel ul {
@@ -1324,14 +1352,6 @@ a {
 .layers-panel .tool:disabled {
   opacity: 0.4;
   cursor: default;
-}
-
-.layers-panel .fold svg {
-  transform: rotate(180deg);
-}
-
-.layers-panel .fold.closed svg {
-  transform: none;
 }
 
 /* Zoom in, zoom out and Reset view, at the workspace's top right. */
@@ -1533,9 +1553,9 @@ a {
 .need .thumb {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
 }
 
 /* Not made yet: an empty frame, showing which kinds are wanted. */
@@ -1711,12 +1731,16 @@ a {
   padding: 6px 14px;
 }
 
-/* A draft option and what isn't known yet show only their title until pointed
-   at, focused or opened, wherever they sit, so the map stays clear and a card's
-   size never depends on where it is placed. */
+/* A draft option, what isn't known yet and a need still to be made show little
+   until pointed at, focused or opened, wherever they sit, so the map stays clear
+   and a card's size never depends on where it is placed. */
 .need.option:not(:hover):not(:focus-within) .words:not([aria-expanded="true"]) .place,
 .need.option:not(:hover):not(:focus-within) .words:not([aria-expanded="true"]) .state,
 .need.gap:not(:hover):not(:focus-within) .place {
+  display: none;
+}
+
+.need.needed:not(:hover):not(:focus-within) :is(.state, .place) {
   display: none;
 }
 
