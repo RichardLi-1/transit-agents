@@ -1,7 +1,13 @@
 // Draws the TTC network on white, tilted toward a horizon that fades out.
-// There is no basemap: bus routes trace the street grid well enough, and with
-// no tiles the map loads instantly, works offline and calls no third parties.
+// By default there is no basemap: bus routes trace the street grid well enough,
+// and with no tiles the map loads instantly and works offline. Aerial photos can
+// lie under it (imagery.ts), from the service, so the page still calls no third
+// parties.
 
+import { GlassBlur } from "./blur.ts";
+import type { GlassRect, Rgb } from "./glass.ts";
+import { Imagery } from "./imagery.ts";
+import { compile } from "./shaders.ts";
 import { LINE_COLORS, TTC_RED } from "./views.ts";
 
 type Vec3 = [number, number, number];
@@ -31,6 +37,17 @@ const nextFrame: (callback: (time: number) => void) => number =
 const cancelFrame: (id: number) => void = typeof cancelAnimationFrame === "function" ? (id) => cancelAnimationFrame(id) : (id) => clearTimeout(id);
 
 const FAILING: Vec3 = [0.3, 0.32, 0.36];
+
+// Over the aerial photos the buses and streetcars dim to this share, so the
+// photo reads under them and the rail lines lead; and the photos dim this much in
+// dark, so they sit back as the dark ground does.
+const NETWORK_ON_PHOTOS = 0.5;
+const PHOTOS_IN_DARK = 0.78;
+
+// On the small, multisampled map the glass blurs, a line a pixel wide lights more
+// of each pixel than the same line on the canvas does once both are blurred: by
+// about this much, measured against the browser's own blur of the canvas.
+const LINE_WEIGHT = 2.5;
 export const FIELD_OF_VIEW = (32 * Math.PI) / 180;
 
 // While a study is shown, the other rail lines fade this far toward grey, so the
@@ -113,12 +130,16 @@ const NETWORK_VERTEX = `${HEADER}
 in vec2 aPosition;
 in float aRoute;
 uniform float uUnit;
+uniform float uLine;
+uniform float uStrength;
 uniform sampler2D uRoutes;
 out vec4 vColor;
 void main() {
   vec2 ground = aPosition * uUnit;
   vec4 route = texelFetch(uRoutes, ivec2(int(aRoute), 0), 0);
-  vColor = vec4(route.rgb, route.a * fade(ground));
+  // A line is a pixel wide at any size, so on the small map under the glass it is
+  // fainter by uLine: what a pixel there spans of the canvas's, and more (LINE_WEIGHT).
+  vColor = vec4(route.rgb, route.a * uStrength * fade(ground) / uLine);
   gl_Position = uViewProjection * vec4(ground, 0.0, 1.0);
 }`;
 
@@ -180,6 +201,7 @@ void main() {
 const VEHICLE_VERTEX = `${HEADER}
 in vec3 aVehicle;
 uniform float uScale;
+uniform float uPixel;
 out float vKind;
 out float vFade;
 void main() {
@@ -187,7 +209,7 @@ void main() {
   vKind = aVehicle.z;
   vFade = 1.0;
   gl_Position = uViewProjection * vec4(ground, 0.0, 1.0);
-  gl_PointSize = clamp(uScale / gl_Position.w, 9.0, 26.0);
+  gl_PointSize = clamp(uScale / gl_Position.w, 9.0 / uPixel, 26.0 / uPixel);
 }`;
 
 const VEHICLE_FRAGMENT = `#version 300 es
@@ -242,25 +264,6 @@ void main() {
   float core = 1.0 - smoothstep(0.58, 0.7, r);
   color = vec4(mix(uRim, uColor, core) * outer, outer);
 }`;
-
-function compile(gl: WebGL2RenderingContext, vertex: string, fragment: string): WebGLProgram {
-  const program = gl.createProgram();
-  // Every program reads its position first, so one vertex array serves the fill and the points.
-  gl.bindAttribLocation(program, 0, "aPosition");
-  for (const [type, source] of [
-    [gl.VERTEX_SHADER, vertex],
-    [gl.FRAGMENT_SHADER, fragment],
-  ] as const) {
-    const shader = gl.createShader(type) as WebGLShader;
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) ?? "Shader failed");
-    gl.attachShader(program, shader);
-  }
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) ?? "Link failed");
-  return program;
-}
 
 const hexToRgb = (hex: string): Vec3 => [
   parseInt(hex.slice(0, 2), 16) / 255,
@@ -402,6 +405,14 @@ export class MapEngine {
   onView: ((view: TiltedView, drawn: boolean) => void) | null = null;
   private reported = "";
 
+  // Told once the map has drawn the glass's blur under the panes a setGlassRects
+  // call gave, by that call's version, so the page can stop the browser blurring them.
+  onGlass: ((version: number) => void) | null = null;
+  private glass: { rects: GlassRect[]; ground: Rgb; version: number } = { rects: [], ground: [1, 1, 1], version: 0 };
+  private glassDrawn = 0;
+  // Made on first use; null if this GPU can't, when the page's CSS blurs instead.
+  private blur: GlassBlur | null | undefined;
+
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     // A stencil, for filling an agent's polygons.
     const gl = canvas.getContext("webgl2", { antialias: true, alpha: true, premultipliedAlpha: true, stencil: true }) as WebGL2RenderingContext | null;
@@ -433,6 +444,21 @@ export class MapEngine {
   private networkShown = true;
   setNetworkShown(shown: boolean) {
     this.networkShown = shown;
+    this.requestDraw();
+  }
+
+  // The ground as aerial photos, or plain (imagery.ts). Made when first shown.
+  private imagery: Imagery | null = null;
+  private imageryShown = false;
+  setImagery(shown: boolean) {
+    this.imageryShown = shown;
+    if (shown && !this.imagery) {
+      try {
+        this.imagery = new Imagery(this.gl, HEADER, () => this.requestDraw());
+      } catch {
+        this.imageryShown = false;
+      }
+    }
     this.requestDraw();
   }
 
@@ -724,6 +750,27 @@ export class MapEngine {
     this.draw();
   }
 
+  // The glass panes over the map, in CSS pixels from the canvas's top left, and the
+  // page's ground under the canvas: the map blurs itself under them (glass.ts).
+  // None, and it blurs nothing.
+  setGlassRects(rects: GlassRect[], ground: Rgb, version: number) {
+    this.glass = { rects, ground, version };
+    this.requestDraw();
+  }
+
+  // The blur, made on first use, or null where this GPU can't, when the page's CSS
+  // blurs the panes instead.
+  private glassBlur(): GlassBlur | null {
+    if (this.blur === undefined) {
+      try {
+        this.blur = new GlassBlur(this.gl);
+      } catch {
+        this.blur = null;
+      }
+    }
+    return this.blur;
+  }
+
   // Sizes come from the page, because a canvas in a worker can't measure itself.
   resize(cssWidth: number, cssHeight: number, devicePixelRatio: number) {
     const ratio = Math.min(devicePixelRatio || 1, 2);
@@ -747,14 +794,51 @@ export class MapEngine {
     }
   }
 
+  // With glass over the map, the map is drawn twice: first small, a texel to every
+  // two CSS pixels, and blurred under each pane; then at full size, with the blur
+  // laid inside the panes as the last of the same pass, so the GPU never reads the
+  // full-size map back or goes over it again (blur.ts).
   private draw() {
-    const { gl, canvas, camera } = this;
+    const { gl, canvas, glass, camera } = this;
+    const ratio = canvas.width / (this.size[0] || canvas.width);
+    // The photos the camera sees, chosen once for both of the frame's passes.
+    if (this.imageryShown && this.imagery) {
+      const { eye, viewProjection } = cameraView(camera, canvas.width / canvas.height);
+      this.imagery.choose(viewProjection, eye, camera.distance * 2.6, canvas.width, canvas.height);
+    }
+    const wanted = this.networkVao && glass.rects.length ? this.glassBlur() : null;
+    const small = wanted?.begin(canvas.width, canvas.height, ratio);
+    const blur = small ? wanted : null;
+    if (blur && small) {
+      const [width, height, pixel] = small;
+      this.clear();
+      this.drawScene(width, height, pixel, ratio);
+      blur.blur(glass.rects, ratio);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, canvas.width, canvas.height);
+    this.clear();
+    if (!this.networkVao) return;
+    this.drawScene(canvas.width, canvas.height, 1, ratio);
+    if (blur) blur.composite(glass.rects, glass.ground, ratio);
+    if (glass.version !== this.glassDrawn && (blur || !glass.rects.length)) {
+      this.glassDrawn = glass.version;
+      this.onGlass?.(glass.version);
+    }
+  }
+
+  private clear() {
+    const { gl } = this;
     gl.clearColor(0, 0, 0, 0);
     gl.clearStencil(0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-    if (!this.networkVao) return;
+  }
 
+  // The map on whatever is bound, width × height pixels, each `pixel` of the
+  // canvas's, `ratio` of those to a CSS pixel.
+  private drawScene(width: number, height: number, pixel: number, ratio: number) {
+    const { gl, camera, canvas } = this;
+    // The canvas's shape, whatever the target's, so the small map lines up with it.
     const { eye, viewProjection } = cameraView(camera, canvas.width / canvas.height);
     const fog: Point = [camera.distance * 1.05, camera.distance * 2.6];
 
@@ -765,9 +849,17 @@ export class MapEngine {
       gl.uniform2fv(gl.getUniformLocation(program, "uFog"), fog);
     };
 
+    const photos = this.imageryShown ? this.imagery : null;
+    if (photos) {
+      shared(photos.program);
+      photos.draw(this.dark ? PHOTOS_IN_DARK : 1);
+    }
+
     if (this.networkShown) {
       shared(this.network);
       gl.uniform1f(gl.getUniformLocation(this.network, "uUnit"), this.unit);
+      gl.uniform1f(gl.getUniformLocation(this.network, "uLine"), pixel > 1 ? pixel * LINE_WEIGHT : 1);
+      gl.uniform1f(gl.getUniformLocation(this.network, "uStrength"), photos ? NETWORK_ON_PHOTOS : 1);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.routeTexture);
       gl.uniform1i(gl.getUniformLocation(this.network, "uRoutes"), 0);
@@ -777,7 +869,9 @@ export class MapEngine {
 
     // Metres a CSS pixel spans at the camera's target, and a gentle growth as the
     // map zooms in, as transit maps thicken their lines.
-    const metresPerPixel = (2 * camera.distance * Math.tan(FIELD_OF_VIEW / 2)) / (this.size[1] || canvas.height);
+    const metresPerPixel = (2 * camera.distance * Math.tan(FIELD_OF_VIEW / 2)) / (this.size[1] || height);
+    // The edge's soft part: a CSS pixel, or a pixel of the small map, if larger.
+    const featherPx = Math.max(1, pixel / ratio);
     const zoom = Math.min(Math.max((16000 / camera.distance) ** 0.35, 0.9), 1.8);
     const layers = (vao: WebGLVertexArrayObject | null, count: number, widths: Vec3, dash: Vec3) => {
       gl.bindVertexArray(vao);
@@ -785,7 +879,7 @@ export class MapEngine {
         if (!px) return;
         gl.uniform1f(gl.getUniformLocation(this.ribbons, "uLayer"), layer);
         gl.uniform1f(gl.getUniformLocation(this.ribbons, "uWidth"), (px / 2) * zoom * metresPerPixel);
-        gl.uniform1f(gl.getUniformLocation(this.ribbons, "uFeather"), Math.min(2 / (px * zoom), 1));
+        gl.uniform1f(gl.getUniformLocation(this.ribbons, "uFeather"), Math.min((2 * featherPx) / (px * zoom), 1));
         gl.uniform3fv(gl.getUniformLocation(this.ribbons, "uDash"), layer === 2 ? dash : NO_DASH);
         // Glow overlaps itself at every join, so take the brighter, not the sum.
         gl.blendEquation(layer === 0 ? gl.MAX : gl.FUNC_ADD);
@@ -845,8 +939,7 @@ export class MapEngine {
       }
       if (shown.some((layer) => layer.pointCount)) {
         shared(this.dots);
-        const ratio = canvas.height / (this.size[1] || canvas.height);
-        gl.uniform1f(gl.getUniformLocation(this.dots, "uSize"), LAYER_POINT_PX * ratio);
+        gl.uniform1f(gl.getUniformLocation(this.dots, "uSize"), LAYER_POINT_PX * (height / (this.size[1] || height)));
         gl.uniform3fv(gl.getUniformLocation(this.dots, "uRim"), this.dark ? DARK_GROUND : [1, 1, 1]);
         for (const layer of shown) {
           if (!layer.pointCount) continue;
@@ -860,7 +953,8 @@ export class MapEngine {
     if (this.vehicleCount) {
       shared(this.vehicles);
       gl.uniform3fv(gl.getUniformLocation(this.vehicles, "uColor"), this.studyFailing ? FAILING : this.studyColor);
-      gl.uniform1f(gl.getUniformLocation(this.vehicles, "uScale"), 140000 * (canvas.height / 1000));
+      gl.uniform1f(gl.getUniformLocation(this.vehicles, "uScale"), 140000 * (height / 1000));
+      gl.uniform1f(gl.getUniformLocation(this.vehicles, "uPixel"), pixel);
       gl.bindVertexArray(this.vehicleVao);
       gl.drawArrays(gl.POINTS, 0, this.vehicleCount);
     }

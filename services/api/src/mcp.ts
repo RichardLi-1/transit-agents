@@ -314,6 +314,7 @@ export const NOT_TOOLS: Record<string, string> = {
   "POST /v1/studies/:id/needs/:need/failed": "Only the agent holding the request's claim says it failed, from its own code",
   "POST /v1/studies/:id/needs/:need/media": "A video is larger than an MCP message may be (4 MiB), so an agent posts the file here with its token",
   "GET /v1/media/:id": "Image and video bytes, for people to see. Each study's needs list their media",
+  "GET /v1/tiles/imagery/:z/:x/:y": "Aerial photo tiles, for the display's map to draw",
   "GET /v1/studies/:id/layers/:layer/geojson": "A layer's features, for the display's map. Too large for a model; summarise_layer gives an agent its totals and first rows",
   "POST /v1/guests": "Guest passes are for the display",
   "POST /v1/studies/:id/escalate": "A person's button under an answer: only a planner pings the executive on Slack, never an agent",

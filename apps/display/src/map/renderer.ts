@@ -2,6 +2,7 @@
 // hand a canvas to one, otherwise on the main thread.
 import type { Camera, LayerShapes, NetworkData, Point, TiltedView } from "./engine.ts";
 import { MapEngine } from "./engine.ts";
+import type { GlassRect, Rgb } from "./glass.ts";
 
 export interface MapRenderer {
   setNetwork(data: NetworkData): void;
@@ -23,17 +24,27 @@ export interface MapRenderer {
   showLayers(ids: string[]): void;
   // The TTC network under everything, or the layers alone.
   setNetworkShown(shown: boolean): void;
+  // The glass panes over the map, in CSS pixels from the canvas's top left, and
+  // the page's ground: the map blurs itself under them, and says so by `version`
+  // once it has (glass.ts).
+  setGlassRects(rects: GlassRect[], ground: Rgb, version: number): void;
+  // The ground as aerial photos, or plain.
+  setImagery(shown: boolean): void;
 }
+
+type Message = "lost" | { view: TiltedView } | { glass: number };
 
 class WorkerRenderer implements MapRenderer {
   private readonly worker: Worker;
 
-  constructor(canvas: HTMLCanvasElement, onLost: () => void, onView: (view: TiltedView) => void) {
+  constructor(canvas: HTMLCanvasElement, onLost: () => void, onView: (view: TiltedView) => void, onGlass: (version: number) => void) {
     const offscreen = canvas.transferControlToOffscreen();
     this.worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-    this.worker.onmessage = (event: MessageEvent<"lost" | { view: TiltedView }>) => {
-      if (event.data === "lost") onLost();
-      else onView(event.data.view);
+    this.worker.onmessage = (event: MessageEvent<Message>) => {
+      const { data } = event;
+      if (data === "lost") onLost();
+      else if ("glass" in data) onGlass(data.glass);
+      else onView(data.view);
     };
     this.worker.postMessage({ method: "init", args: [offscreen] }, [offscreen]);
   }
@@ -81,14 +92,22 @@ class WorkerRenderer implements MapRenderer {
   setNetworkShown(shown: boolean) {
     this.call("setNetworkShown", shown);
   }
+  setGlassRects(rects: GlassRect[], ground: Rgb, version: number) {
+    this.call("setGlassRects", rects, ground, version);
+  }
+  setImagery(shown: boolean) {
+    this.call("setImagery", shown);
+  }
 }
 
-// onView hears where the camera is, whenever it moves.
-export function createRenderer(canvas: HTMLCanvasElement, onLost: () => void, onView: (view: TiltedView) => void): MapRenderer {
+// onView hears where the camera is, whenever it moves; onGlass, which glass panes
+// the map has blurred, by their version.
+export function createRenderer(canvas: HTMLCanvasElement, onLost: () => void, onView: (view: TiltedView) => void, onGlass: (version: number) => void = () => {}): MapRenderer {
   if ("transferControlToOffscreen" in canvas && typeof Worker !== "undefined") {
-    return new WorkerRenderer(canvas, onLost, onView);
+    return new WorkerRenderer(canvas, onLost, onView, onGlass);
   }
   const engine = new MapEngine(canvas);
+  engine.onGlass = onGlass;
   // Here nothing carries the report across threads, so hold it for the draw,
   // unless the map drew at once. A report held back never undoes a newer one.
   let reports = 0;

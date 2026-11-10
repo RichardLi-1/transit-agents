@@ -78,9 +78,9 @@ const version = (need: NeedView) => `${need.status} ${need.failedAt ?? ""}`;
 const actionOf = (status: NeedStatus) => (status === "failed" ? "Try again" : "Create");
 
 // The panes over the map, in the cards' coordinates: the rail, the chat, the title
-// and tabs, the map's tools and buttons, the Layers panel and the time bar. A place
-// under one can't be pointed at, and a card keeps off them.
-const PANELS = ".rail, .chat, .workspace-head > *, .map-toolbar, .map-search:not([hidden]), .layers-panel, .map-buttons, .map-foot > *";
+// and tabs, the map's tools, buttons and Basemap menu, the Layers panel and the
+// time bar. A place under one can't be pointed at, and a card keeps off them.
+const PANELS = ".rail, .chat, .workspace-head > *, .map-toolbar, .basemap-menu:not([hidden]), .map-search:not([hidden]), .layers-panel, .map-buttons, .map-foot > *";
 
 function panels(list: HTMLElement): DOMRect[] {
   const origin = list.getBoundingClientRect();
