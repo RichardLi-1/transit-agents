@@ -2331,7 +2331,10 @@ input[type="range"] {
 .chat {
   grid-column: 3;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;
+  /* The head, the pinned strip, the log, then what sits under it. */
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto auto auto;
+  /* One column that never grows to fit an unbroken line, such as a pin's. */
+  grid-template-columns: minmax(0, 1fr);
   /* Clipped rather than hidden, so not even code can scroll the panel: Review
      on a message moves only the log. */
   overflow: hidden;
@@ -2432,6 +2435,139 @@ input[type="range"] {
 }
 
 /* The planner's words, on the right. */
+/* Pins: each message's own, the viewer's alone. The button shows on pointing or
+   focus, and stays once the message is pinned. */
+.bubble {
+  position: relative;
+}
+
+.pin-toggle {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.bubble.planner .pin-toggle {
+  right: auto;
+  left: -34px;
+}
+
+.bubble:hover .pin-toggle,
+.pin-toggle:focus-visible,
+.pin-toggle[aria-pressed="true"] {
+  opacity: 1;
+}
+
+.pin-toggle:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.pin-toggle[aria-pressed="true"] {
+  color: var(--ink);
+}
+
+/* Room for the button at an answer's top right, so it never sits on words. */
+.bubble.agent {
+  padding-right: 40px;
+}
+
+/* A phone can't point, so a pin shows there always. */
+@media (hover: none) {
+  .pin-toggle {
+    opacity: 1;
+  }
+}
+
+.pins,
+.pins section {
+  min-width: 0;
+}
+
+.pins ul {
+  margin: 0 12px 6px;
+  padding: 4px;
+  list-style: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  border-radius: var(--radius-row);
+  background: var(--well);
+  box-shadow: var(--well-edge);
+}
+
+.pins li {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.pin-jump {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink);
+  font-size: var(--t-small);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pin-jump span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pin-jump svg {
+  flex: none;
+}
+
+.pin-off {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pin-jump:hover,
+.pin-off:hover {
+  background: var(--hover);
+}
+
+/* The message a pin jumped to, lit for a moment. */
+.bubble.flash {
+  box-shadow: 0 0 0 2px var(--muted);
+  transition: box-shadow 0.3s;
+}
+
+.bubble:focus {
+  outline: none;
+}
+
 .bubble.planner {
   align-self: flex-end;
   background: var(--bubble);
