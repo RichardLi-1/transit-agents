@@ -20,9 +20,9 @@ So the skill, not the agent, is the unit this project builds, tests and studies.
 
 Every agent:
 
-- runs on Gemini by default, or on an open model such as Qwen3.5 behind any chat
-  completions server, such as Ollama on the same machine (see Models, below), through
-  the Transit Agents service's tools ([core.py](../agents/core.py));
+- runs on-prem by default, on an open model (Qwen3.5) in Ollama on the same machine, or
+  on Gemini or any chat completions server (see Models, below), through the Transit
+  Agents service's tools ([core.py](../agents/core.py));
 - cites every figure as (source-id p. N), and can record one only with a quote the
   service finds on that page;
 - leaves arithmetic to the service or a skill's script;
@@ -39,7 +39,7 @@ Every agent:
   and answers, ending with what isn't known yet. Hands judgement cases to a planner,
   and choices above a planner to an executive.
 - **Runs:** `python agents/main.py listen` (the chat), `run "task" --study ID`, `eval`.
-- **Model:** `LEAD_MODEL`, default gemini-3.6-flash.
+- **Model:** `LEAD_MODEL`, default qwen3.5:9b, on this machine.
 - **Tools:** list_sources, search_sources, read_page, get_study, list_rules,
   trace_figure, compare_versions, preview_change, propose_alignment, create_document;
   and its own list_skills, read_skill and ask_specialist (up to 4 at once).
@@ -50,7 +50,7 @@ Every agent:
 
 - **Job:** answers one question in a clean context, with at most one skill, and
   returns a cited summary under 120 words.
-- **Model:** `SPECIALIST_MODEL`, default gemini-3.6-flash.
+- **Model:** `SPECIALIST_MODEL`, default qwen3.5:9b, on this machine.
 - **Tools:** list_sources, search_sources, read_page, get_study, list_rules,
   trace_figure, compare_versions, record_figure, record_check, record_finding,
   preview_change, get_timeline, live_vehicles; plus its skill's scripts.
@@ -100,18 +100,21 @@ Every agent:
 
 ## Models
 
-The lead and specialists run on any model the settings name. With `MODEL_BASE_URL` unset,
-every model is Gemini. With it set, model names starting "gemini" still go to Gemini and
-the rest go to that server, which speaks OpenAI's chat completions API: Ollama, vLLM or a
-hosted fine-tuning service ([openai_compat.py](../agents/openai_compat.py)). So an open
-model can run the agents while a Gemini reader scores them, or a local reader for a run
-that costs nothing. Calls to a server on the same machine are priced at zero.
+On-prem by default: the lead and specialists run on qwen3.5:9b in Ollama on this machine,
+and the eval reader on qwen3.5:4b, a different model, so evals cost nothing and no document
+leaves the machine. `npm run dev` starts Ollama if it isn't running. Specialists work one
+at a time, as one machine answers one request at a time.
+
+Any model the settings name works. Names starting "gemini" go to Gemini (with
+`GEMINI_API_KEY`); the rest go to `MODEL_BASE_URL`, any server that speaks OpenAI's chat
+completions API: Ollama (the default, http://127.0.0.1:11434/v1), vLLM or a hosted
+fine-tuning service ([openai_compat.py](../agents/openai_compat.py)). `MODEL_BASE_URL=off`
+sends every model to Gemini. Calls to a server on the same machine are priced at zero.
 
 ```sh
-ollama pull qwen3.5:9b
-OLLAMA_CONTEXT_LENGTH=32768 ollama serve
-MODEL_BASE_URL=http://127.0.0.1:11434/v1 LEAD_MODEL=qwen3.5:9b SPECIALIST_MODEL=qwen3.5:9b \
-  READER_MODEL=qwen3.5:9b SPECIALIST_CONCURRENCY=1 npm run agent:eval -- --split dev
+ollama pull qwen3.5:9b && ollama pull qwen3.5:4b
+npm run agent:eval -- --split dev                         # on-prem
+LEAD_MODEL=gemini-3.6-flash SPECIALIST_MODEL=gemini-3.6-flash npm run agent:eval -- --split dev
 ```
 
 Media and computer use stay on Gemini: they need its image, video and computer-use models.
