@@ -52,6 +52,8 @@ export type RunReport = {
   models: string[];
   readers: string[];
   withoutSkills: boolean;
+  // Each answer's length in words, before "Not known yet:", to keep answers brief.
+  words: number[];
 };
 
 export function readCases(path = join(import.meta.dirname, "cases.jsonl")): EvalCase[] {
@@ -111,6 +113,7 @@ export function scoreRun(cases: EvalCase[], lines: RunLine[]): RunReport {
     models: [],
     readers: [],
     withoutSkills: false,
+    words: [],
   };
 
   for (const line of lines) {
@@ -124,6 +127,7 @@ export function scoreRun(cases: EvalCase[], lines: RunLine[]): RunReport {
     const reader = line.models?.reader;
     if (reader && !report.readers.includes(reader)) report.readers.push(reader);
     if (line.skills === false) report.withoutSkills = true;
+    if (line.answer?.text) report.words.push(answerWords(line.answer.text));
     const agent = line.usage?.agent;
     if (agent) {
       const t = report.tokens;
@@ -182,6 +186,12 @@ const dollars = (n: number) => `$${n > 0 && n < 0.005 ? n.toFixed(4) : n.toFixed
 const rate = (n: number, of: number, what = "") =>
   `${n} of ${of}${what ? ` ${what}` : ""}${of ? ` (${Math.round((100 * n) / of)}%)` : ""}`;
 
+// Words in an answer before its "Not known yet:" list, which the lead keeps to two lines.
+export function answerWords(text: string): number {
+  const body = text.split(/\n\s*Not known yet:/i)[0] ?? "";
+  return body.split(/\s+/).filter(Boolean).length;
+}
+
 export function formatReport(report: RunReport, name = "run"): string {
   const { summary, decisions: d, judgement: j, citations: k, tokens: t, structured: s } = report;
   const scored = report.rows.length;
@@ -218,6 +228,11 @@ export function formatReport(report: RunReport, name = "run"): string {
       `Tokens per case, over ${plural(t.cases, "case")}: ${each(t.inputTokens)} in, ${each(t.outputTokens)} out, ` +
         `${each(t.calls, 1)} model calls, ${each(t.seconds, 1)} s. In all: ${number(t.inputTokens)} in, ${number(t.outputTokens)} out, ${dollars(t.costUsd)}`,
     );
+  }
+  if (report.words.length) {
+    const sorted = [...report.words].sort((a, b) => a - b);
+    const median = sorted[Math.floor((sorted.length - 1) / 2)] ?? 0;
+    out.push(`Answer length, before "Not known yet": median ${median} words, longest ${sorted.at(-1)}`);
   }
   if (s.inputTokens || s.outputTokens) {
     out.push(`Structured answers, in all: ${number(s.inputTokens)} in, ${number(s.outputTokens)} out, ${dollars(s.costUsd)}`);

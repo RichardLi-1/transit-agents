@@ -194,3 +194,12 @@ describe("the command", () => {
     assert.equal(latestRun(join(folder, "missing")), undefined);
   });
 });
+
+describe("answer length", () => {
+  it("counts the words before Not known yet", async () => {
+    const { answerWords } = await import("./score-run.ts");
+    assert.equal(answerWords("The minimum is **20** (ttc-anp-2026 p. 115).\n\nNot known yet:\n- Riders. Next: a count."), 7);
+    assert.equal(answerWords("Just this."), 2);
+  });
+});
+
