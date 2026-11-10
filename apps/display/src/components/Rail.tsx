@@ -146,7 +146,8 @@ function Settings() {
   );
 }
 
-function Account({ session }: { session: Session | null }) {
+// One tag at most: Test build on a developer's own machine, else Demo on a public demo.
+function Account({ session, testBuild }: { session: Session | null; testBuild: boolean }) {
   if (!session) return null;
   const { config, me, anonymous, signedIn } = session;
   if (signedIn) {
@@ -163,7 +164,7 @@ function Account({ session }: { session: Session | null }) {
   const demo = anonymous && (config?.auth === "demo" || config?.auth === "open");
   return (
     <>
-      {demo && <p class="tag rail-tag">Demo</p>}
+      {demo && !testBuild && <p class="tag rail-tag">Demo</p>}
       {login && (
         <button type="button" class="rail-item" onClick={() => void signIn(login)}>
           <LineIcon name="account" />
@@ -204,7 +205,7 @@ export function Rail({ studies, studyId, session, testBuild, onSelect, notices }
           <span class="rail-label">System</span>
         </a>
         <Settings />
-        <Account session={session} />
+        <Account session={session} testBuild={testBuild} />
         {testBuild && <p class="tag rail-tag build">Test build</p>}
       </div>
     </nav>
