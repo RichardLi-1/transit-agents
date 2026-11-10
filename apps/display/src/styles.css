@@ -119,7 +119,7 @@
      the rail, so its middle is the workspace's. Plain numbers, as scripts read them. */
   --side-l: 88px;
   --side-r: 412px;
-  --map-top: 84px;
+  --map-top: 72px; /* 16px under the title and tabs, which end at 56px */
   --radius-pane: 26px;
   --radius-card: 16px;
   --radius-row: 12px;
@@ -691,7 +691,11 @@ a {
   display: none;
 }
 
+/* On the map, the title and the tabs float level with the rail's and the chat's tops,
+   and the title pill is as tall as the tabs. */
 .app[data-tab="map"] .workspace-head {
+  align-items: flex-start;
+  padding-top: 0;
   padding-left: 0;
 }
 
@@ -701,9 +705,10 @@ a {
 
 .app[data-tab="map"] .workspace-head h1 {
   flex: 0 1 auto;
-  padding: 9px 20px;
+  padding: 0 20px;
   border-radius: 999px;
   font-size: 19px;
+  line-height: 44px; /* with its 1px rim, the tabs' 46px */
 }
 
 /* Study ------------------------------------------------------------------ */
