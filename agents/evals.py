@@ -57,7 +57,7 @@ from core import (
     call,
     clip,
     config,
-    gemini,
+    model_client,
     open_session,
     tokens_and_cost,
 )
@@ -621,7 +621,7 @@ def main(args: list[str], *, client: AsyncClient | None = None, runs: Path = RUN
     options = parse_args(args)
     try:
         cases = select(load_cases(), split=options.split, ids=options.case)
-        real = None if client else gemini()  # no key, no service started
+        real = None if client else model_client()  # no key, no service started
         settings = config()  # a bad setting, likewise
     except SetupError as error:
         print(error, file=sys.stderr)

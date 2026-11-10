@@ -33,6 +33,7 @@ from mcp import ClientSession, MCPError
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult, PaginatedRequestParams, Tool
 
+import openai_compat
 import prices
 
 HERE = Path(__file__).parent
@@ -304,6 +305,19 @@ def gemini(api_key: str | None = None, **http_options: Any) -> genai.Client:
     return genai.Client(api_key=api_key, http_options={"timeout": TIMEOUT_MS, **http_options})
 
 
+def model_client() -> Any:
+    """The client for the agents' models: Gemini's, or, with MODEL_BASE_URL set, one that
+    sends Gemini models to Gemini and the rest to that chat completions server, such as
+    Ollama's (openai_compat.py). A run on open models alone needs no Gemini key."""
+    url = openai_compat.base_url()
+    if url is None:
+        return gemini()
+    has_key = any(os.environ.get(name) for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY"))
+    return openai_compat.RoutingClient(
+        openai_compat.OpenAICompatClient(url, os.environ.get("MODEL_API_KEY") or None), gemini() if has_key else None
+    )
+
+
 @asynccontextmanager
 async def open_session(url: str | None = None, token: str | None = None, on_behalf_of: str | None = None):
     """Open an MCP session to the service as an agent, and hold it open.
@@ -378,7 +392,7 @@ async def connect(
     Yields (session, client): the initialized session, whose instructions are the
     service's rules for agents, and Gemini's async client.
     """
-    client = client or gemini()
+    client = client or model_client()
     async with (
         open_session(url, token, on_behalf_of) as session,
         # Hold the client open: google-genai closes its connections once it's dropped.
