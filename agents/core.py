@@ -129,6 +129,9 @@ STOPPED_OUTPUT_TOKENS = 2_000
 LATE_REPLY = (anyio.BrokenResourceError, anyio.ClosedResourceError)
 
 # Added to the instructions for an agent's last model call, which has its tools off.
+# Sent once when a model's reply has no text and no tool call.
+NO_TEXT = "Your last reply had no text. Write your answer now, from what you have."
+
 LAST_CALL = (
     "This is your last model call, and your tools are off. Answer now from what you have, "
     "and say what you couldn't find or check."
@@ -592,6 +595,7 @@ async def work(
             budget.spend(usd)
 
     spare = False  # the run's call taken for this agent's next turn
+    nudged = False  # asked once already for an answer in text
     try:
         for turn in range(limit):
             spare = False  # the one taken last turn is the one made now
@@ -620,9 +624,21 @@ async def work(
             calls = response.function_calls
             if last:
                 # Calls made anyway are never run: no model call is left to read them.
-                return _final_text(response) or f"Stopped after {turn + 1} model calls."
+                text = _final_text(response)
+                if text or (nudged and not calls):  # asked for text, and still none: no answer
+                    return text
+                return f"Stopped after {turn + 1} model calls."
             if not calls:
-                return _final_text(response)
+                text = _final_text(response)
+                # An empty reply, which a model gives now and then when it thinks the
+                # answer but writes none: asked once, while calls are left, for it in text.
+                if text or nudged or not _empty(response):
+                    return text
+                nudged = True
+                if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                    contents.append(response.candidates[0].content)
+                contents.append(types.Content(role="user", parts=[types.Part(text=NO_TEXT)]))
+                continue
             # The model's turn goes back as it came, with its thought signatures.
             contents.append(response.candidates[0].content)
             parts = await _answer_calls(session, study, calls, service_names, local_tools)
@@ -797,6 +813,15 @@ def _unpriced(model: str) -> None:
             file=sys.stderr,
             flush=True,
         )
+
+
+def _empty(response: types.GenerateContentResponse) -> bool:
+    """A reply that finished normally with no text: not cut off, not blocked."""
+    candidate = response.candidates[0] if response.candidates else None
+    if candidate is None or candidate.finish_reason not in (None, types.FinishReason.STOP):
+        return False
+    parts = candidate.content.parts if candidate.content and candidate.content.parts else []
+    return not any(part.text and not part.thought and part.text.strip() for part in parts)
 
 
 def _final_text(response: types.GenerateContentResponse) -> str:
