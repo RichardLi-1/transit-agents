@@ -11,6 +11,7 @@ import { spentUsd } from "../money.ts";
 import { withCites } from "../cites.ts";
 import { echoesDocument } from "../echo.ts";
 import { refusal, setNotice, unsaid, useNotice } from "../notice.ts";
+import { keepPins, pinLine, readPins, togglePin, type Pins } from "../pins.ts";
 import { plain, plainBold } from "../plain.ts";
 import { elapsed, specialistState, type Run } from "../runs.ts";
 import { duration, foldRuns, grouped, planOf, stepName, stepState, togetherState, type Grouped, type StepState, type ToolStep } from "../steps.ts";
@@ -19,7 +20,7 @@ import { unasked, withAsked, type Asked } from "../suggestions.ts";
 import { foldAt, waiting } from "../typing.ts";
 import { DocumentCard } from "./DocumentCard.tsx";
 import { ExecutiveCard, withoutExecutive, type Ping } from "./ExecutiveCard.tsx";
-import { CheckIcon, CrossIcon, SendIcon, StaleIcon } from "./icons.tsx";
+import { CheckIcon, CrossIcon, LineIcon, SendIcon, StaleIcon } from "./icons.tsx";
 import { RunLine, useNow } from "./RunLine.tsx";
 
 const number = new Intl.NumberFormat("en-CA");
@@ -317,6 +318,9 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
   const [expanded, setExpanded] = useState(false);
   const [asked, setAsked] = useState<Asked>(readAsked);
   const [sending, setSending] = useState(false);
+  // The messages this viewer has pinned, theirs alone, and one to scroll to.
+  const [pins, setPins] = useState<Pins>(readPins);
+  const [jumpTo, setJumpTo] = useState<number | null>(null);
   const log = useRef<HTMLDivElement>(null);
   // Whether the log is at its foot, so it follows what comes next.
   const atFoot = useRef(true);
@@ -335,6 +339,16 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
     }
   }
   const messages = store.messages.filter((m) => m.studyId === studyId);
+  const pinnedSeqs = (studyId && pins[studyId]) || [];
+  const pinned = pinnedSeqs.flatMap((seq) => messages.filter((m) => m.seq === seq));
+  const pin = (seq: number) => {
+    if (!studyId) return;
+    setPins((now) => {
+      const next = togglePin(now, studyId, seq);
+      keepPins(next);
+      return next;
+    });
+  };
   const subagents = store.subagents.filter((s) => s.studyId === studyId);
   const documents = store.documents.filter((d) => d.studyId === studyId);
   const escalations = store.escalations.filter((e) => e.studyId === studyId);
@@ -368,6 +382,23 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
   // question still being answered.
   const since = foldAt(store.since, run, items);
   const earlier = items.filter((item) => item.seq <= since).length;
+  // A pinned message folded under Earlier opens it, then scrolls to the message.
+  const jump = (seq: number) => {
+    if (seq <= since) setExpanded(true);
+    setJumpTo(seq);
+  };
+  useEffect(() => {
+    if (jumpTo === null) return;
+    const found = log.current?.querySelector<HTMLElement>(`[data-seq="${jumpTo}"]`);
+    setJumpTo(null);
+    if (!found) return;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    found.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+    found.setAttribute("tabindex", "-1");
+    found.focus({ preventScroll: true });
+    found.classList.add("flash");
+    window.setTimeout(() => found.classList.remove("flash"), 1600);
+  }, [jumpTo, expanded]);
   const urls = documents.map((d) => d.url);
   // The lead's "Document ready" line repeats its document's card, so only the card shows.
   const kept = (expanded ? items : items.filter((item) => item.seq > since)).filter(
@@ -444,6 +475,26 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
         {replay && <p class="tag">Replay</p>}
         <RunLine run={agentRun} study={store.studies.find((s) => s.id === studyId)?.title ?? studyId ?? ""} />
       </header>
+      {/* Always here, empty when nothing is pinned, so the chat's rows keep their places. */}
+      <div class="pins">
+        {pinned.length > 0 && (
+          <section aria-label="Pinned messages">
+            <ul>
+              {pinned.map((m) => (
+                <li key={m.seq}>
+                  <button type="button" class="pin-jump" onClick={() => jump(m.seq)}>
+                    <LineIcon name="pin" size={14} />
+                    <span>{pinLine(m.text)}</span>
+                  </button>
+                  <button type="button" class="pin-off" aria-label={`Unpin: ${pinLine(m.text, 40)}`} onClick={() => pin(m.seq)}>
+                    <CrossIcon />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
       <div class="log" ref={log} role="log" aria-live="polite" tabIndex={0} aria-label="Agent activity" onScroll={onScroll}>
         {earlier > 0 && (
           <button type="button" class="earlier" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
@@ -459,8 +510,20 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
             <Plan key={`m${item.seq}`} seq={item.seq} text={item.text} replay={Boolean(item.replay)} ids={ids} onPage={onPage} />
           ) : "text" in item ? (
             <Fragment key={`m${item.seq}`}>
-              <div class={`bubble ${item.from}`} data-seq={item.seq}>
+              <div class={`bubble ${item.from}${pinnedSeqs.includes(item.seq) ? " pinned" : ""}`} data-seq={item.seq}>
                 {item.replay && <span class="sr-only">Replay: </span>}
+                {studyId && !streams.current.get(item.seq) && (
+                  <button
+                    type="button"
+                    class="pin-toggle"
+                    aria-pressed={pinnedSeqs.includes(item.seq)}
+                    aria-label="Pin"
+                    title={pinnedSeqs.includes(item.seq) ? "Unpin" : "Pin"}
+                    onClick={() => pin(item.seq)}
+                  >
+                    <LineIcon name="pin" size={15} />
+                  </button>
+                )}
                 {streams.current.get(item.seq) ? (
                   <Streamed
                     text={executive(item) ? withoutExecutive(item.text) : item.text}
