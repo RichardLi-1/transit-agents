@@ -585,6 +585,10 @@ a {
   font-weight: 500;
 }
 
+.tab svg {
+  flex: none;
+}
+
 .tab:hover {
   color: var(--ink);
   background: var(--hover);
@@ -3461,14 +3465,15 @@ input[type="range"] {
 
 /* Small screens --------------------------------------------------------- */
 
-/* Narrower, the tabs lose their icons, so the title keeps its line. */
+/* Narrower, the tabs draw in and the title steps down a size, so it keeps its line. */
 @media (max-width: 1360px) {
-  .tab svg {
-    display: none;
+  .tab {
+    gap: 6px;
+    padding: 0 12px;
   }
 
-  .tab {
-    padding: 0 13px;
+  .workspace-head h1 {
+    font-size: 21px;
   }
 }
 
@@ -3477,10 +3482,10 @@ input[type="range"] {
 @media (max-width: 860px) {
   :root {
     --gap: 0px;
-    --head: 104px;
+    --head: 128px;
     --side-l: 0px;
     --side-r: 0px;
-    --map-top: 112px;
+    --map-top: 136px;
   }
 
   .app {
@@ -3597,11 +3602,20 @@ input[type="range"] {
     overflow-x: auto;
   }
 
+  /* Each tab's icon over its name, as a phone's tab bar has them. */
   .tab {
     flex: 1;
+    flex-direction: column;
     justify-content: center;
-    padding: 0 6px;
+    gap: 1px;
+    height: 50px;
+    padding: 0 4px;
+    border-radius: 22px;
     font-size: var(--t-small);
+  }
+
+  .workspace-head .tabs {
+    border-radius: 28px;
   }
 
   .study-grid {
