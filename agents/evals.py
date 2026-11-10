@@ -104,7 +104,7 @@ RESULTS = ("pass", "fail", "not_assessed")
 
 # The reader's model unless READER_MODEL is set: not the agents' default, so by default
 # the answer isn't read by the model that wrote it (docs/evals.md, rule 6).
-READER_DEFAULT = "gemini-3.5-flash-lite"
+READER_DEFAULT = "qwen3.5:4b"  # on this machine, and not the agents' own model
 
 
 def reader_model() -> str:

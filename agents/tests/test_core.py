@@ -812,7 +812,7 @@ class ConfigTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {name: "" for name in names}):
             settings = core.config()
         self.assertEqual(
-            settings, core.Config("http://127.0.0.1:4100", "gemini-3.6-flash", "gemini-3.6-flash", 30, 60, 2, 2, 20)
+            settings, core.Config("http://127.0.0.1:4100", "qwen3.5:9b", "qwen3.5:9b", 30, 60, 2, 2, 20)
         )
 
     def test_from_the_environment(self):
