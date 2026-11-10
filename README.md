@@ -37,7 +37,8 @@ number traces to the page it came from, and planners make every decision.
 
 ## Run it
 
-Needs Node 24 or later, and Python 3.11 or later for the agents. Poppler
+Needs Node 24 or later, Python 3.11 or later for the agents, and [Ollama](https://ollama.com)
+with `qwen3.5:9b` and `qwen3.5:4b` pulled: the agents run on-prem by default. Poppler
 (`pdftotext`) is optional, for uploaded PDFs.
 
 ```sh
@@ -47,11 +48,11 @@ npm run collect            # in its own terminal: record live vehicles
 npm run demo -- --fresh    # start the service and load the public sources
 npm run replay             # play the scripted agent run, which needs no model
 npm run decide             # a planner rates consultation and records decisions
-npm run agent              # in its own terminal: Gemini answers the chat
+npm run agent              # in its own terminal: the agents answer the chat, on this machine
 ```
 
 For the agents, make `agents/.venv` with `agents/requirements.txt` installed,
-and put `GEMINI_API_KEY` in `agents/.env`. If the demo runs with `DATA_DIR` or
+and, for Gemini models and the media agent, put `GEMINI_API_KEY` in `agents/.env`. If the demo runs with `DATA_DIR` or
 `PORT` set, give the agent the same `DATA_DIR` and its `TRANSIT_URL`: the demo
 prints the commands. A message sent while no agent runs gets no answer. To have
 Gemini do a study's first pass instead of the replay:
