@@ -308,7 +308,6 @@ a {
 }
 
 /* A small label in capitals over what it names, as section heads and figures have. */
-.eyebrow,
 .part h2,
 .headlines .label {
   margin: 0;
@@ -3398,12 +3397,12 @@ input[type="range"] {
 .glyph[data-kind="finding"],
 .glyph[data-kind="handover"] {
   background: var(--amber);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 .glyph[data-kind="decision"] {
   background: var(--pass);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 .toast .review {
