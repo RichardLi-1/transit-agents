@@ -3695,10 +3695,11 @@ input[type="range"] {
 /* While the map moves --------------------------------------------------- */
 
 /* The glass stops blurring, the GPU's biggest cost in a drag, and turns a little
-   more opaque so the lines passing under it stay soft. It clears again once the
-   map settles. */
+   more opaque so the lines passing under it stay soft: the panes, the cards that
+   move with the map, and a menu or toast over it. It clears again once the map
+   settles. */
 :root[data-moving]
-  :is(.chat, .workspace-head .tabs, .map-toolbar .tool, .map-search, .layers-panel, .map-buttons, .map-notes, .time, .need, .app[data-tab="map"] .workspace-head h1),
+  :is(.chat, .workspace-head .tabs, .map-toolbar .tool, .map-search, .layers-panel, .map-buttons, .map-notes, .time, .need, .popover, .notice-list, .toast, .app[data-tab="map"] .workspace-head h1),
 :root[data-moving] .rail::before {
   background: var(--moving);
   -webkit-backdrop-filter: none;
