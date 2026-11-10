@@ -4275,9 +4275,37 @@ input[type="range"] {
    dots stay round, as Apple's capsules do: every rule that makes one is listed. */
 @supports (corner-shape: squircle) {
   :root {
-    --radius-pane: 32px;
-    --radius-card: 20px;
-    --radius-row: 15px;
+    --radius-pane: 38px;
+    --radius-card: 24px;
+    --radius-row: 18px;
+  }
+
+  /* The panes and rows whose radius is their own, grown in proportion. */
+  .popover,
+  .notice-list,
+  .map-search,
+  .layers-panel.open {
+    border-radius: 28px;
+  }
+
+  .time,
+  .quicklook .sheet {
+    border-radius: 34px;
+  }
+
+  .toast {
+    border-radius: 31px;
+  }
+
+  .need,
+  .bubble {
+    border-radius: 25px;
+  }
+
+  .rail-item,
+  .studies-list a,
+  .notice {
+    border-radius: 19px;
   }
 
   *,
@@ -4343,5 +4371,9 @@ input[type="range"] {
   .notice .dot,
   .switches .knob::after {
     corner-shape: round;
+  }
+
+  .layers-panel.open {
+    corner-shape: squircle;
   }
 }
