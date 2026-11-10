@@ -20,6 +20,16 @@ type Props = {
 
 const ITEMS = ".rail-item";
 
+// The app's mark, the icon's line with a stop at each end, in the words' colour:
+// the line's own colour belongs to the map.
+const BrandMark = () => (
+  <svg class="brand" viewBox="0 0 32 32" width="32" height="32" aria-hidden="true">
+    <path d="M8.400 25.300h7L26.900 13.800v-3.700" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round" />
+    <circle cx="5.100" cy="25.300" r="3.300" fill="none" stroke="currentColor" stroke-width="2.800" />
+    <circle cx="26.900" cy="6.800" r="3.300" fill="none" stroke="currentColor" stroke-width="2.800" />
+  </svg>
+);
+
 // A study's state in a word, for its row in the list.
 function stateOf(study: StudyView): string {
   if (study.decision) return { adopt: "Adopted", reject: "Not adopted", defer: "Deferred", amend: "Amended" }[study.decision.outcome];
@@ -123,7 +133,7 @@ export function Rail({ studies, studyId, session, testBuild, onSelect, notices }
   };
   return (
     <nav ref={nav} class="rail" aria-label="App" onKeyDown={step}>
-      <img class="brand" src="/icons/icon-192.png" alt="" width="32" height="32" />
+      <BrandMark />
       <Studies studies={studies} studyId={studyId} onSelect={onSelect} />
       <div class="rail-foot">
         {notices}

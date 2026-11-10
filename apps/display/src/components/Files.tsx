@@ -155,7 +155,6 @@ export function Files({ contexts, drafts, reading, canAdd, onOpen }: Props) {
                   <tr key={context.id} data-folder={context.id} class={busy ? "reading" : undefined}>
                     <th scope="row">
                       <button type="button" class="file-name" onClick={(event) => onOpen(context, event.currentTarget)}>
-                        <span class="kind-dot" data-kind={kindOf(context)} aria-hidden="true" />
                         <span class="title">{context.title}</span>
                         <span class="sr-only">, Quick Look</span>
                       </button>
@@ -191,7 +190,6 @@ export function Files({ contexts, drafts, reading, canAdd, onOpen }: Props) {
                 <tr key={draft.seq} class="draft">
                   <th scope="row">
                     <a class="file-name" href={draft.url} target="_blank" rel="noopener">
-                      <span class="kind-dot" data-kind="Draft" aria-hidden="true" />
                       <span class="title">{draft.title}</span>
                       <span class="sr-only">, opens the PDF in a new tab</span>
                     </a>

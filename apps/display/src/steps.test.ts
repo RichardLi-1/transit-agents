@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { duration, grouped, planOf, stepName, stepState, wantsMap, type ToolStep } from "./steps.ts";
+import { duration, foldRuns, grouped, planOf, togetherState, stepName, stepState, wantsMap, type ToolStep } from "./steps.ts";
 
 const tool = (seq: number, id: string, subagentId?: string): ToolStep => ({ seq, id, studyId: "s", name: "read_page", replay: false, ...(subagentId ? { subagentId } : {}) });
 
@@ -13,6 +13,26 @@ describe("the chat's steps", () => {
       items.map((item) => ("tools" in item ? `${item.id}:${item.tools.map((t) => t.id).join(",")}` : "text" in item ? item.text : item.id)),
       ["Plan", "cost:t1,t2", "riders:t3", "t4", "t5", "Answer"],
     );
+  });
+
+  it("folds calls standing side by side into one run, and leaves a call alone as it is", () => {
+    const isTool = (item: { text: string } | ToolStep): item is ToolStep => "name" in item;
+    const items = [{ text: "Plan" }, tool(2, "a"), tool(3, "b"), { text: "Answer" }, tool(5, "c"), tool(6, "d"), tool(7, "e")];
+    assert.deepEqual(
+      foldRuns(items, isTool).map((item) => ("run" in item ? item.run.map((t) => t.id).join(",") : "text" in item ? item.text : item.id)),
+      ["Plan", "a,b", "Answer", "c,d,e"],
+    );
+    assert.deepEqual(
+      foldRuns([tool(1, "a"), { text: "Answer" }], isTool).map((item) => ("run" in item ? "run" : "text" in item ? item.text : item.id)),
+      ["a", "Answer"],
+    );
+  });
+
+  it("says how a run of calls went, taken together", () => {
+    assert.equal(togetherState(["done", "running", "failed"]), "running");
+    assert.equal(togetherState(["done", "failed", "stopped"]), "failed");
+    assert.equal(togetherState(["done", "stopped"]), "stopped");
+    assert.equal(togetherState(["done", "done"]), "done");
   });
 
   it("says a call is running until it's back, and stopped if its run ended first", () => {

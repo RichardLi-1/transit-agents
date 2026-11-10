@@ -1,7 +1,8 @@
 // The chat, always beside the workspace: what the planner asked, and the agents at
-// work as Waypoint shows them: the lead's plan, each specialist it asked with the
-// tools that specialist called, and each of the lead's own tool calls, each with
-// how it went and what it was called with a click away. Then the answer.
+// work, a line each: the lead's plan, each specialist it asked with how it went,
+// and a run of the lead's own tool calls. Each opens to show more: the plan's
+// questions, a specialist's answer and the tools it called, what a call was
+// called with. The answer is what stands out.
 import { Fragment } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { EXECUTIVE } from "@transit-agents/contracts";
@@ -12,7 +13,7 @@ import { echoesDocument } from "../echo.ts";
 import { refusal, setNotice, unsaid, useNotice } from "../notice.ts";
 import { plain, plainBold } from "../plain.ts";
 import { elapsed, specialistState, type Run } from "../runs.ts";
-import { duration, grouped, planOf, stepName, stepState, type Grouped, type StepState, type ToolStep } from "../steps.ts";
+import { duration, foldRuns, grouped, planOf, stepName, stepState, togetherState, type Grouped, type StepState, type ToolStep } from "../steps.ts";
 import { EMPTY_USAGE, type Store, type Subagent } from "../store.ts";
 import { unasked, withAsked, type Asked } from "../suggestions.ts";
 import { foldAt, waiting } from "../typing.ts";
@@ -118,8 +119,8 @@ function ToolRow({ step, open }: { step: ToolStep; open: boolean }) {
   );
 }
 
-// A specialist the lead asked: its question, its skill and how it's going, the
-// tools it called folded under it, and its answer once it's back.
+// A specialist the lead asked: a line with its question and how it's going, which
+// opens to its answer once it's back, its skill, and the tools it called.
 function Specialist({ item, run, open, now, ids, onPage }: { item: Grouped<Subagent>; run: Run | null; open: boolean; now: number; ids: string[]; onPage: Props["onPage"] }) {
   const tracked = run?.specialists.find((s) => s.id === item.id);
   const followed = tracked && run ? specialistState(tracked, run, now) : null;
@@ -131,38 +132,84 @@ function Specialist({ item, run, open, now, ids, onPage }: { item: Grouped<Subag
     item.tools.length ? `${item.tools.length} ${item.tools.length === 1 ? "tool call" : "tool calls"}` : null,
   ].filter(Boolean);
   return (
-    <div class="step specialist" data-state={state}>
-      <details>
-        <summary>
-          <Mark state={state} />
-          <span class="step-name">{item.question}</span>
-          {tracked?.skill && (
-            <span class="skill">
-              <span class="sr-only">Skill </span>
-              {tracked.skill}
-            </span>
-          )}
-          <Badge state={state} />
-        </summary>
-        <div class="step-body">
-          {meta.length > 0 && <p class="step-meta">{meta.join(" · ")}</p>}
-          {item.tools.length > 0 && (
-            <ol class="tool-list" aria-label="Tool calls">
-              {item.tools.map((step) => (
-                <li key={step.id}>
-                  <ToolRow step={step} open={open} />
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-      </details>
-      {item.summary && (
-        <p class="step-summary">
-          <Text text={item.summary} ids={ids} onPage={onPage} />
-        </p>
-      )}
-    </div>
+    <details class="step specialist" data-state={state}>
+      <summary>
+        <Mark state={state} />
+        <span class="step-name">{item.question}</span>
+        <Badge state={state} />
+      </summary>
+      <div class="step-body">
+        {item.summary && (
+          <p class="step-summary">
+            <Text text={item.summary} ids={ids} onPage={onPage} />
+          </p>
+        )}
+        {(meta.length > 0 || tracked?.skill) && (
+          <p class="step-meta">
+            {tracked?.skill && (
+              <span class="skill">
+                <span class="sr-only">Skill </span>
+                {tracked.skill}
+              </span>
+            )}
+            {meta.join(" · ")}
+          </p>
+        )}
+        {item.tools.length > 0 && (
+          <ol class="tool-list" aria-label="Tool calls">
+            {item.tools.map((step) => (
+              <li key={step.id}>
+                <ToolRow step={step} open={open} />
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </details>
+  );
+}
+
+// A run of the lead's own calls, side by side in the log, as one line that opens to each.
+function ToolRun({ run, open }: { run: ToolStep[]; open: boolean }) {
+  const state = togetherState(run.map((step) => stepState(step, open)));
+  return (
+    <details class="step tools" data-state={state}>
+      <summary>
+        <Mark state={state} />
+        <span class="step-name">{`${run.length} tool calls`}</span>
+        <Badge state={state} />
+      </summary>
+      <div class="step-body">
+        <ol class="tool-list" aria-label="Tool calls">
+          {run.map((step) => (
+            <li key={step.id}>
+              <ToolRow step={step} open={open} />
+            </li>
+          ))}
+        </ol>
+      </div>
+    </details>
+  );
+}
+
+// The lead's plan, folded to one line, "Plan · 5 questions", that opens to them.
+function Plan({ seq, text, replay, ids, onPage }: { seq: number; text: string; replay: boolean; ids: string[]; onPage: Props["onPage"] }) {
+  const steps = planOf(text)?.steps.length ?? 0;
+  return (
+    <details class="step plan-step" data-seq={seq}>
+      <summary>
+        <span class="mark plan-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="14" height="14">
+            <path d="M9 6.5h10M9 12h10M9 17.5h10M4.5 6.5h.5M4.5 12h.5M4.5 17.5h.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+          </svg>
+        </span>
+        {replay && <span class="sr-only">Replay: </span>}
+        <span class="step-name">{`Plan · ${steps} ${steps === 1 ? "question" : "questions"}`}</span>
+      </summary>
+      <div class="plan-body">
+        <Words text={text} ids={ids} onPage={onPage} />
+      </div>
+    </details>
   );
 }
 
@@ -283,7 +330,8 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
   const streams = useRef(new Map<number, boolean>());
   for (const m of store.messages) {
     if (!streams.current.has(m.seq)) {
-      streams.current.set(m.seq, m.from === "agent" && !m.replay && store.since !== null && m.seq > store.since && m.studyId === studyId);
+      // A plan shows folded to its line, so it never types out.
+      streams.current.set(m.seq, m.from === "agent" && !m.replay && store.since !== null && m.seq > store.since && m.studyId === studyId && !planOf(m.text));
     }
   }
   const messages = store.messages.filter((m) => m.studyId === studyId);
@@ -325,15 +373,20 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
   const kept = (expanded ? items : items.filter((item) => item.seq > since)).filter(
     (item) => !("text" in item && item.from === "agent" && echoesDocument(item.text, urls)),
   );
-  // Each specialist with the tools it called, and the lead's own calls where they come.
-  const shown = grouped(
-    kept.filter((item): item is Exclude<(typeof kept)[number], Subagent> => !("question" in item)),
-    kept.filter((item): item is Subagent => "question" in item),
-    tools.filter((t) => expanded || t.seq > since),
+  // Each specialist with the tools it called, and the lead's own calls where they
+  // come, a run of them side by side as one line.
+  const shown = foldRuns(
+    grouped(
+      kept.filter((item): item is Exclude<(typeof kept)[number], Subagent> => !("question" in item)),
+      kept.filter((item): item is Subagent => "question" in item),
+      tools.filter((t) => expanded || t.seq > since),
+    ),
+    (item): item is ToolStep => !("url" in item) && !("text" in item) && !("question" in item),
   );
   const open = run !== undefined;
   const question = messages.filter((m) => m.from === "planner").at(-1)?.text;
-  const left = studyId ? unasked(asked, studyId) : [];
+  // Things to ask, only while the chat shows nothing yet.
+  const left = studyId && !shown.length ? unasked(asked, studyId) : [];
 
   const toFoot = () => {
     const element = log.current;
@@ -398,8 +451,12 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
           </button>
         )}
         {shown.map((item) =>
-          "url" in item ? (
+          "run" in item ? (
+            <ToolRun key={`r${item.run[0]?.id}`} run={item.run} open={open} />
+          ) : "url" in item ? (
             <DocumentCard key={`d${item.seq}`} document={item} />
+          ) : "text" in item && item.from === "agent" && planOf(item.text) ? (
+            <Plan key={`m${item.seq}`} seq={item.seq} text={item.text} replay={Boolean(item.replay)} ids={ids} onPage={onPage} />
           ) : "text" in item ? (
             <Fragment key={`m${item.seq}`}>
               <div class={`bubble ${item.from}`} data-seq={item.seq}>
@@ -473,7 +530,7 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
           </p>
         )}
       </div>
-      {/* Not while the agent works: the answer coming has the room. */}
+      {/* Only while the chat is empty, and not while the agent works: the answer coming has the room. */}
       {canPost && studyId && !working && left.length > 0 && (
         <div class="suggestions">
           <p id="suggestions-title">Some things I can do</p>
