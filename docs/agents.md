@@ -20,7 +20,9 @@ So the skill, not the agent, is the unit this project builds, tests and studies.
 
 Every agent:
 
-- runs on Gemini, through the Transit Agents service's tools ([core.py](../agents/core.py));
+- runs on Gemini by default, or on an open model such as Qwen3.5 behind any chat
+  completions server, such as Ollama on the same machine (see Models, below), through
+  the Transit Agents service's tools ([core.py](../agents/core.py));
 - cites every figure as (source-id p. N), and can record one only with a quote the
   service finds on that page;
 - leaves arithmetic to the service or a skill's script;
@@ -95,6 +97,24 @@ Every agent:
 - **Job:** in an eval run only, one call without tools reads the lead's answer into
   the fields the scorer compares. `READER_MODEL` should differ from the agent's.
 - **Code and tests:** [evals.py](../agents/evals.py), [test_evals.py](../agents/tests/test_evals.py) (34).
+
+## Models
+
+The lead and specialists run on any model the settings name. With `MODEL_BASE_URL` unset,
+every model is Gemini. With it set, model names starting "gemini" still go to Gemini and
+the rest go to that server, which speaks OpenAI's chat completions API: Ollama, vLLM or a
+hosted fine-tuning service ([openai_compat.py](../agents/openai_compat.py)). So an open
+model can run the agents while a Gemini reader scores them, or a local reader for a run
+that costs nothing. Calls to a server on the same machine are priced at zero.
+
+```sh
+ollama pull qwen3.5:9b
+OLLAMA_CONTEXT_LENGTH=32768 ollama serve
+MODEL_BASE_URL=http://127.0.0.1:11434/v1 LEAD_MODEL=qwen3.5:9b SPECIALIST_MODEL=qwen3.5:9b \
+  READER_MODEL=qwen3.5:9b SPECIALIST_CONCURRENCY=1 npm run agent:eval -- --split dev
+```
+
+Media and computer use stay on Gemini: they need its image, video and computer-use models.
 
 ## What makes a skill good
 

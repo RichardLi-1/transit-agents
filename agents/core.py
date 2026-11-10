@@ -33,6 +33,7 @@ from mcp import ClientSession, MCPError
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult, PaginatedRequestParams, Tool
 
+import openai_compat
 import prices
 
 HERE = Path(__file__).parent
@@ -128,6 +129,9 @@ STOPPED_OUTPUT_TOKENS = 2_000
 LATE_REPLY = (anyio.BrokenResourceError, anyio.ClosedResourceError)
 
 # Added to the instructions for an agent's last model call, which has its tools off.
+# Sent once when a model's reply has no text and no tool call.
+NO_TEXT = "Your last reply had no text. Write your answer now, from what you have."
+
 LAST_CALL = (
     "This is your last model call, and your tools are off. Answer now from what you have, "
     "and say what you couldn't find or check."
@@ -304,6 +308,19 @@ def gemini(api_key: str | None = None, **http_options: Any) -> genai.Client:
     return genai.Client(api_key=api_key, http_options={"timeout": TIMEOUT_MS, **http_options})
 
 
+def model_client() -> Any:
+    """The client for the agents' models: Gemini's, or, with MODEL_BASE_URL set, one that
+    sends Gemini models to Gemini and the rest to that chat completions server, such as
+    Ollama's (openai_compat.py). A run on open models alone needs no Gemini key."""
+    url = openai_compat.base_url()
+    if url is None:
+        return gemini()
+    has_key = any(os.environ.get(name) for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY"))
+    return openai_compat.RoutingClient(
+        openai_compat.OpenAICompatClient(url, os.environ.get("MODEL_API_KEY") or None), gemini() if has_key else None
+    )
+
+
 @asynccontextmanager
 async def open_session(url: str | None = None, token: str | None = None, on_behalf_of: str | None = None):
     """Open an MCP session to the service as an agent, and hold it open.
@@ -378,7 +395,7 @@ async def connect(
     Yields (session, client): the initialized session, whose instructions are the
     service's rules for agents, and Gemini's async client.
     """
-    client = client or gemini()
+    client = client or model_client()
     async with (
         open_session(url, token, on_behalf_of) as session,
         # Hold the client open: google-genai closes its connections once it's dropped.
@@ -578,6 +595,7 @@ async def work(
             budget.spend(usd)
 
     spare = False  # the run's call taken for this agent's next turn
+    nudged = False  # asked once already for an answer in text
     try:
         for turn in range(limit):
             spare = False  # the one taken last turn is the one made now
@@ -606,9 +624,21 @@ async def work(
             calls = response.function_calls
             if last:
                 # Calls made anyway are never run: no model call is left to read them.
-                return _final_text(response) or f"Stopped after {turn + 1} model calls."
+                text = _final_text(response)
+                if text or (nudged and not calls):  # asked for text, and still none: no answer
+                    return text
+                return f"Stopped after {turn + 1} model calls."
             if not calls:
-                return _final_text(response)
+                text = _final_text(response)
+                # An empty reply, which a model gives now and then when it thinks the
+                # answer but writes none: asked once, while calls are left, for it in text.
+                if text or nudged or not _empty(response):
+                    return text
+                nudged = True
+                if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                    contents.append(response.candidates[0].content)
+                contents.append(types.Content(role="user", parts=[types.Part(text=NO_TEXT)]))
+                continue
             # The model's turn goes back as it came, with its thought signatures.
             contents.append(response.candidates[0].content)
             parts = await _answer_calls(session, study, calls, service_names, local_tools)
@@ -783,6 +813,15 @@ def _unpriced(model: str) -> None:
             file=sys.stderr,
             flush=True,
         )
+
+
+def _empty(response: types.GenerateContentResponse) -> bool:
+    """A reply that finished normally with no text: not cut off, not blocked."""
+    candidate = response.candidates[0] if response.candidates else None
+    if candidate is None or candidate.finish_reason not in (None, types.FinishReason.STOP):
+        return False
+    parts = candidate.content.parts if candidate.content and candidate.content.parts else []
+    return not any(part.text and not part.thought and part.text.strip() for part in parts)
 
 
 def _final_text(response: types.GenerateContentResponse) -> str:

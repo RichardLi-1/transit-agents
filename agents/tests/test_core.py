@@ -862,3 +862,32 @@ class ConfigTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmptyReplyTest(unittest.IsolatedAsyncioTestCase):
+    """A model that thinks its answer but writes none is asked once for it in text."""
+
+    def setUp(self):
+        self.enterContext(mock.patch.dict(os.environ, {"MAX_MODEL_CALLS": "", "TRANSIT_URL": URL}))
+
+    async def test_an_empty_reply_is_asked_once_for_text(self):
+        study = support.open_study("empty")
+        answers = iter([reply(), reply(text="The minimum is 20.")])
+        fake = FakeGemini(lambda request: next(answers))
+        self.assertEqual(await run(fake, study), "The minimum is 20.")
+        self.assertEqual(len(fake.requests), 2)
+        last = fake.requests[1].contents[-1]
+        self.assertEqual(last.role, "user")
+        self.assertEqual(last.parts[0].text, core.NO_TEXT)
+
+    async def test_it_asks_only_once(self):
+        study = support.open_study("empty-twice")
+        fake = FakeGemini(lambda request: reply())
+        self.assertEqual(await run(fake, study), "")
+        self.assertEqual(len(fake.requests), 2)
+
+    async def test_not_on_the_last_call(self):
+        study = support.open_study("empty-last")
+        fake = FakeGemini(lambda request: reply())
+        await run(fake, study, max_calls=1)
+        self.assertEqual(len(fake.requests), 1)

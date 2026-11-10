@@ -43,7 +43,7 @@ from core import (
     config,
     connect,
     for_planners,
-    gemini,
+    model_client,
     open_session,
     pages_read,
     report,
@@ -462,7 +462,7 @@ async def run_task(session: ClientSession, client: AsyncClient, task: str, study
 
 async def _listen() -> None:
     # Hold the client open: google-genai closes its connections once it's dropped.
-    async with gemini().aio as client:
+    async with model_client().aio as client:
         await keep_listening(client)
 
 

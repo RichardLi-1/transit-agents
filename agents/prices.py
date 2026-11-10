@@ -11,6 +11,8 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
+import openai_compat
+
 
 @dataclass(frozen=True)
 class Price:
@@ -36,6 +38,8 @@ def price(model: str, on: date | None = None) -> Price | None:
     model = model.removeprefix("models/")
     if (given := overrides().get(model)) is not None:
         return given
+    if openai_compat.is_local(model):  # served from this machine: no charge per call
+        return Price(0.0, 0.0)
     on = on or datetime.now(UTC).date()
     current = None
     for start, each in PRICES.get(model, []):
