@@ -5,13 +5,8 @@ import type { FlatView } from "./flat.ts";
 
 export type View = ({ kind: "tilted" } & TiltedView) | ({ kind: "flat" } & FlatView);
 
-// The same origin and scale as scripts/build-transit-data.ts, so a latitude and
-// longitude land on the network's metres.
-const ORIGIN = { lat: 43.7, lon: -79.4 };
-export const toPoint = (lat: number, lon: number): Point => [
-  (lon - ORIGIN.lon) * 111_320 * Math.cos((ORIGIN.lat * Math.PI) / 180),
-  (lat - ORIGIN.lat) * 110_574,
-];
+// A latitude and longitude on the network's metres (ground.ts).
+export { toPoint } from "./ground.ts";
 
 // Returns a function from ground metres to CSS pixels from the map's top left. It
 // gives null for a point behind the camera.

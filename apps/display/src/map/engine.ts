@@ -1,9 +1,12 @@
 // Draws the TTC network on white, tilted toward a horizon that fades out.
-// There is no basemap: bus routes trace the street grid well enough, and with
-// no tiles the map loads instantly, works offline and calls no third parties.
+// By default there is no basemap: bus routes trace the street grid well enough,
+// and with no tiles the map loads instantly and works offline. Aerial photos can
+// lie under it (imagery.ts), from the service, so the page still calls no third
+// parties.
 
 import { GlassBlur } from "./blur.ts";
 import type { GlassRect, Rgb } from "./glass.ts";
+import { Imagery } from "./imagery.ts";
 import { compile } from "./shaders.ts";
 import { LINE_COLORS, TTC_RED } from "./views.ts";
 
@@ -34,6 +37,12 @@ const nextFrame: (callback: (time: number) => void) => number =
 const cancelFrame: (id: number) => void = typeof cancelAnimationFrame === "function" ? (id) => cancelAnimationFrame(id) : (id) => clearTimeout(id);
 
 const FAILING: Vec3 = [0.3, 0.32, 0.36];
+
+// Over the aerial photos the buses and streetcars dim to this share, so the
+// photo reads under them and the rail lines lead; and the photos dim this much in
+// dark, so they sit back as the dark ground does.
+const NETWORK_ON_PHOTOS = 0.5;
+const PHOTOS_IN_DARK = 0.78;
 
 // On the small, multisampled map the glass blurs, a line a pixel wide lights more
 // of each pixel than the same line on the canvas does once both are blurred: by
@@ -122,6 +131,7 @@ in vec2 aPosition;
 in float aRoute;
 uniform float uUnit;
 uniform float uLine;
+uniform float uStrength;
 uniform sampler2D uRoutes;
 out vec4 vColor;
 void main() {
@@ -129,7 +139,7 @@ void main() {
   vec4 route = texelFetch(uRoutes, ivec2(int(aRoute), 0), 0);
   // A line is a pixel wide at any size, so on the small map under the glass it is
   // fainter by uLine: what a pixel there spans of the canvas's, and more (LINE_WEIGHT).
-  vColor = vec4(route.rgb, route.a * fade(ground) / uLine);
+  vColor = vec4(route.rgb, route.a * uStrength * fade(ground) / uLine);
   gl_Position = uViewProjection * vec4(ground, 0.0, 1.0);
 }`;
 
@@ -434,6 +444,21 @@ export class MapEngine {
   private networkShown = true;
   setNetworkShown(shown: boolean) {
     this.networkShown = shown;
+    this.requestDraw();
+  }
+
+  // The ground as aerial photos, or plain (imagery.ts). Made when first shown.
+  private imagery: Imagery | null = null;
+  private imageryShown = false;
+  setImagery(shown: boolean) {
+    this.imageryShown = shown;
+    if (shown && !this.imagery) {
+      try {
+        this.imagery = new Imagery(this.gl, HEADER, () => this.requestDraw());
+      } catch {
+        this.imageryShown = false;
+      }
+    }
     this.requestDraw();
   }
 
@@ -774,8 +799,13 @@ export class MapEngine {
   // laid inside the panes as the last of the same pass, so the GPU never reads the
   // full-size map back or goes over it again (blur.ts).
   private draw() {
-    const { gl, canvas, glass } = this;
+    const { gl, canvas, glass, camera } = this;
     const ratio = canvas.width / (this.size[0] || canvas.width);
+    // The photos the camera sees, chosen once for both of the frame's passes.
+    if (this.imageryShown && this.imagery) {
+      const { eye, viewProjection } = cameraView(camera, canvas.width / canvas.height);
+      this.imagery.choose(viewProjection, eye, camera.distance * 2.6, canvas.width, canvas.height);
+    }
     const wanted = this.networkVao && glass.rects.length ? this.glassBlur() : null;
     const small = wanted?.begin(canvas.width, canvas.height, ratio);
     const blur = small ? wanted : null;
@@ -819,10 +849,17 @@ export class MapEngine {
       gl.uniform2fv(gl.getUniformLocation(program, "uFog"), fog);
     };
 
+    const photos = this.imageryShown ? this.imagery : null;
+    if (photos) {
+      shared(photos.program);
+      photos.draw(this.dark ? PHOTOS_IN_DARK : 1);
+    }
+
     if (this.networkShown) {
       shared(this.network);
       gl.uniform1f(gl.getUniformLocation(this.network, "uUnit"), this.unit);
       gl.uniform1f(gl.getUniformLocation(this.network, "uLine"), pixel > 1 ? pixel * LINE_WEIGHT : 1);
+      gl.uniform1f(gl.getUniformLocation(this.network, "uStrength"), photos ? NETWORK_ON_PHOTOS : 1);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this.routeTexture);
       gl.uniform1i(gl.getUniformLocation(this.network, "uRoutes"), 0);
