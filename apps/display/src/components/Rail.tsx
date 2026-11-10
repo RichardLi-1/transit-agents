@@ -1,11 +1,12 @@
 // The slim rail down the app's left edge: the studies, then what belongs to the
-// app rather than a study: notifications, spend, the system page and the account.
+// app rather than a study: notifications, spend, the system page, settings and the account.
 // Up and down move along it; a menu closes on Escape, giving focus back.
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { StudyView } from "@transit-agents/contracts";
 import { studyColor } from "../map/views.ts";
 import { isGuest, signIn, signOut, type Session } from "../session.ts";
+import { readChoice, setChoice, type ThemeChoice } from "../theme.ts";
 import { LineIcon } from "./icons.tsx";
 
 type Props = {
@@ -88,6 +89,63 @@ function Studies({ studies, studyId, onSelect }: Pick<Props, "studies" | "studyI
   );
 }
 
+const APPEARANCE: [ThemeChoice, string][] = [
+  ["system", "System"],
+  ["light", "Light"],
+  ["dark", "Dark"],
+];
+
+// Settings: the viewer's own, kept in this browser. For now, light or dark.
+function Settings() {
+  const [open, setOpen] = useState(false);
+  const [choice, setShown] = useState<ThemeChoice>(readChoice);
+  const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      if (!menu.current?.contains(event.target as Node) && !button.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
+  const close = () => {
+    setOpen(false);
+    button.current?.focus();
+  };
+  return (
+    <div class="rail-menu" onKeyDown={(event) => event.key === "Escape" && open && close()}>
+      <button ref={button} type="button" class="rail-item" aria-expanded={open} aria-controls="settings" onClick={() => setOpen(!open)}>
+        <LineIcon name="settings" />
+        <span class="rail-label">Settings</span>
+      </button>
+      <div id="settings" ref={menu} class="popover settings" hidden={!open}>
+        <h2>Settings</h2>
+        <fieldset class="segmented">
+          <legend>Appearance</legend>
+          <div class="options">
+            {APPEARANCE.map(([value, label]) => (
+              <label key={value}>
+                <input
+                  type="radio"
+                  name="appearance"
+                  value={value}
+                  checked={choice === value}
+                  onChange={() => {
+                    setChoice(value);
+                    setShown(value);
+                  }}
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </div>
+    </div>
+  );
+}
+
 function Account({ session }: { session: Session | null }) {
   if (!session) return null;
   const { config, me, anonymous, signedIn } = session;
@@ -145,6 +203,7 @@ export function Rail({ studies, studyId, session, testBuild, onSelect, notices }
           <LineIcon name="system" />
           <span class="rail-label">System</span>
         </a>
+        <Settings />
         <Account session={session} />
         {testBuild && <p class="tag rail-tag build">Test build</p>}
       </div>

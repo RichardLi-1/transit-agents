@@ -19,6 +19,7 @@ import { LineIcon } from "./icons.tsx";
 import { Layers } from "./Layers.tsx";
 import { Needs } from "./Needs.tsx";
 import type { Opened } from "./QuickLook.tsx";
+import { currentTheme, onTheme } from "../theme.ts";
 
 // Each draft alignment option's line, in the map's metres.
 const optionLines = (study: StudyView | null) =>
@@ -43,7 +44,6 @@ type Renderer = MapRenderer | FlatMap;
 const isFlat = (map: Renderer | null): map is FlatMap => map instanceof FlatMap;
 
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-const darkScheme = () => window.matchMedia("(prefers-color-scheme: dark)");
 
 // How long after the camera's last move the map counts as still.
 const SETTLE_MS = 200;
@@ -119,13 +119,8 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, fres
   // Where the camera is, for the cards pinned to the map.
   const feed = useMemo(() => new ViewFeed(), []);
   useMoving(feed);
-  // The map turns light or dark with the page.
-  useEffect(() => {
-    const scheme = darkScheme();
-    const follow = () => renderer.current?.setTheme(scheme.matches);
-    scheme.addEventListener("change", follow);
-    return () => scheme.removeEventListener("change", follow);
-  }, []);
+  // The map turns light or dark with the page, as Settings or the system has it.
+  useEffect(() => onTheme((theme) => renderer.current?.setTheme(theme === "dark")), []);
 
   const layers = useLayers(study?.id ?? null, reads, `${layerVersion}|${refreshed}`);
 
@@ -183,7 +178,7 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, fres
     if (!canvas) return;
     controls.settle();
     const map = new FlatMap(canvas, (view) => feed.set({ kind: "flat", ...view }));
-    map.setTheme(darkScheme().matches);
+    map.setTheme(currentTheme() === "dark");
     renderer.current = map;
     setFlat(true);
     if (network.current) map.setNetwork(network.current);
@@ -197,7 +192,7 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, fres
       renderer.current = createRenderer(element, fallBack, (view) => {
         if (!isFlat(renderer.current)) feed.set({ kind: "tilted", ...view });
       });
-      renderer.current.setTheme(darkScheme().matches);
+      renderer.current.setTheme(currentTheme() === "dark");
     } catch {
       fallBack();
     }
