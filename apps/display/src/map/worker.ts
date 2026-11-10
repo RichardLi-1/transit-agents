@@ -18,6 +18,8 @@ self.onmessage = (event: MessageEvent<Call>) => {
       engine = new MapEngine(canvas);
       // Only when the camera moves or the canvas resizes, so a few small messages.
       engine.onView = (view) => self.postMessage({ view });
+      // Once per change of the glass panes.
+      engine.onGlass = (version) => self.postMessage({ glass: version });
     } catch {
       self.postMessage("lost");
     }

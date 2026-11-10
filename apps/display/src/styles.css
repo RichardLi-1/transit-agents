@@ -240,6 +240,9 @@
     --glass-solid: #000;
     --glass-menu: #000;
     --glass-rim: #f5f5f4;
+    --frost: none;
+    --frost-chip: none;
+    --frost-menu: none;
     --row: #000;
     --row-hover: #1c1917;
     --row-edge: 0 0 0 1px #f5f5f4;
@@ -426,6 +429,16 @@ a {
     -webkit-backdrop-filter: var(--frost-menu);
     backdrop-filter: var(--frost-menu);
   }
+}
+
+/* The glass the map blurs itself: on the Map tab the renderer blurs the map under
+   these panes as it draws it (src/map/glass.ts), and marks each once it has, so
+   the browser blurs nothing under them, and a drag costs about what it would with
+   no blur at all. The pane keeps its fill, rim and sheen. */
+.rail[data-gpu-glass]::before,
+:is(.chat, .workspace-head .tabs, .map-toolbar .tool, .map-search, .layers-panel, .map-buttons, .map-notes, .time, .app[data-tab="map"] .workspace-head h1)[data-gpu-glass] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* Rail ------------------------------------------------------------------- */
@@ -1299,6 +1312,30 @@ a {
 .map-toolbar .tool:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+/* The Basemap menu, under its button: the ground plain or as photos, and the network. */
+.basemap {
+  position: relative;
+}
+
+.basemap .tool[aria-expanded="true"] {
+  box-shadow: var(--chip-sheen), var(--chip-lift), inset 0 0 0 1.5px var(--ink);
+}
+
+.basemap-menu {
+  top: calc(100% + 8px);
+  left: 0;
+  width: 280px;
+  padding: 14px 16px 10px;
+}
+
+.basemap-menu .segmented .options {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.basemap-menu .switches {
+  padding: 10px 0 2px;
 }
 
 .map-search {
@@ -3830,12 +3867,13 @@ input[type="range"] {
 
 /* While the map moves --------------------------------------------------- */
 
-/* The glass stops blurring, the GPU's biggest cost in a drag, and turns a little
-   more opaque so the lines passing under it stay soft. It clears again once the
-   map settles. */
+/* The glass the browser blurs stops, the GPU's biggest cost in a drag, and turns a
+   little more opaque so the lines passing under it stay soft: the cards that move
+   with the map, the menus and toasts, and every pane the map doesn't blur itself,
+   as on the flat map. It clears again once the map settles. */
 :root[data-moving]
-  :is(.chat, .workspace-head .tabs, .map-toolbar .tool, .map-search, .layers-panel, .map-buttons, .map-notes, .time, .need, .app[data-tab="map"] .workspace-head h1),
-:root[data-moving] .rail::before {
+  :is(.chat, .workspace-head .tabs, .map-toolbar .tool, .map-search, .layers-panel, .map-buttons, .map-notes, .time, .need, .popover, .notice-list, .toast, .app[data-tab="map"] .workspace-head h1):not([data-gpu-glass]),
+:root[data-moving] .rail:not([data-gpu-glass])::before {
   background: var(--moving);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;

@@ -133,6 +133,57 @@ is an estimate. A buffer is a straight-line distance, not a walk along streets.
 The data is in `services/api/assets/gis` (about 0.9 MB), made by
 `scripts/build-gis-data.ts`, with its credits.
 
+## 14. Glass over the map
+
+The panes over the map are glass: the map shows through them, blurred. With CSS
+backdrop-filter the browser blurs the map again under every pane on every frame
+the map moves, the GPU's biggest cost in a drag, so the blur paused while the map
+moved. Now the map's renderer blurs itself (`apps/display/src/map/glass.ts`): it
+draws the map small, a texel to every two CSS pixels, blurs it under each pane,
+reading only inside the pane as Chrome does, and lays the blur inside the pane's
+round or squircle corners as it draws the map at full size, in the same pass. The
+browser blurs nothing under those panes, and the blur stays while the map moves.
+
+On a 150-step drag at 2× on an M4 (median of four interleaved runs), the
+browser's draw work is 102 ms with the map's blur, against 97 ms with no blur,
+114 ms with the blur paused and 588 ms with the browser blurring every pane. The
+map's own passes are small, but on a GPU already busy the drag took about 30%
+longer than with no blur, where the browser's blur took 110% longer. At rest the
+two blurs differ by a fifth of a level in 255 on average.
+
+The cards that move with the map, the menus and the toasts keep CSS blur, and
+pause it while the map moves: a toast left blurring made a drag cost two and a
+half times as much. So does every pane on the flat map and behind the other
+tabs, where the map is still. Anyone who asks for less transparency, more
+contrast or forced colours gets solid panes, with no blur at all.
+
+## 15. Aerial photos
+
+The map can show the ground as aerial photos, under Basemap. They are the City
+of Toronto's orthoimagery, its latest year at 8 cm a pixel, which Toronto Open
+Data publishes as Web Map Services under the Open Government Licence – Toronto:
+anyone may copy, adapt and pass it on, with credit, which the map's foot gives
+while the photos show. Google's 3D tiles were left for now. Ontario's SCOOP 2023
+photos, of which six clips along Don Mills are in the references, are 0.5 m a
+pixel, coarser than the City's everywhere they overlap, so they add nothing.
+
+The display loads nothing from other sites, so `/v1/tiles/imagery/{z}/{x}/{y}`
+fetches each tile from the City the first time it's asked for, with a 10-second
+timeout, and keeps it under the data folder, which git ignores. It serves only
+tiles over the city at zooms 10 to 18 (at 18 a pixel is about 0.43 m, a device
+pixel at the map's nearest), so it is no open proxy, and the City's service needs
+no key. Whole-city tiles at every zoom would be many gigabytes, so only what
+people look at is fetched.
+
+The map draws the photos itself, under the network, each tile a small grid laid
+where its latitudes and longitudes fall on the map's metres, mip-mapped, and
+fading toward the horizon as the network does (`apps/display/src/map/tiles.ts`).
+Near the camera the tiles are finer, so a photo pixel is about a CSS pixel; at
+most 120 show at once, six load at a time, coarsest first, and at most 200
+stay on the GPU, about 70 MB. Over the photos the buses dim and the rail lines
+keep their casings, the glass blurs the photos as it blurs the map, and in dark
+the photos dim a little. The flat map draws the same tiles.
+
 ## For the owner to decide
 
 - Keep the legend words "Live" and "Scheduled"? They are the display's only
