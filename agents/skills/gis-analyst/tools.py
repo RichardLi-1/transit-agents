@@ -91,40 +91,44 @@ REQUIRED = {
 }
 
 
-def parameters(name: str) -> dict[str, Any]:
-    properties = SPECS[name][1]
+# The skills built on this one (equity-analysis, economic-development,
+# stop-accessibility) pass their own specs to the three functions below.
+
+
+def parameters(name: str, specs: dict[str, Any] = SPECS, required: dict[str, list[str]] = REQUIRED) -> dict[str, Any]:
+    properties = specs[name][1]
     schema: dict[str, Any] = {"type": "object", "properties": properties}
-    if REQUIRED.get(name):
-        schema["required"] = REQUIRED[name]
+    if required.get(name):
+        schema["required"] = required[name]
     return schema
 
 
-def arguments(name: str, study: str, given: dict[str, Any]) -> dict[str, Any]:
+def arguments(name: str, study: str, given: dict[str, Any], specs: dict[str, Any] = SPECS, required: dict[str, list[str]] = REQUIRED) -> dict[str, Any]:
     """The service tool's arguments: the model's, checked, in this run's study."""
     given = dict(given)
     named = given.pop("studyId", study)
     if named != study:
         raise ValueError(f"this run works only on study {study}, so studyId must be {study!r}.")
-    allowed = SPECS[name][1]
+    allowed = specs[name][1]
     if unknown := given.keys() - allowed.keys():
         takes = ", ".join(allowed) or "nothing"
         raise ValueError(f"Unknown inputs: {', '.join(sorted(unknown))}. {name} takes: {takes}.")
-    if missing := [key for key in REQUIRED.get(name, []) if given.get(key) in (None, "")]:
+    if missing := [key for key in required.get(name, []) if given.get(key) in (None, "")]:
         raise ValueError(f"{name} needs {', '.join(missing)}.")
     given = {key: value for key, value in given.items() if value is not None}
     return given if name == "list_datasets" else {"studyId": study, **given}
 
 
-def tools(session: Any, study: str) -> list[LocalTool]:
+def tools(session: Any, study: str, specs: dict[str, Any] = SPECS, required: dict[str, list[str]] = REQUIRED) -> list[LocalTool]:
     """This skill's GIS tools, for a specialist working on this study."""
 
     def tool(name: str) -> LocalTool:
         async def run(**given: Any) -> Any:
             try:
-                return await call(session, name, arguments(name, study, given))
+                return await call(session, name, arguments(name, study, given, specs, required))
             except ToolError as error:  # the service's own message, so the model can correct itself
                 raise ValueError(error.message) from None
 
-        return LocalTool(name, SPECS[name][0], run, parameters(name))
+        return LocalTool(name, specs[name][0], run, parameters(name, specs, required))
 
-    return [tool(name) for name in SPECS]
+    return [tool(name) for name in specs]

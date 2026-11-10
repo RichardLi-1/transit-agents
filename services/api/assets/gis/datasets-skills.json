@@ -1,0 +1,57 @@
+[
+  {
+    "id": "statcan-pow-ct-2021",
+    "title": "2021 Census: place of work status by census tract of work (Table 98-10-0500-01), Toronto CMA",
+    "publisher": "Statistics Canada",
+    "licence": "Statistics Canada Open Licence",
+    "licenceUrl": "https://www.statcan.gc.ca/en/reference/licence",
+    "url": "https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=9810050001",
+    "retrieved": "2026-11-09",
+    "file": "pow-ct-2021.json.gz",
+    "kind": "polygons",
+    "coverage": "the Toronto census metropolitan area (CMA 535), which reaches beyond the City",
+    "notes": "1227 census tracts, each with the people who had a usual place of work in it in May 2021, and those who worked at home there. A 25% sample, randomly rounded: 1636045 people with a usual place of work in all. It counts people who work there, not jobs or businesses, and leaves out people with no fixed workplace. The census ran during COVID-19, when many worked at home. Simplified to about 10 m.",
+    "variables": {
+      "jobs": {
+        "label": "People with a usual place of work here, 2021 (25% sample)",
+        "unit": "people"
+      },
+      "atHome": {
+        "label": "People who worked at home here, 2021 (25% sample)",
+        "unit": "people"
+      }
+    }
+  },
+  {
+    "id": "toronto-zoning-corridor",
+    "title": "Zoning By-law 569-2013, zoning areas, Don Mills corridor",
+    "publisher": "City of Toronto (City Planning)",
+    "licence": "Open Government Licence – Toronto",
+    "licenceUrl": "https://open.toronto.ca/open-data-licence/",
+    "url": "https://open.toronto.ca/dataset/zoning-by-law/",
+    "retrieved": "2026-11-08",
+    "file": "zoning-corridor.json.gz",
+    "kind": "polygons",
+    "coverage": "the Don Mills corridor only (west -79.37, south 43.70, east -79.32, north 43.78)",
+    "notes": "534 zones touching the corridor box, as whole features, each with its zone and the By-law chapter it falls in. A layer reaching beyond the corridor is measured inside it only. Zoning says what a lot may be used for, not what is there. Lands still under the former municipalities' by-laws aren't in it. Not for legal purposes.",
+    "bbox": [
+      -79.37,
+      43.7,
+      -79.32,
+      43.78
+    ]
+  },
+  {
+    "id": "toronto-transit-shelters",
+    "title": "Street Furniture – Transit Shelter",
+    "publisher": "City of Toronto (Transportation Services)",
+    "licence": "Open Government Licence – Toronto",
+    "licenceUrl": "https://open.toronto.ca/open-data-licence/",
+    "url": "https://open.toronto.ca/dataset/street-furniture-transit-shelter/",
+    "retrieved": "2026-11-09",
+    "file": "shelters.json.gz",
+    "kind": "points",
+    "coverage": "City of Toronto",
+    "notes": "5752 transit shelters on City streets: 5444 existing, 308 temporarily removed. A shelter isn't linked to a TTC stop: the tools match one to a stop by distance. Nothing on whether a shelter or its pad is accessible."
+  }
+]

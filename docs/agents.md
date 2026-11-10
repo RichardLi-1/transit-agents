@@ -54,8 +54,9 @@ Every agent:
   preview_change, get_timeline, live_vehicles; plus its skill's scripts.
 - **Never:** asks specialists of its own; adds an engagement need except through
   the engagement-needs skill, which pins it to the line and needs a citation; runs
-  the service's GIS tools except through the gis-analyst, safety-audit and
-  active-transportation skills.
+  the service's GIS tools except through the gis-analyst, safety-audit,
+  active-transportation, equity-analysis, economic-development and
+  stop-accessibility skills.
 - **Code and tests:** [specialists.py](../agents/specialists.py), [test_specialists.py](../agents/tests/test_specialists.py) (14).
 
 ### Media
@@ -132,6 +133,9 @@ partly, ✗ not yet.
 | gis-analyst | ✓ | ✓ | ✓ service | ✓ | ✓ 8 + 19 service | ✓ 8/5 | ✗ |
 | safety-audit | ✓ | ✓ | ✓ service | ✓ | ✓ 6 + 13 service | ◐ 5/5 | ✗ |
 | active-transportation | ✓ | ✓ | ✓ service | ✓ | ✓ 5 + 8 service | ◐ 5/5 | ✗ |
+| equity-analysis | ✓ | ✓ | ✓ service | ✓ | ✓ 7 + 18 service | ◐ 5/4 | ✗ |
+| economic-development | ✓ | ✓ | ✓ service | ✓ | ✓ 7 + 18 service | ◐ 5/4 | ✗ |
+| stop-accessibility | ✓ | ✓ | ✓ service | ✓ | ✓ 7 + 18 service | ◐ 5/4 | ✗ |
 
 What the table shows:
 
@@ -141,7 +145,7 @@ What the table shows:
 - Descriptions say what a skill does, not when to pick another. Three overlap:
   metrolinx-business-case, business-case-template and metrolinx-bca are one method.
 - The evidence is still missing. Every skill now has at least 8 cases of its own,
-  half kept for `test`, but the 112 new ones wait for a planner to check their gold,
+  half kept for `test`, but the 139 new ones wait for a planner to check their gold,
   and no skill has been run with and without. The eval set has been run once, on one
   case (2026-11-08).
 
@@ -314,3 +318,46 @@ list; none of it is ridership.
   a ridership forecast it must not give, and sidewalk priorities it hands to a planner.
 - Next: a planner checks the gold; distances along streets; whether the network
   connects, not only how much of it is near.
+### equity-analysis
+
+Says who a route, its stops or a line serves, as Waypoint's equity analysis does:
+people within reach in low income (LIM-AT), commuting by transit, 65 and over and 0 to
+14, each beside the City's share from the same 2021 census, with the gap; the
+Neighbourhood Improvement Areas it reaches and the people in them; and the stops
+within 400 m of an NIA, which the TTC weights at 125% (ttc-anp-2026 p. 114). The
+service's `equity_profile` works it all out ([gis-equity.ts](../services/api/src/gis-equity.ts)).
+Area-weighted estimates of people in areas: it never infers anyone's traits, never
+counts boardings, and leaves whether a change is fair to a planner. It counts stops
+near the NIAs' whole areas, so the TTC's own count, near their residential parts, can
+only be fewer.
+
+- Data: children by census area, added to the census by `scripts/build-gis-skills-data.ts`.
+- Cases: 9, 5 dev and 4 test, gold from the service's tools ([gis-skills-gold.ts](../evals/gis-skills-gold.ts)).
+
+### economic-development
+
+Counts the work and land near stations, as they were in 2021, never as they will be:
+people with a usual place of work within reach, from the census by census tract of
+work, beside the people who live there (`jobs_within`); and the land zoned
+residential, mixed use, employment and so on, on the Don Mills corridor only
+(`zoning_within`) ([gis-economy.ts](../services/api/src/gis-economy.ts)). Says what
+Metrolinx's Business Case Manual asks of wider economic impacts, with its pages, and
+that they need a model run. The census ran during COVID-19, and tracts are coarse
+beside a walk to a station; it says both.
+
+- Cases: 9, 5 dev and 4 test, including a forecast it hands over and zoning beyond the corridor.
+- Next: the City's whole Zoning By-law layer; employment at a finer grain, such as the
+  Toronto Employment Survey by location, if the City publishes it openly.
+
+### stop-accessibility
+
+An asset inventory of a route's or line's stops: which the TTC's GTFS marks wheelchair
+accessible or not, the stations with a platform marked not accessible
+(`stop_accessibility`), and the City transit shelter nearest each stop
+(`stop_shelters`) ([gis-access.ts](../services/api/src/gis-access.ts)). Quotes what
+the AODA's Integrated Accessibility Standards ask of transit stops, O. Reg. 191/11,
+now a source with its pages. An inventory and its gaps, never a finding of compliance:
+a planner confirms. No open data says which stations have elevators.
+
+- Cases: 9, 5 dev and 4 test, including a request to confirm compliance, which it refuses.
+- Next: station elevator and entrance data, if the TTC publishes it openly.

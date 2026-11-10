@@ -48,3 +48,24 @@ Made by `scripts/build-safety-data.ts`, listed in `datasets-safety.json`.
 - `bikeshare.json.gz`: Bike Share Toronto's station list (GBFS `station_information`),
   from the [Bike Share Toronto](https://open.toronto.ca/dataset/bike-share-toronto/)
   dataset on City of Toronto Open Data. Open Government Licence – Toronto.
+## For the equity, economic development and stop accessibility skills
+
+Made by `scripts/build-gis-skills-data.ts`, and listed in `datasets-skills.json`.
+
+- `census-da-2021-extra.json.gz`: children (0 to 14) for each dissemination area, from
+  the same Statistics Canada 2021 Census Profile as `census-da-2021`, under the same
+  licence. Figures from it cite `census-da-2021`.
+- `pow-ct-2021.json.gz`: Statistics Canada, 2021 Census of Population,
+  [Table 98-10-0500-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=9810050001),
+  place of work status by census tract of work, with the 2021 cartographic boundary
+  file's census tracts, Toronto CMA. Reproduced and distributed on an "as is" basis with
+  the permission of Statistics Canada, under the
+  [Statistics Canada Open Licence](https://www.statcan.gc.ca/en/reference/licence).
+  Adapted: simplified to about 10 m.
+- `zoning-corridor.json.gz`: [Zoning By-law](https://open.toronto.ca/dataset/zoning-by-law/)
+  569-2013, zoning areas, City of Toronto, Don Mills corridor only. Open Government
+  Licence – Toronto. Not for legal purposes. From the reference set, fetched 2026-11-08.
+- `shelters.json.gz`: [Street Furniture – Transit Shelter](https://open.toronto.ca/dataset/street-furniture-transit-shelter/),
+  City of Toronto. Open Government Licence – Toronto.
+- `ttc-access.json.gz`: each stop's `wheelchair_boarding` from the same TTC GTFS as
+  `ttc.json.gz`, under the same licence. Figures from it cite `ttc-gtfs`.

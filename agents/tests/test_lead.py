@@ -106,7 +106,24 @@ class LeadTest(unittest.IsolatedAsyncioTestCase):
         self.assertLess(system.index("Be brief: the answer"), system.index("Not known yet:"))
         self.assertIn("end every answer with what isn't known yet", system)
         self.assertIn("Where no page shows it, ask it as a question for the planner, and claim nothing.", system)
-        self.assertIn("Name an organisation or team, never a person.", system)
+        self.assertIn("Name an organisation or team, never a person, and only one a cited page names", system)
+
+    async def test_names_no_contact_for_land_a_dataset_doesnt_cover(self):
+        # A run named "York Region" as the contact for the part of the 52's catchment
+        # outside the City. No page named it: the census just doesn't cover that land.
+        study = support.open_study("lead-contact")
+        fake = FakeGemini(lambda request: reply(text="Nothing to do."))
+
+        await run_lead(fake, study)
+
+        system = fake.requests[0].system
+        self.assertIn("never one you infer from a map, such as a neighbouring region for land outside the City", system)
+        self.assertIn("A dataset's gap, such as land a census doesn't cover, has no contact: say what isn't counted.", system)
+        gis = skills.load_skill("gis-analyst").body
+        self.assertIn("nobody living there is counted, and that the totals are for the part inside Toronto only", gis)
+        self.assertIn("name no one to ask about it", gis)
+        handover = skills.load_skill("handover").body
+        self.assertIn("Name only an organisation a cited page names.", handover)
 
     async def test_list_skills_shows_names_and_descriptions_not_instructions(self):
         study = support.open_study("lead-skills")
