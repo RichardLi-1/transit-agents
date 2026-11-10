@@ -25,6 +25,7 @@ import { ON_BEHALF_OF, type Role } from "@transit-agents/contracts";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { Actor } from "./app.ts";
+import { GIS_SKILL_TOOLS } from "./gis-skills.ts";
 import { ApiError } from "./service.ts";
 
 // What a tool needs to know about a route in app.ts.
@@ -216,6 +217,7 @@ export const TOOLS: Record<string, Spec> = {
     description:
       "For each stop of a points layer, such as route_stops makes: the nearest bike share station, the stations within metres, and the km of bikeway within metres. Saves two layers, bike share and bikeways, records how many stops have each within reach, and lists stops with neither.",
   },
+  ...GIS_SKILL_TOOLS,
   "POST /v1/studies/:id/activity": {
     name: "report_activity",
     description: "Report progress, messages, tokens and cost. Report usage only with numbers you were given.",

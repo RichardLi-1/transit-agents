@@ -96,6 +96,14 @@ describe("area weighting", () => {
     assert.match(made.warnings?.join(" ") ?? "", /33\.3% of the layer is outside the census areas/);
   });
 
+  it("says plainly that the part outside Toronto isn't counted, and names no one to ask", () => {
+    const wider: Feature = { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[[W - DEG_LON, S], [W + 2 * DEG_LON, S], [W + 2 * DEG_LON, S + DEG_LAT], [W - DEG_LON, S + DEG_LAT], [W - DEG_LON, S]]] } };
+    const [warning] = gis.overlay([wider], "census-da-2021", ["population"]).warnings ?? [];
+    assert.match(warning ?? "", /\(1 km²\): beyond the City of Toronto, or on water/);
+    assert.match(warning ?? "", /nobody living there is counted: these totals are for the part inside Toronto only/);
+    assert.match(warning ?? "", /No dataset or source here covers the rest or names anyone to ask about it/);
+  });
+
   it("refuses variables a dataset doesn't have, naming the ones it does", () => {
     assert.throws(() => gis.overlay([both], "census-da-2021", ["income"]), (e) => e instanceof GisError && /has: population, lowIncome, lowIncomeBase, lowIncomeShare/.test(e.message));
     assert.throws(() => gis.overlay([both], "toronto-nia", ["population"]), (e) => e instanceof GisError && /no counts to total/.test(e.message));

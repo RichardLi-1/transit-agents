@@ -266,7 +266,7 @@ describe("gold questions", () => {
 
 // The same questions over everything the demo and the eval runner seed: since the
 // Ontario Line study, its business cases, Metrolinx's manual and the TTC's subway
-// ridership too. Their pages outrank some of the plan's for bare figures: "610"
+// ridership and the AODA regulation too. Their pages outrank some of the plan's for bare figures: "610"
 // and "$1.29" are on Ontario Line pages, and so are riders and dollars. Questions
 // with words still find a page that answers them first or second.
 describe("gold questions over the seeded sources", () => {
@@ -277,17 +277,17 @@ describe("gold questions over the seeded sources", () => {
   const rank = (query: string, pages: string[]) => index.find(query, 50).findIndex((hit) => pages.includes(`${hit.contextId}#${hit.page}`)) + 1;
 
   it("indexes every seeded source with pages", () => {
-    assert.deepEqual(SOURCES.filter((source) => source.pagesFile).length, 9);
+    assert.deepEqual(SOURCES.filter((source) => source.pagesFile).length, 10);
   });
 
   it("rank the pages that answer the Find questions", () => {
-    assert.deepEqual(FIND.map(([query, page]) => rank(query, [page])), [8, 4, 2, 1, 2, 2]);
+    assert.deepEqual(FIND.map(([query, page]) => rank(query, [page])), [6, 4, 2, 1, 2, 2]);
     assert.deepEqual(FIND.map(([query, ...pages]) => rank(query, pages)), [1, 1, 1, 1, 2, 2]);
   });
 
   it("rank the page a figure is on", () => {
-    // With the road safety sources, more pages weigh "$" and "per": "$1.29" falls
-    // from 2 to 3, and "40 riders per $100" rises from 7 to 5.
-    assert.deepEqual(FIGURES.map(([query, page]) => rank(query, [page])), [1, 3, 1, 1, 1, 1, 6, 5, 2]);
+    // With the road safety sources and the AODA regulation, more pages weigh "$" and
+    // "per": "$1.29" falls from 2 to 3, and "40 riders per $100" rises from 7 to 5.
+    assert.deepEqual(FIGURES.map(([query, page]) => rank(query, [page])), [1, 3, 1, 1, 1, 2, 7, 5, 2]);
   });
 });
