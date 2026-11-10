@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -142,6 +143,18 @@ class ClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.text, "Hi.")
         self.assertEqual(server.requests[0]["url"], "http://127.0.0.1:11434/v1/chat/completions")
         self.assertEqual(server.requests[0]["headers"]["authorization"], "Bearer secret")
+
+    async def test_model_log_keeps_each_raw_request_and_reply(self):
+        server = Server((200, completion("Hi.")))
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "raw.jsonl")
+            with mock.patch.dict(os.environ, {"MODEL_LOG": path}):
+                async with server.client().aio as aio:
+                    await aio.models.generate_content(model="m", contents=[types.Content(role="user", parts=[types.Part(text="Hello")])])
+            (line,) = open(path).read().splitlines()
+        kept = json.loads(line)
+        self.assertEqual(kept["request"]["messages"][0]["content"], "Hello")
+        self.assertEqual(json.loads(kept["reply"])["choices"][0]["message"]["content"], "Hi.")
 
     async def test_a_server_error_is_an_api_error_work_can_retry(self):
         server = Server((503, {"error": {"message": "loading model"}}))

@@ -12,6 +12,7 @@ can be read and scored by a Gemini reader, or by a local one for a free run.
     MODEL_API_KEY=...                          if the server needs one
     MODEL_TIMEOUT_S=900                        a slow local model can take minutes
     MODEL_EXTRA={"reasoning_effort": "none"}   JSON added to every request
+    MODEL_LOG=runs/raw.jsonl                    keep each raw request and reply, one a line
 
 With MODEL_BASE_URL unset, every model is Gemini, as before. A server on this machine
 costs nothing per call, so its models are priced at zero (prices.py).
@@ -229,7 +230,11 @@ class OpenAICompatClient:
         await self._http.aclose()
 
     async def generate(self, model: str, contents: list[types.Content], settings: types.GenerateContentConfig | None):
-        reply = await self._http.post(f"{self.url}/chat/completions", json=request(model, contents, settings))
+        body = request(model, contents, settings)
+        reply = await self._http.post(f"{self.url}/chat/completions", json=body)
+        if path := os.environ.get("MODEL_LOG", "").strip():
+            with open(path, "a", encoding="utf-8") as log:
+                log.write(json.dumps({"request": body, "status": reply.status_code, "reply": reply.text}, ensure_ascii=False) + "\n")
         if reply.status_code >= 400:
             try:
                 said = reply.json()
