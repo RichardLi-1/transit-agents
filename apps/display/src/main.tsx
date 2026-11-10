@@ -3,6 +3,8 @@ import "@transit-agents/contracts/jitless";
 import { render } from "preact";
 import { App } from "./App.tsx";
 import { finishSignIn } from "./session.ts";
+import { followSystem } from "./theme.ts";
 import "./styles.css";
 
+followSystem();
 void finishSignIn().then(() => render(<App />, document.getElementById("app") as HTMLElement));
