@@ -16,221 +16,227 @@
   src: url("/fonts/GoogleSans-Italic-latin.woff2") format("woff2");
 }
 
+/* The look, as Apple's Liquid Glass: the map is the ground under the whole app;
+   what you use floats over it as glass (the rail, the tabs, the chat, the map's
+   tools and cards, menus and toasts); what you read sits on near-opaque panes so
+   its words stay crisp. Monochrome, in warm stone greys: one blue for links, focus
+   and selection, and green, red and amber only where they mean pass, fail and
+   "needs a planner". The study line's colour belongs to the map alone.
+
+   Every word passes 7:1 on what it sits on, secondary words included, in light
+   and dark; nothing is smaller than 13px. */
 :root {
-  --ink: #1d1d1f;
-  --muted: #5f5f66;
-  --hairline: rgba(0, 0, 0, 0.08);
-  --accent: #b03488;
-  --accent-ink: #8e2a6e;
+  /* Words: ink, and one secondary shade, 11.7:1 on white. */
+  --ink: #1c1917;
+  --muted: #3d3935;
+  /* Links, focus rings and selection: 7.3:1 on white. */
+  --blue: #0055aa;
+  --focus: var(--blue);
+  --selection: rgba(0, 102, 204, 0.2);
+  /* Status, for meaning only: a mark's colour, and words on its tint. */
   --pass: #1a7f37;
+  --pass-ink: #0f5a25;
+  --pass-tint: #e7f4ea;
   --fail: #b42318;
-  --glass: rgba(255, 255, 255, 0.78);
-  --bubble: #ececf0;
-  --radius: 14px;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(0, 0, 0, 0.08);
-  /* The floating panels, the folders, card, time bar and chat, are liquid glass,
-     after Apple's: clear rather than frosted, the map behind blurred, brighter and
-     more vivid; light catching the top-left edge and glowing just inside the rim,
-     where glass bends it; a crisp dark hairline and a deep shadow outside, so each
-     pane stands off the white map. Over the darkest map line their muted text
-     still passes AA. Opaque where transparency is unwanted or unsupported. */
-  --panel: linear-gradient(155deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.34) 55%, rgba(255, 255, 255, 0.48));
-  --panel-solid: #fbfbfd;
-  --panel-rim: rgba(255, 255, 255, 0.6);
-  --panel-sheen:
+  --fail-ink: #8f1d14;
+  --fail-tint: #fcebe9;
+  --amber: #a35407;
+  --amber-ink: #6e3800;
+  --amber-tint: #fcf0e0;
+  /* The ground: the map's own, a warm light grey, under everything. */
+  --ground: #f2f1ee;
+  /* Panes to read on: near-opaque, so words stay crisp over the map. */
+  --pane: rgba(255, 255, 255, 0.95);
+  --pane-solid: #fff;
+  --pane-lift: 0 0 0 0.5px rgba(28, 25, 23, 0.14), 0 1px 3px rgba(28, 25, 23, 0.06), 0 18px 48px -18px rgba(28, 25, 23, 0.22);
+  /* Cards set into a pane, and the lines between rows. */
+  --inset: #f5f5f4;
+  --hairline: rgba(28, 25, 23, 0.16);
+  --divider: rgba(28, 25, 23, 0.09);
+  --hover: rgba(28, 25, 23, 0.06);
+  --press: rgba(28, 25, 23, 0.11);
+  --tag: rgba(28, 25, 23, 0.08);
+  /* Glass: clear rather than frosted, the map behind it blurred and brighter; light
+     catching the top-left edge and glowing inside the rim; a crisp dark hairline
+     and a deep shadow outside, so each pane stands off the map. */
+  --glass: linear-gradient(155deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.46) 55%, rgba(255, 255, 255, 0.56));
+  --glass-chip: linear-gradient(155deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.66));
+  --glass-solid: #f7f7f6;
+  --glass-rim: rgba(255, 255, 255, 0.7);
+  --sheen:
     inset 1.5px 1.5px 0 -0.5px rgba(255, 255, 255, 0.95),
     inset -1px -1px 0 -0.5px rgba(255, 255, 255, 0.55),
-    inset 0 0 24px rgba(255, 255, 255, 0.5);
-  --panel-lift:
-    0 0 0 0.5px rgba(0, 0, 0, 0.18),
-    0 1px 2px rgba(0, 0, 0, 0.06),
-    0 10px 24px -6px rgba(0, 0, 0, 0.14),
-    0 28px 64px -12px rgba(0, 0, 0, 0.2);
-  --panel-frost: blur(7px) saturate(240%) brightness(1.04);
-  --panel-radius: 22px;
-  /* The same glass, sized for what floats small: map cards, buttons, notices. */
+    inset 0 0 24px rgba(255, 255, 255, 0.45);
+  --lift:
+    0 0 0 0.5px rgba(28, 25, 23, 0.16),
+    0 1px 2px rgba(28, 25, 23, 0.06),
+    0 10px 24px -6px rgba(28, 25, 23, 0.12),
+    0 28px 64px -12px rgba(28, 25, 23, 0.18);
   --chip-sheen:
     inset 1px 1px 0 -0.25px rgba(255, 255, 255, 0.95),
     inset -1px -1px 0 -0.5px rgba(255, 255, 255, 0.5),
-    inset 0 0 10px rgba(255, 255, 255, 0.55);
+    inset 0 0 10px rgba(255, 255, 255, 0.5);
   --chip-lift:
-    0 0 0 0.5px rgba(0, 0, 0, 0.2),
-    0 1px 2px rgba(0, 0, 0, 0.08),
-    0 8px 20px -6px rgba(0, 0, 0, 0.2);
-  /* A pressed-in well for fields and choices inside a pane. */
-  --well: rgba(255, 255, 255, 0.62);
-  --well-edge: inset 0 1px 1px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 1px 0 rgba(255, 255, 255, 0.9);
-  /* Gloss on a filled button: a lit top edge, a shaded foot, a glow of its colour. */
-  --gloss: linear-gradient(rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.08));
-  --gloss-edge: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -1px 0 rgba(0, 0, 0, 0.2);
-  /* Small glass, and the glass while the map moves, unblurred. */
-  --chip: linear-gradient(155deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.52));
-  --chip-hover: rgba(255, 255, 255, 0.94);
-  --moving: rgba(251, 251, 253, 0.88);
-  --moving-chip: rgba(251, 251, 253, 0.92);
-  /* Muted text on glass: a shade darker, for the map behind it. */
-  --muted-glass: #48484e;
-  /* The ground, and the surfaces on it: fields, fills, a pressed or hovered fill. */
-  --bg: #fff;
-  --field: #fff;
-  --field-hover: #f5f5f7;
-  --fill: #ececf0;
-  --fill-off: #e5e5ea;
-  --sunken: #f5f5f7;
-  --hover: rgba(0, 0, 0, 0.06);
-  --press: rgba(0, 0, 0, 0.1);
-  --tag: rgba(0, 0, 0, 0.07);
-  --divider: rgba(0, 0, 0, 0.1);
-  --divider-lit: rgba(255, 255, 255, 0.7);
-  /* Words on a fill of --ink. */
-  --on-ink: #fff;
-  --focus: var(--accent);
-  /* Behind Quick Look, over the page. */
-  --scrim: rgba(255, 255, 255, 0.35);
+    0 0 0 0.5px rgba(28, 25, 23, 0.2),
+    0 1px 2px rgba(28, 25, 23, 0.08),
+    0 8px 20px -6px rgba(28, 25, 23, 0.18);
+  --frost: blur(8px) saturate(200%) brightness(1.06);
+  --frost-chip: blur(6px) saturate(200%) brightness(1.06);
+  /* A row of glass inside a glass pane, which can't blur twice. */
+  --row: rgba(255, 255, 255, 0.6);
+  --row-hover: rgba(255, 255, 255, 0.9);
+  --row-edge: 0 0 0 0.5px rgba(28, 25, 23, 0.14), inset 1px 1px 0 -0.25px rgba(255, 255, 255, 0.9);
+  /* The glass while the map moves: unblurred, a shade more opaque. */
+  --moving: rgba(250, 250, 249, 0.92);
+  /* Fields: a pressed-in well. */
+  --well: rgba(255, 255, 255, 0.8);
+  --well-edge: inset 0 1px 1px rgba(28, 25, 23, 0.06), 0 0 0 0.5px rgba(28, 25, 23, 0.2), 0 1px 0 rgba(255, 255, 255, 0.9);
+  /* The one filled button: ink, with white words. */
+  --primary: #1c1917;
+  --primary-hover: #44403c;
+  --on-primary: #fff;
+  --scrim: rgba(245, 245, 244, 0.55);
   --font: "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  /* The app's frame, as Waypoint's: a slim rail, the workspace and the chat, solid
-     panes on a ground a shade darker than they are. */
-  --frame: #eeeef2;
-  --pane: #fff;
-  --pane-edge: rgba(0, 0, 0, 0.09);
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* One type scale. */
+  --t-small: 13px;
+  --t-ui: 14px;
+  --t-text: 15px;
+  --t-lead: 17px;
+  --t-title: 24px;
+  --t-figure: 34px;
+  /* The frame: the rail, the workspace and the chat, a gap apart, each floating. */
   --rail: 68px;
-  --chat: 384px;
-  --gap: 8px;
-  /* The edge of the map the tools and the Layers panel cover: the flat map frames
-     a study below it, and cards on the map stay clear of it. */
-  --map-top: 60px;
-  --map-right: 0px;
-  /* Status colours on their tints, for the steps' badges. */
-  --pass-tint: #e3f4e8;
-  --pass-ink: #13672c;
-  --fail-tint: #fde7e5;
-  /* One type scale: the title, the figures, one size for text and a smaller one. */
-  --type-title: 500 22px/1.2 var(--font);
-  --type-figure: 600 20px/1.2 var(--font);
-  --type-text: 14px;
-  --type-small: 12px;
-  --part-gap: 14px;
+  --chat: 392px;
+  --gap: 10px;
+  --head: 64px;
+  /* Where the workspace starts and ends across the window, and so on the map, which
+     spans the window and as far again past its left edge as the chat is wider than
+     the rail, so its middle is the workspace's. Plain numbers, as scripts read them. */
+  --side-l: 88px;
+  --side-r: 412px;
+  --map-top: 84px;
+  --radius-pane: 26px;
+  --radius-card: 16px;
+  --radius-row: 12px;
   color-scheme: light;
 }
 
 /* Dark, when the system is: the map on near-black, the glass smoked rather than
-   milky, lit along its top-left edge all the same. Accent words turn pink enough
-   to read on dark; filled buttons keep the accent, as white reads on it. */
+   milky, lit along its top-left edge all the same. Filled buttons turn light. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --ink: #f5f5f7;
-    --muted: #a8a8ad;
-    --muted-glass: #b8b8be;
-    --hairline: rgba(255, 255, 255, 0.12);
-    --accent-ink: #f08fce;
-    --pass: #4ac26b;
-    --fail: #ff7b72;
-    --focus: #e070bf;
-    --glass: rgba(36, 36, 40, 0.8);
-    --bubble: #2c2c2e;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.45);
-    --panel: linear-gradient(155deg, rgba(46, 46, 50, 0.74), rgba(28, 28, 30, 0.6) 55%, rgba(38, 38, 42, 0.68));
-    --panel-solid: #1c1c1e;
-    --panel-rim: rgba(255, 255, 255, 0.14);
-    --panel-sheen:
-      inset 1.5px 1.5px 0 -0.5px rgba(255, 255, 255, 0.34),
-      inset -1px -1px 0 -0.5px rgba(255, 255, 255, 0.12),
-      inset 0 0 24px rgba(255, 255, 255, 0.05);
-    --panel-lift:
+    --ink: #f5f5f4;
+    --muted: #d6d3d1;
+    --blue: #66b3ff;
+    --selection: rgba(102, 179, 255, 0.28);
+    --pass: #3fb760;
+    --pass-ink: #8fe3a7;
+    --pass-tint: #15301d;
+    --fail: #f0675d;
+    --fail-ink: #ffb4ad;
+    --fail-tint: #3a1a17;
+    --amber: #e09a3e;
+    --amber-ink: #fcd29a;
+    --amber-tint: #3a2a14;
+    --ground: #161618;
+    --pane: rgba(28, 25, 23, 0.95);
+    --pane-solid: #1c1917;
+    --pane-lift: 0 0 0 0.5px rgba(0, 0, 0, 0.8), 0 1px 3px rgba(0, 0, 0, 0.35), 0 18px 48px -18px rgba(0, 0, 0, 0.7);
+    --inset: #292524;
+    --hairline: rgba(255, 255, 255, 0.16);
+    --divider: rgba(255, 255, 255, 0.1);
+    --hover: rgba(255, 255, 255, 0.08);
+    --press: rgba(255, 255, 255, 0.14);
+    --tag: rgba(255, 255, 255, 0.12);
+    --glass: linear-gradient(155deg, rgba(54, 50, 47, 0.7), rgba(30, 27, 25, 0.54) 55%, rgba(44, 40, 37, 0.62));
+    --glass-chip: linear-gradient(155deg, rgba(58, 54, 51, 0.86), rgba(36, 32, 30, 0.74));
+    --glass-solid: #1f1c1a;
+    --glass-rim: rgba(255, 255, 255, 0.14);
+    --sheen:
+      inset 1.5px 1.5px 0 -0.5px rgba(255, 255, 255, 0.32),
+      inset -1px -1px 0 -0.5px rgba(255, 255, 255, 0.1),
+      inset 0 0 24px rgba(255, 255, 255, 0.04);
+    --lift:
       0 0 0 0.5px rgba(0, 0, 0, 0.85),
       0 1px 2px rgba(0, 0, 0, 0.35),
       0 10px 24px -6px rgba(0, 0, 0, 0.5),
       0 28px 64px -12px rgba(0, 0, 0, 0.65);
-    --panel-frost: blur(7px) saturate(180%) brightness(0.9);
     --chip-sheen:
-      inset 1px 1px 0 -0.25px rgba(255, 255, 255, 0.34),
-      inset -1px -1px 0 -0.5px rgba(255, 255, 255, 0.12),
-      inset 0 0 10px rgba(255, 255, 255, 0.05);
+      inset 1px 1px 0 -0.25px rgba(255, 255, 255, 0.32),
+      inset -1px -1px 0 -0.5px rgba(255, 255, 255, 0.1),
+      inset 0 0 10px rgba(255, 255, 255, 0.04);
     --chip-lift:
       0 0 0 0.5px rgba(0, 0, 0, 0.85),
       0 1px 2px rgba(0, 0, 0, 0.35),
       0 8px 20px -6px rgba(0, 0, 0, 0.55);
-    --chip: linear-gradient(155deg, rgba(50, 50, 54, 0.86), rgba(32, 32, 36, 0.74));
-    --chip-hover: rgba(58, 58, 62, 0.96);
-    --moving: rgba(28, 28, 30, 0.92);
-    --moving-chip: rgba(36, 36, 40, 0.94);
-    --well: rgba(255, 255, 255, 0.08);
-    --well-edge: inset 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 1px 0 rgba(255, 255, 255, 0.04);
-    --bg: #161618;
-    --field: #2c2c2e;
-    --field-hover: #3a3a3c;
-    --fill: #3a3a3c;
-    --fill-off: #2c2c2e;
-    --sunken: #232325;
-    --hover: rgba(255, 255, 255, 0.08);
-    --press: rgba(255, 255, 255, 0.14);
-    --tag: rgba(255, 255, 255, 0.1);
-    --divider: rgba(255, 255, 255, 0.12);
-    --divider-lit: rgba(255, 255, 255, 0.04);
-    --on-ink: #161618;
-    --scrim: rgba(0, 0, 0, 0.45);
-    --frame: #0c0c0e;
-    --pane: #161618;
-    --pane-edge: rgba(255, 255, 255, 0.1);
-    --pass-tint: #173823;
-    --pass-ink: var(--pass);
-    --fail-tint: #3f1b19;
+    --frost: blur(8px) saturate(170%) brightness(0.92);
+    --frost-chip: blur(6px) saturate(170%) brightness(0.92);
+    --row: rgba(255, 255, 255, 0.07);
+    --row-hover: rgba(255, 255, 255, 0.13);
+    --row-edge: 0 0 0 0.5px rgba(255, 255, 255, 0.12), inset 1px 1px 0 -0.25px rgba(255, 255, 255, 0.14);
+    --moving: rgba(30, 27, 25, 0.94);
+    --well: rgba(255, 255, 255, 0.07);
+    --well-edge: inset 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(255, 255, 255, 0.2), 0 1px 0 rgba(255, 255, 255, 0.04);
+    --primary: #f5f5f4;
+    --primary-hover: #d6d3d1;
+    --on-primary: #1c1917;
+    --scrim: rgba(0, 0, 0, 0.5);
     color-scheme: dark;
   }
 }
 
 /* More contrast, when the system asks for it (Increase contrast on a Mac): solid
-   panes with a firm edge in place of glass, darker secondary words, firmer lines. */
+   panes with a firm edge in place of glass, and firmer lines. */
 @media (prefers-contrast: more) {
   :root {
-    --muted: #2c2c2e;
-    --muted-glass: #1d1d1f;
-    --hairline: rgba(0, 0, 0, 0.55);
-    --divider: rgba(0, 0, 0, 0.55);
-    --accent-ink: #6f1f55;
-    --panel: var(--panel-solid);
-    --panel-solid: #fff;
-    --panel-rim: #1d1d1f;
-    --panel-sheen: inset 0 0 0 0 transparent;
-    --panel-lift: 0 2px 8px rgba(0, 0, 0, 0.2);
-    --panel-frost: none;
-    --chip: #fff;
-    --chip-hover: #f5f5f7;
+    --muted: #1c1917;
+    --hairline: rgba(0, 0, 0, 0.6);
+    --divider: rgba(0, 0, 0, 0.45);
+    --pane: #fff;
+    --pane-lift: 0 0 0 1px #1c1917;
+    --glass: #fff;
+    --glass-chip: #fff;
+    --glass-solid: #fff;
+    --glass-rim: #1c1917;
+    --sheen: inset 0 0 0 0 transparent;
+    --lift: 0 2px 8px rgba(0, 0, 0, 0.2);
     --chip-sheen: inset 0 0 0 0 transparent;
     --chip-lift: 0 1px 4px rgba(0, 0, 0, 0.2);
+    --frost: none;
+    --frost-chip: none;
+    --row: #fff;
+    --row-hover: #f5f5f4;
+    --row-edge: 0 0 0 1px #1c1917;
     --moving: #fff;
-    --moving-chip: #fff;
     --well: #fff;
-    --well-edge: 0 0 0 1px #1d1d1f;
-    --gloss: none;
-    --tag: #e5e5ea;
-    --frame: #fff;
-    --pane-edge: #1d1d1f;
+    --well-edge: 0 0 0 1px #1c1917;
+    --tag: #e7e5e4;
+    --inset: #f5f5f4;
   }
 }
 
 @media (prefers-contrast: more) and (prefers-color-scheme: dark) {
   :root {
-    --muted: #d1d1d6;
-    --muted-glass: #e5e5ea;
-    --hairline: rgba(255, 255, 255, 0.6);
-    --divider: rgba(255, 255, 255, 0.6);
-    --accent-ink: #ffb3e2;
-    --panel-solid: #000;
-    --panel-rim: #f5f5f7;
-    --panel-lift: 0 2px 8px rgba(0, 0, 0, 0.6);
-    --chip: #000;
-    --chip-hover: #1c1c1e;
-    --moving: #000;
-    --moving-chip: #000;
-    --well: #000;
-    --well-edge: 0 0 0 1px #f5f5f7;
-    --field: #000;
-    --tag: #3a3a3c;
-    --bg: #000;
-    --frame: #000;
+    --muted: #f5f5f4;
+    --hairline: rgba(255, 255, 255, 0.65);
+    --divider: rgba(255, 255, 255, 0.5);
     --pane: #000;
-    --pane-edge: #f5f5f7;
+    --pane-solid: #000;
+    --pane-lift: 0 0 0 1px #f5f5f4;
+    --glass: #000;
+    --glass-chip: #000;
+    --glass-solid: #000;
+    --glass-rim: #f5f5f4;
+    --row: #000;
+    --row-hover: #1c1917;
+    --row-edge: 0 0 0 1px #f5f5f4;
+    --moving: #000;
+    --well: #000;
+    --well-edge: 0 0 0 1px #f5f5f4;
+    --tag: #44403c;
+    --inset: #1c1917;
+    --ground: #000;
   }
 }
 
@@ -242,9 +248,9 @@ html,
 body {
   margin: 0;
   height: 100%;
-  background: var(--frame);
+  background: var(--ground);
   color: var(--ink);
-  font: 15px/1.4 var(--font);
+  font: 400 var(--t-text) / 1.45 var(--font);
   font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
@@ -261,10 +267,23 @@ button {
   cursor: pointer;
 }
 
+::selection {
+  background: var(--selection);
+}
+
 :focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
   border-radius: 6px;
+}
+
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+a {
+  color: var(--blue);
 }
 
 .sr-only {
@@ -279,46 +298,109 @@ button {
   border: 0;
 }
 
+/* A small label in capitals over what it names, as section heads and figures have. */
+.eyebrow,
+.part h2,
+.headlines .label {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--t-small);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
 /* The frame -------------------------------------------------------------- */
 
 #app {
   height: 100%;
 }
 
-/* The rail, the workspace and the chat, side by side on the frame's ground. */
+/* The rail, the workspace and the chat, side by side, a gap apart, over the map.
+   The app is the stacking context everything is in, the map at its foot. */
 .app {
+  position: relative;
+  z-index: 0;
   height: 100%;
   display: grid;
   grid-template-columns: var(--rail) minmax(0, 1fr) var(--chat);
   gap: var(--gap);
-  padding: var(--gap) var(--gap) var(--gap) 0;
+  padding: var(--gap);
 }
 
-.workspace,
+/* The panes that float as glass: the rail and the chat. */
+.rail,
 .chat {
+  position: relative;
+  z-index: 2;
   min-height: 0;
-  background: var(--pane);
-  border: 1px solid var(--pane-edge);
-  border-radius: var(--radius);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--glass-rim);
+  border-radius: var(--radius-pane);
+  background: var(--glass-solid);
+  box-shadow: var(--sheen), var(--lift);
+}
+
+/* Small glass over the map or the backdrop: the tabs, the map's tools and cards,
+   menus and toasts. */
+.workspace-head .tabs,
+.map-toolbar .tool,
+.map-search,
+.layers-panel,
+.map-buttons,
+.map-notes,
+.time,
+.need,
+.popover,
+.notice-list,
+.toast,
+.app[data-tab="map"] .workspace-head h1 {
+  border: 1px solid var(--glass-rim);
+  background: var(--glass-solid);
+  box-shadow: var(--chip-sheen), var(--chip-lift);
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .rail,
+  .chat {
+    background: var(--glass);
+    -webkit-backdrop-filter: var(--frost);
+    backdrop-filter: var(--frost);
+  }
+
+  .workspace-head .tabs,
+  .map-toolbar .tool,
+  .map-search,
+  .layers-panel,
+  .map-buttons,
+  .map-notes,
+  .time,
+  .need,
+  .popover,
+  .notice-list,
+  .toast,
+  .app[data-tab="map"] .workspace-head h1 {
+    background: var(--glass-chip);
+    -webkit-backdrop-filter: var(--frost-chip);
+    backdrop-filter: var(--frost-chip);
+  }
 }
 
 /* Rail ------------------------------------------------------------------- */
 
 .rail {
+  grid-column: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  min-height: 0;
-  padding: 6px 0;
+  padding: 14px 0 10px;
 }
 
 .rail .brand {
-  width: 32px;
-  height: 32px;
-  margin-bottom: 10px;
-  border-radius: 9px;
+  flex: none;
+  margin-bottom: 14px;
+  color: var(--ink);
 }
 
 .rail-foot {
@@ -334,11 +416,11 @@ button {
   position: relative;
   display: grid;
   justify-items: center;
-  gap: 2px;
-  width: 58px;
-  padding: 7px 0 6px;
+  gap: 3px;
+  width: 60px;
+  padding: 8px 0 7px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 14px;
   background: none;
   color: var(--muted);
   text-decoration: none;
@@ -351,15 +433,14 @@ button {
 }
 
 .rail-label {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--t-small);
+  font-weight: 500;
   line-height: 1.2;
 }
 
 .rail-tag {
   max-width: 60px;
-  margin: 4px 0 0;
-  font-size: 10px;
+  margin: 6px 0 0;
   text-align: center;
 }
 
@@ -371,9 +452,9 @@ button {
 .popover,
 .notice-list {
   position: absolute;
-  left: calc(100% + 10px);
+  left: calc(100% + 14px);
   z-index: 6;
-  border-radius: var(--radius);
+  border-radius: 20px;
   padding: 6px;
 }
 
@@ -383,7 +464,7 @@ button {
 }
 
 .studies-list {
-  top: 0;
+  top: -4px;
   width: 340px;
 }
 
@@ -399,9 +480,9 @@ button {
   display: grid;
   grid-template-columns: 10px 1fr;
   align-items: start;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 10px;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 14px;
   color: var(--ink);
   text-decoration: none;
 }
@@ -411,10 +492,11 @@ button {
   background: var(--hover);
 }
 
+/* The study's line colour: its key, as on the map. */
 .studies-list .swatch {
   width: 10px;
   height: 10px;
-  margin-top: 5px;
+  margin-top: 6px;
   border-radius: 50%;
   forced-color-adjust: none;
 }
@@ -424,83 +506,109 @@ button {
 }
 
 .studies-list .name {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .studies-list .state {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--t-small);
 }
 
 /* Workspace -------------------------------------------------------------- */
 
+/* Not a stacking context, so the map inside it can lie under everything. Its sheet
+   is drawn behind its head and tabs, and goes on the Map tab. */
 .workspace {
+  position: relative;
+  grid-column: 2;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspace::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: var(--radius-pane);
+  background: var(--pane);
+  box-shadow: var(--pane-lift);
+  pointer-events: none;
 }
 
 .workspace-head {
+  position: relative;
+  z-index: 3;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 8px 20px;
-  padding: 14px 18px 10px;
-  border-bottom: 1px solid var(--divider);
+  gap: 12px 20px;
+  min-height: var(--head);
+  padding: 12px 14px 8px 32px;
 }
 
 .workspace-head h1 {
-  flex: 1 1 280px;
+  flex: 1 1 0;
+  min-width: 0;
   margin: 0;
-  font: var(--type-title);
+  overflow: hidden;
+  font-size: var(--t-title);
+  font-weight: 500;
   letter-spacing: -0.01em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* The tabs, as a segmented control. */
+/* The tabs, as a floating glass pill. */
 .tabs {
+  flex: none;
   display: flex;
   gap: 2px;
-  padding: 3px;
-  border-radius: 11px;
-  background: var(--sunken);
-  box-shadow: inset 0 0 0 1px var(--divider);
+  padding: 4px;
+  border-radius: 999px;
 }
 
 .tab {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
+  gap: 7px;
+  height: 36px;
+  padding: 0 15px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 999px;
   background: none;
   color: var(--muted);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--t-ui);
+  font-weight: 500;
 }
 
 .tab:hover {
   color: var(--ink);
+  background: var(--hover);
 }
 
 .tab[aria-selected="true"] {
-  background: var(--pane);
-  color: var(--ink);
-  box-shadow: 0 0 0 0.5px var(--pane-edge), 0 1px 3px rgba(0, 0, 0, 0.12);
+  background: var(--primary);
+  color: var(--on-primary);
 }
 
 .tab .count {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 11px;
-  line-height: 18px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--tag);
+  color: inherit;
+  font-size: var(--t-small);
+  line-height: 20px;
   text-align: center;
+}
+
+.tab[aria-selected="true"] .count {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* An agent is reading a source. */
@@ -508,7 +616,7 @@ button {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--accent);
+  background: currentColor;
 }
 
 .phone-only {
@@ -516,28 +624,57 @@ button {
 }
 
 .panel {
+  position: relative;
+  z-index: 2;
   min-height: 0;
   overflow: auto;
+  border-radius: 0 0 var(--radius-pane) var(--radius-pane);
 }
 
 .panel[hidden] {
   display: none;
 }
 
+/* On the Map tab the sheet goes: the map comes forward, and the title and tabs
+   float over it. Only they and the map's own tools take the pointer. */
+.app[data-tab="map"] .workspace {
+  pointer-events: none;
+}
+
+.app[data-tab="map"] .workspace::before {
+  display: none;
+}
+
+.app[data-tab="map"] .workspace-head {
+  padding-left: 0;
+}
+
+.app[data-tab="map"] .workspace-head > * {
+  pointer-events: auto;
+}
+
+.app[data-tab="map"] .workspace-head h1 {
+  flex: 0 1 auto;
+  padding: 9px 20px;
+  border-radius: 999px;
+  font-size: 19px;
+}
+
 /* Study ------------------------------------------------------------------ */
 
 .study-page {
   display: grid;
-  gap: 22px;
-  max-width: 1180px;
-  padding: 18px 22px 40px;
-  font-size: var(--type-text);
+  gap: 36px;
+  max-width: 940px;
+  padding: 10px 32px 56px;
 }
 
 .brief {
-  max-width: 76ch;
+  max-width: 64ch;
   margin: 0;
   color: var(--muted);
+  font-size: var(--t-lead);
+  line-height: 1.5;
   text-wrap: pretty;
 }
 
@@ -545,19 +682,19 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
   align-items: start;
-  gap: 22px 28px;
+  gap: 36px;
 }
 
 .study-main,
 .study-side {
   display: grid;
-  gap: 22px;
+  gap: 36px;
   min-width: 0;
 }
 
 .part {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -565,31 +702,18 @@ button {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin: 0;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--divider);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: var(--muted);
 }
 
 .part h2 .fresh {
-  color: var(--accent-ink);
-  text-transform: none;
+  color: var(--ink);
   letter-spacing: 0;
+  text-transform: none;
 }
 
 .decision-part {
-  padding: 14px;
-  border-radius: 12px;
-  background: var(--sunken);
-}
-
-.decision-part h2 {
-  border: 0;
-  padding: 0;
+  padding: 18px 20px 20px;
+  border-radius: var(--radius-card);
+  background: var(--inset);
 }
 
 /* The study's tables: tests, figures and files. */
@@ -603,7 +727,7 @@ button {
 .study-page td,
 .file-table th,
 .file-table td {
-  padding: 6px 8px;
+  padding: 10px 10px;
   border-bottom: 1px solid var(--divider);
   text-align: left;
   vertical-align: middle;
@@ -618,7 +742,7 @@ button {
 .file-table thead th {
   padding-top: 0;
   color: var(--muted);
-  font-size: var(--type-small);
+  font-size: var(--t-small);
   font-weight: 600;
 }
 
@@ -637,34 +761,34 @@ button {
 
 .figures .by {
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--t-small);
 }
 
+/* Recorded since the page opened: a bar of ink at the row's start. */
 .figures tr.new th {
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: inset 3px 0 0 var(--ink);
 }
 
 .table-scroll {
   overflow-x: auto;
 }
 
-/* A page or a working, from a figure's row: a small link-like button. */
+/* A page or a working, from a figure's row: a link-like button. */
 .cite-page {
   padding: 2px 6px;
   border: 0;
   border-radius: 6px;
   background: none;
-  color: var(--accent-ink);
-  font-size: 13px;
+  color: var(--blue);
+  font-size: var(--t-ui);
   text-align: left;
-  text-decoration: underline;
-  text-decoration-color: rgba(176, 52, 136, 0.35);
-  text-underline-offset: 3px;
   white-space: nowrap;
 }
 
 .cite-page:hover {
-  background: rgba(176, 52, 136, 0.08);
+  background: var(--hover);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* A figure measured on a map layer: the layer, then its data's publisher,
@@ -677,11 +801,7 @@ button {
 .spatial .dataset {
   padding: 0 6px;
   color: var(--muted);
-  font-size: 12px;
-}
-
-.spatial .dataset a {
-  color: var(--accent-ink);
+  font-size: var(--t-small);
 }
 
 /* Files ------------------------------------------------------------------ */
@@ -689,21 +809,22 @@ button {
 .files {
   display: grid;
   align-content: start;
-  gap: 10px;
-  padding: 14px 22px 40px;
+  gap: 16px;
+  max-width: 1100px;
   min-height: 100%;
+  padding: 10px 32px 48px;
 }
 
 .files.dragging {
-  box-shadow: inset 0 0 0 2px rgba(176, 52, 136, 0.45);
-  background: rgba(176, 52, 136, 0.04);
+  box-shadow: inset 0 0 0 2px var(--blue);
+  background: var(--selection);
 }
 
 .files-bar {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 34px;
+  min-height: 36px;
 }
 
 .files-bar p {
@@ -712,32 +833,50 @@ button {
 
 .files-bar .count {
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .files-bar .said {
   flex: 1;
-  color: var(--accent-ink);
-  font-size: 13px;
+  color: var(--ink);
+  font-size: var(--t-ui);
+}
+
+/* The one filled button: ink, with white words. */
+.files-bar .add,
+.decide button,
+.need .create,
+.doc-open,
+.exec-ping,
+.quicklook .act {
+  border: 0;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-weight: 500;
+}
+
+.files-bar .add:hover,
+.decide button:not([aria-disabled="true"]):hover,
+.need .create:hover,
+.doc-open:hover,
+.exec-ping:not(:disabled):hover,
+.quicklook .act:hover {
+  background: var(--primary-hover);
 }
 
 .files-bar .add {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
-  padding: 0 14px 0 10px;
-  border: 0;
+  height: 36px;
+  padding: 0 16px 0 12px;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-weight: 600;
 }
 
 .file-table .group th {
-  padding-top: 16px;
+  padding-top: 22px;
   color: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .file-table .group svg {
@@ -749,7 +888,7 @@ button {
 .file-table .group .n {
   margin-left: 8px;
   color: var(--muted);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .file-name {
@@ -762,60 +901,42 @@ button {
   border-radius: 6px;
   background: none;
   color: var(--ink);
+  font-weight: 500;
   text-align: left;
   text-decoration: none;
 }
 
 .file-name:hover .title {
   text-decoration: underline;
-}
-
-.kind-dot {
-  flex: none;
-  width: 10px;
-  height: 12px;
-  border-radius: 2px;
-  background: #2f8f5b;
-  forced-color-adjust: none;
-}
-
-.kind-dot[data-kind="PDF"] {
-  background: #d93a32;
-}
-
-.kind-dot[data-kind="File"] {
-  background: #8e8e93;
-}
-
-.kind-dot[data-kind="Draft"] {
-  background: var(--accent);
+  text-underline-offset: 3px;
 }
 
 .file-table td {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--t-ui);
+  white-space: nowrap;
 }
 
 .file-table tr.reading th {
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: inset 3px 0 0 var(--ink);
 }
 
 .busy {
   margin-left: 8px;
-  padding: 1px 8px;
+  padding: 1px 9px;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
+  background: var(--tag);
+  color: var(--ink);
+  font-size: var(--t-small);
+  font-weight: 600;
 }
 
 .icon-link {
   display: inline-grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
   color: var(--muted);
 }
 
@@ -828,9 +949,9 @@ button {
   display: inline-flex;
   gap: 6px;
   width: auto;
-  padding: 0 10px;
-  font-size: 13px;
-  font-weight: 600;
+  padding: 0 12px;
+  font-size: var(--t-ui);
+  font-weight: 500;
   text-decoration: none;
 }
 
@@ -847,10 +968,9 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 12px 8px 18px;
-  border-bottom: 1px solid var(--divider);
-  font-size: 13px;
+  padding: 2px 16px 10px 32px;
   color: var(--muted);
+  font-size: var(--t-ui);
 }
 
 .sim-head p {
@@ -859,26 +979,39 @@ button {
 
 .sim-head strong {
   color: var(--ink);
+  font-weight: 500;
 }
 
 .sim-panel iframe {
   width: 100%;
   height: 100%;
   border: 0;
+  border-radius: 0 0 var(--radius-pane) var(--radius-pane);
   background: #fff;
 }
 
 /* Map -------------------------------------------------------------------- */
 
-.map-panel:not([hidden]) {
-  overflow: hidden;
+/* The map under the whole app. Behind the other tabs it's the backdrop, blurred,
+   dimmed and still, taking nothing; on the Map tab it comes forward, sharp. */
+.map-panel {
+  position: fixed;
+  z-index: 0;
+  inset: 0 0 0 calc(var(--side-l) - var(--side-r));
+  pointer-events: auto;
+}
+
+.map-panel[data-ambient] {
+  pointer-events: none;
 }
 
 .map-pane {
-  position: relative;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
-  background: var(--bg);
+  /* The edges the panes cover, in the map's own coordinates. */
+  --map-left: var(--side-r);
+  --map-right: var(--side-r);
 }
 
 .map {
@@ -899,7 +1032,16 @@ button {
   cursor: grabbing;
 }
 
-/* Its focus ring goes just inside the pane's edge. */
+.map-panel[data-ambient] .map {
+  filter: blur(5px) saturate(160%);
+  opacity: 0.7;
+}
+
+.map-panel[data-ambient] :is(.map-top, .map-buttons, .map-foot, .needs) {
+  display: none;
+}
+
+/* Its focus ring goes just inside the workspace's edge. */
 .map:focus-visible {
   outline-offset: -3px;
   border-radius: 0;
@@ -909,24 +1051,16 @@ button {
   visibility: hidden;
 }
 
-.fade {
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 26%;
-  background: linear-gradient(var(--bg) 35%, transparent);
-  pointer-events: none;
-}
-
-/* The tools, the search and the Layers panel, down the map's top left. */
+/* The tools, the search and the Layers panel, down the workspace's top left. */
 .map-top {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: var(--map-top);
+  left: calc(var(--side-r) + 4px);
   z-index: 3;
   display: grid;
   justify-items: start;
-  gap: 8px;
-  max-width: calc(100% - 80px);
+  gap: 10px;
+  max-width: calc(100% - 2 * var(--side-r) - 80px);
   pointer-events: none;
 }
 
@@ -936,27 +1070,27 @@ button {
 
 .map-toolbar {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
 
-/* A square tool on glass, or a wider one with its name. */
+/* A round tool on glass, or a wider one with its name. */
 .map-toolbar .tool {
   display: inline-grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 999px;
   color: var(--ink);
 }
 
 .map-toolbar .tool.wide {
   display: inline-flex;
-  gap: 7px;
+  gap: 8px;
   width: auto;
-  padding: 0 12px 0 10px;
-  font-size: 13px;
-  font-weight: 600;
+  padding: 0 16px 0 12px;
+  font-size: var(--t-ui);
+  font-weight: 500;
 }
 
 .map-toolbar .tool[aria-pressed="false"] {
@@ -964,19 +1098,18 @@ button {
 }
 
 .map-toolbar .tool[aria-pressed="true"] {
-  box-shadow: var(--chip-sheen), var(--chip-lift), inset 0 0 0 1.5px var(--accent);
+  box-shadow: var(--chip-sheen), var(--chip-lift), inset 0 0 0 1.5px var(--ink);
 }
 
 .map-toolbar .tool:disabled {
-  color: var(--muted);
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: default;
 }
 
 .map-search {
   width: min(320px, 100%);
   padding: 6px;
-  border-radius: 12px;
+  border-radius: 20px;
 }
 
 .map-search[hidden] {
@@ -985,10 +1118,10 @@ button {
 
 .map-search input {
   width: 100%;
-  height: 34px;
-  padding: 0 12px;
+  height: 36px;
+  padding: 0 14px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 999px;
 }
 
 .map-search ul {
@@ -1001,9 +1134,9 @@ button {
 .map-search li button {
   display: grid;
   width: 100%;
-  padding: 6px 10px;
+  padding: 7px 12px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   background: none;
   text-align: left;
 }
@@ -1015,26 +1148,26 @@ button {
 .map-search .layer,
 .map-search .none {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--t-small);
 }
 
 .map-search .none {
-  padding: 6px 10px;
+  padding: 7px 12px;
 }
 
 /* The agents' layers, each a row of colour, name and tools. */
 .layers-panel {
   width: min(340px, 100%);
   padding: 6px 6px 8px;
-  border-radius: 14px;
-  font-size: 13px;
+  border-radius: 20px;
+  font-size: var(--t-ui);
 }
 
 .layers-panel header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 2px 2px 4px 8px;
+  padding: 2px 2px 4px 10px;
   color: var(--muted);
 }
 
@@ -1042,8 +1175,8 @@ button {
   flex: 1;
   margin: 0;
   color: var(--ink);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--t-ui);
+  font-weight: 500;
 }
 
 .layers-panel ul {
@@ -1060,17 +1193,18 @@ button {
 
 .layers-panel li {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) repeat(4, 28px);
+  grid-template-columns: 10px minmax(0, 1fr) repeat(4, 30px);
   align-items: center;
   gap: 2px 6px;
-  padding: 3px 2px 3px 10px;
-  border-radius: 8px;
+  padding: 3px 2px 3px 12px;
+  border-radius: 12px;
 }
 
 .layers-panel li:hover {
   background: var(--hover);
 }
 
+/* A layer's colour: its key on the map. */
 .layers-panel .swatch {
   width: 10px;
   height: 10px;
@@ -1095,11 +1229,11 @@ button {
 .layers-panel .tool {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 0;
-  border-radius: 7px;
+  border-radius: 999px;
   background: none;
   color: var(--muted);
 }
@@ -1122,42 +1256,42 @@ button {
   transform: none;
 }
 
-/* Zoom in, zoom out and Reset view, at the map's top right. */
+/* Zoom in, zoom out and Reset view, at the workspace's top right. */
 .map-buttons {
   position: absolute;
   z-index: 2;
-  top: 12px;
-  right: 12px;
+  top: var(--map-top);
+  right: calc(var(--side-r) + 4px);
   display: grid;
-  grid-template-columns: 32px;
-  grid-auto-rows: 32px;
+  grid-template-columns: 34px;
+  grid-auto-rows: 34px;
   gap: 2px;
   padding: 4px;
-  border-radius: 12px;
+  border-radius: 999px;
 }
 
 .map-buttons button {
   display: grid;
   place-items: center;
   padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  border: 0;
+  border-radius: 999px;
   background: none;
+  color: var(--ink);
 }
 
 .map-buttons button:hover {
   background: var(--hover);
-  color: var(--accent-ink);
 }
 
 .map-buttons button:active {
   background: var(--press);
 }
 
-/* The time bar, the line's key and the data's credits, along the map's foot. */
+/* The time bar, the line's key and the data's credits, along the workspace's foot. */
 .map-foot {
   position: absolute;
-  inset: auto 12px 10px;
+  inset: auto calc(var(--side-r) + 4px) calc(var(--gap) + 4px) calc(var(--side-r) + 4px);
   z-index: 2;
   display: grid;
   justify-items: start;
@@ -1173,22 +1307,52 @@ button {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 14px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  background: var(--glass);
+  gap: 4px 16px;
+  padding: 6px 14px;
+  border-radius: 999px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--t-small);
 }
 
 .credit {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--t-small);
   text-decoration: none;
 }
 
 .credit:hover {
   text-decoration: underline;
+}
+
+/* What the solid and dashed parts of the study's line stand for. */
+.key {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  color: var(--ink);
+}
+
+/* Spaced by margins, as the decision line is. */
+.key > span {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 16px;
+}
+
+/* The study line's own colour, the one place off the map it shows. */
+.key .swatch {
+  flex: none;
+  margin-right: 6px;
+  width: 20px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  forced-color-adjust: none;
+}
+
+.key .swatch.dashed {
+  background: repeating-linear-gradient(90deg, var(--line) 0 6px, transparent 6px 9px);
 }
 
 /* Engagement needs ------------------------------------------------------ */
@@ -1223,7 +1387,8 @@ button {
   z-index: 0;
 }
 
-.pin:focus-within {
+.pin:focus-within,
+.pin:hover {
   z-index: 2;
 }
 
@@ -1235,7 +1400,7 @@ button {
   height: 10px;
   border-radius: 50%;
   background: var(--ink);
-  box-shadow: 0 0 0 2px var(--bg);
+  box-shadow: 0 0 0 2px var(--ground);
 }
 
 /* The stem from the place up to its card, flipped down when the card sits below. */
@@ -1254,7 +1419,7 @@ button {
   transform: scaleY(-1);
 }
 
-/* Listed, not pinned: its place is off the map or under a panel. */
+/* Listed, not pinned: its place is off the map or under a pane. */
 .pin[data-side="listed"]::before,
 .pin[data-side="listed"] .dot {
   display: none;
@@ -1266,18 +1431,13 @@ button {
   left: 0;
   width: max-content;
   /* Never wider than a phone, less its gutters. */
-  max-width: min(340px, calc(100vw - 16px));
+  max-width: min(320px, calc(100vw - 16px));
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 6px 6px 12px;
+  padding: 6px 6px 6px 14px;
+  border-radius: 18px;
   pointer-events: auto;
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid var(--hairline);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
 }
 
 .need .words:focus-visible {
@@ -1297,14 +1457,14 @@ button {
   place-items: center;
   width: 40px;
   height: 40px;
-  border-radius: 8px;
+  border-radius: 12px;
 }
 
 /* Not made yet: an empty frame, showing which kinds are wanted. */
 .need .empty {
   grid-auto-flow: column;
   gap: 1px;
-  border: 1.5px dashed #aeaeb2;
+  border: 1.5px dashed var(--muted);
   color: var(--muted);
 }
 
@@ -1315,7 +1475,7 @@ button {
 }
 
 .need .working {
-  background: rgba(176, 52, 136, 0.08);
+  background: var(--hover);
 }
 
 /* Turns three times, under five seconds, then holds still: a video can take
@@ -1324,7 +1484,7 @@ button {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 2px solid var(--accent);
+  border: 2px solid var(--ink);
   border-right-color: transparent;
   animation: spin 1.4s linear 3;
 }
@@ -1334,11 +1494,11 @@ button {
   padding: 0;
   border: 1px solid var(--hairline);
   overflow: hidden;
-  background: var(--sunken);
+  background: var(--inset);
 }
 
 .need .thumb:hover {
-  border-color: rgba(176, 52, 136, 0.6);
+  border-color: var(--ink);
 }
 
 .need .thumb img {
@@ -1366,43 +1526,35 @@ button {
   border: 0;
   background: none;
   text-align: left;
-  line-height: 1.25;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
 .need .state {
-  font-size: 12px;
-  color: var(--accent-ink);
+  color: var(--muted);
+  font-size: var(--t-small);
 }
 
 .need.failed .state {
-  color: var(--fail);
+  color: var(--fail-ink);
 }
 
 .need .title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--t-ui);
+  font-weight: 500;
 }
 
 .need .place {
-  font-size: 12px;
   color: var(--muted);
+  font-size: var(--t-small);
 }
 
 .need .create {
   flex: none;
-  height: 28px;
-  padding: 0 12px;
-  border: 1px solid transparent;
+  height: 30px;
+  padding: 0 14px;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.need .create:hover {
-  background: var(--accent-ink);
+  font-size: var(--t-small);
 }
 
 .need .create[aria-disabled="true"] {
@@ -1412,7 +1564,7 @@ button {
 /* A draft alignment option: its words open its actions under them. */
 .need.option {
   max-width: min(300px, calc(100vw - 16px));
-  padding: 6px 10px;
+  padding: 7px 14px;
 }
 
 /* Wider while comparing, so each option gets a column. */
@@ -1422,30 +1574,32 @@ button {
 
 .need.option .body {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
 .need .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
 }
 
+/* Secondary buttons are glass: a well in the card. */
 .need .action {
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--hairline);
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
   border-radius: 999px;
-  background: var(--field);
-  color: var(--accent-ink);
-  font-size: 12px;
-  font-weight: 600;
+  background: var(--well);
+  box-shadow: var(--well-edge);
+  color: var(--ink);
+  font-size: var(--t-small);
+  font-weight: 500;
 }
 
 .need .action:hover,
 .need .action[aria-pressed="true"] {
-  border-color: var(--accent);
+  box-shadow: var(--well-edge), 0 0 0 1.5px var(--ink);
 }
 
 .need .action[aria-disabled="true"] {
@@ -1455,7 +1609,7 @@ button {
 .need .compare {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--t-small);
 }
 
 .need .compare th,
@@ -1476,19 +1630,36 @@ button {
 /* What isn't known yet, where it applies: compact, and opens its page. */
 .need.gap {
   max-width: min(240px, calc(100vw - 16px));
-  padding: 5px 10px;
+  padding: 6px 14px;
 }
 
-.need.gap .place {
-  font-size: 11px;
+/* A draft option and what isn't known yet show only their title until pointed
+   at, focused or opened, wherever they sit, so the map stays clear and a card's
+   size never depends on where it is placed. */
+.need.option:not(:hover):not(:focus-within) .words:not([aria-expanded="true"]) .place,
+.need.option:not(:hover):not(:focus-within) .words:not([aria-expanded="true"]) .state,
+.need.gap:not(:hover):not(:focus-within) .place {
+  display: none;
 }
+
+/* A need's Create shows when its card is pointed at or focused: still in the tab
+   order, out of the card's size, and in its details for touch. */
+@media (hover: hover) {
+  .need:not(:hover):not(:focus-within) .create {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+/* Study figures, findings and the decision ------------------------------- */
 
 .findings {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 2px;
+  gap: 4px;
 }
 
 /* The status column is only as wide as its mark. */
@@ -1515,13 +1686,15 @@ button {
 
 .status.stale {
   background: var(--muted);
+  color: var(--pane-solid);
 }
 
-/* Awaiting a planner: a hollow ring, as on a note awaiting one. */
+/* Awaiting a planner: a hollow amber ring, as on a note awaiting one. */
 .status.unverified {
-  border: 2px solid var(--muted);
+  border: 2px solid var(--amber);
 }
 
+/* A figure, which opens where it comes from: in ink, a fill when pointed at. */
 .figure {
   min-width: 44px;
   min-height: 32px;
@@ -1529,80 +1702,49 @@ button {
   border: 0;
   border-radius: 8px;
   background: transparent;
-  font: var(--type-figure);
+  color: var(--ink);
+  font-size: var(--t-lead);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  line-height: 1.2;
   text-align: left;
-  color: var(--accent-ink);
-  text-decoration: underline;
-  text-decoration-color: rgba(176, 52, 136, 0.35);
-  text-underline-offset: 4px;
 }
 
 .figure:hover {
-  background: rgba(176, 52, 136, 0.08);
+  background: var(--hover);
 }
 
-/* What the solid and dashed parts of the study's line stand for, at the map's foot. */
-.key {
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  row-gap: 4px;
-  color: var(--muted);
-}
-
-/* Spaced by margins, as the decision line is. */
-.key > span {
-  display: inline-flex;
-  align-items: center;
-  margin-right: 16px;
-}
-
-.key .swatch {
-  flex: none;
-  margin-right: 6px;
-  width: 20px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--line, var(--accent));
-  forced-color-adjust: none;
-}
-
-.key .swatch.dashed {
-  background: repeating-linear-gradient(90deg, var(--line, var(--accent)) 0 6px, transparent 6px 9px);
-}
-
-/* The figures a study leads with, large, each on a tile of its own. */
+/* The figures a study leads with, large, each on an inset card, its label over it. */
 .headlines {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
 }
 
 .headlines li {
   display: grid;
-  align-content: start;
+  align-content: space-between;
   justify-items: start;
-  gap: 2px;
-  padding: 12px 14px 14px;
-  border-radius: 12px;
-  background: var(--sunken);
-  box-shadow: inset 0 0 0 1px var(--divider);
+  gap: 10px;
+  padding: 16px 16px 14px 18px;
+  border-radius: var(--radius-card);
+  background: var(--inset);
+}
+
+.headlines .label {
+  order: -1;
+  text-wrap: balance;
 }
 
 .headlines .figure {
   margin-left: -6px;
-  font-size: 28px;
-  letter-spacing: -0.01em;
-}
-
-/* Two short lines, rather than one long and one word. */
-.headlines .label {
-  color: var(--muted);
-  text-wrap: balance;
+  font-size: var(--t-figure);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
 }
 
 /* Text starts after a gutter that holds the note's marker. */
@@ -1611,13 +1753,13 @@ button {
   display: block;
   width: 100%;
   min-height: 28px;
-  padding: 4px 6px 4px 24px;
+  padding: 6px 8px 6px 28px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   background: transparent;
+  color: var(--ink);
   text-align: left;
   text-wrap: pretty;
-  color: var(--muted);
 }
 
 .finding:hover {
@@ -1632,28 +1774,27 @@ button {
 }
 
 .finding .next {
-  margin-top: 1px;
-  font-size: var(--type-small);
-  line-height: 1.35;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--t-small);
+  line-height: 1.4;
 }
 
-/* A marker sits in its gutter, centred under the tests' marks and on the first
-   line of its text, so wrapped text never runs into it. Placed, not spaced by a
-   flex gap, which some browsers lack. */
+/* A marker sits in its gutter, on the first line of its text, so wrapped text
+   never runs into it. */
 .finding .dot,
 .awaiting .dot {
   position: absolute;
-  left: 6px;
-  /* Half the 1.4 line, less half the marker. */
-  top: calc(0.7em - 4px);
+  left: 8px;
+  top: calc(0.725em - 4px);
   width: 8px;
   height: 8px;
   border-radius: 50%;
 }
 
-/* Below the button's 4px padding. */
+/* Below the button's padding. */
 .finding .dot {
-  top: 0.7em;
+  top: calc(6px + 0.725em - 4px);
   background: var(--muted);
 }
 
@@ -1666,7 +1807,7 @@ button {
 }
 
 .finding.mixed .dot {
-  background: #b25e09;
+  background: var(--amber);
 }
 
 /* The study's status, over the decision: awaiting a planner, or its tests. */
@@ -1674,8 +1815,8 @@ button {
   position: relative;
   margin: 0;
   padding-left: 24px;
-  color: var(--muted);
-  font-weight: 600;
+  color: var(--ink);
+  font-weight: 500;
 }
 
 .awaiting.passed .dot {
@@ -1683,17 +1824,17 @@ button {
   border-color: var(--pass);
 }
 
-/* A ring drawn by its border, which forced colours keep. */
+/* A ring drawn by its border, which forced colours keep: amber, as it awaits a planner. */
 .awaiting .dot,
 .finding.unrated .dot {
   background: transparent;
-  border: 2px solid var(--muted);
+  border: 2px solid var(--amber);
 }
 
 /* As tall as the form it takes the place of. */
 .decision {
   margin: 0;
-  min-height: 32px;
+  min-height: 36px;
   display: flex;
   flex-wrap: wrap;
   row-gap: 4px;
@@ -1708,67 +1849,70 @@ button {
 
 .decision strong {
   color: var(--ink);
-}
-
-.sign-in {
-  justify-self: start;
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid var(--hairline);
-  border-radius: 999px;
-  background: var(--field);
   font-weight: 600;
 }
 
+/* A secondary button: glass, a well in its pane. */
+.sign-in {
+  justify-self: start;
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--well);
+  box-shadow: var(--well-edge);
+  font-weight: 500;
+}
+
 .sign-in:hover {
-  background: var(--field-hover);
+  background: var(--pane-solid);
 }
 
 .decide {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
 
-/* In the card's one text size, as every label in it is. */
 .decide select,
 .decide input,
 .decide button {
-  height: 32px;
-  border: 1px solid var(--hairline);
+  height: 36px;
   border-radius: 999px;
-  background: var(--field);
+}
+
+.decide select,
+.decide input {
+  border: 0;
+  background: var(--well);
+  box-shadow: var(--well-edge);
 }
 
 .decide select {
-  padding: 0 10px;
+  padding: 0 10px 0 14px;
 }
 
 /* Takes the room left over, and never widens the card. */
 .decide input {
   flex: 1;
   width: 0;
-  padding: 0 12px;
+  padding: 0 14px;
 }
 
 .decide button {
-  padding: 0 14px;
-  border: 0;
-  background: var(--accent);
-  color: #fff;
-  font-weight: 600;
+  padding: 0 18px;
 }
 
 .decide button[aria-disabled="true"] {
-  background: var(--fill-off);
+  background: var(--tag);
   color: var(--muted);
   cursor: default;
 }
 
 .override {
-  padding: 0 8px;
+  padding: 0 9px;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--amber-tint);
+  color: var(--amber-ink);
   font-weight: 600;
 }
 
@@ -1781,7 +1925,7 @@ button {
 
 /* Spaced by margins, as the decision line is. */
 .results > div {
-  margin-right: 18px;
+  margin-right: 20px;
 }
 
 .results:empty {
@@ -1790,17 +1934,20 @@ button {
 
 .results dt {
   color: var(--muted);
+  font-size: var(--t-small);
 }
 
 .results dd {
   margin: 0;
-  font: var(--type-figure);
+  font-size: 22px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
 .results .note {
-  font: 400 var(--type-text) / 1.4 var(--font);
   color: var(--muted);
+  font-size: var(--t-ui);
+  font-weight: 400;
 }
 
 /* Forecast numbers are outlined: claims, not results. */
@@ -1823,8 +1970,7 @@ button {
 .sliders {
   display: grid;
   gap: 4px;
-  padding-top: 8px;
-  border-top: 1px solid var(--hairline);
+  padding: 4px 20px;
 }
 
 .sliders label {
@@ -1844,8 +1990,8 @@ button {
 input[type="range"] {
   width: 100%;
   min-height: 28px;
-  accent-color: var(--accent);
   margin: 0;
+  accent-color: var(--ink);
 }
 
 /* Time ------------------------------------------------------------------ */
@@ -1855,8 +2001,9 @@ input[type="range"] {
   grid-template-columns: auto auto auto 1fr auto;
   align-items: center;
   gap: 10px;
-  padding: 10px 14px 22px;
   max-width: 980px;
+  padding: 10px 16px 24px;
+  border-radius: 24px;
 }
 
 .round {
@@ -1866,12 +2013,12 @@ input[type="range"] {
   height: 36px;
   border: 0;
   border-radius: 50%;
-  background: var(--ink);
-  color: var(--on-ink);
+  background: var(--primary);
+  color: var(--on-primary);
 }
 
 .round:disabled {
-  background: var(--fill-off);
+  background: var(--tag);
   color: var(--muted);
   cursor: default;
 }
@@ -1879,11 +2026,12 @@ input[type="range"] {
 .speed {
   min-width: 64px;
   height: 36px;
-  padding: 0 10px;
-  border: 1px solid var(--hairline);
+  padding: 0 12px;
+  border: 0;
   border-radius: 999px;
-  background: var(--field);
-  font-size: 13px;
+  background: var(--well);
+  box-shadow: var(--well-edge);
+  font-size: var(--t-small);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -1899,9 +2047,37 @@ input[type="range"] {
   inset: auto 0 calc(50% + 8px) 0;
   width: 100%;
   height: 22px;
-  fill: var(--accent);
-  opacity: 0.85;
+  fill: var(--muted);
+  opacity: 0.8;
   pointer-events: none;
+}
+
+/* Vehicles: solid is live, a ring is scheduled. */
+.legend {
+  position: absolute;
+  inset: calc(50% + 12px) auto auto 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--t-small);
+  pointer-events: none;
+}
+
+.legend .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+}
+
+.legend .dot.live {
+  background: var(--ink);
+}
+
+.legend .dot.scheduled {
+  margin-left: 8px;
 }
 
 .when {
@@ -1914,46 +2090,45 @@ input[type="range"] {
 }
 
 .when .clock {
-  font-weight: 400;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--t-small);
+  font-weight: 400;
 }
 
 .tag {
   margin: 0;
-  padding: 2px 8px;
+  padding: 2px 9px;
   border-radius: 999px;
-  background: var(--fill);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
+  background: var(--tag);
+  color: var(--ink);
+  font-size: var(--t-small);
+  font-weight: 500;
 }
 
 /* Chat ------------------------------------------------------------------ */
 
 .chat {
+  grid-column: 3;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto auto auto;
   /* Clipped rather than hidden, so not even code can scroll the panel: Review
      on a message moves only the log. */
   overflow: hidden;
   overflow: clip;
-  font-size: 14px;
 }
 
 .chat-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 44px;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--divider);
+  min-height: 56px;
+  padding: 12px 16px 8px 20px;
 }
 
 .chat-head h2 {
   margin: 0 auto 0 0;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--t-lead);
+  font-weight: 500;
 }
 
 /* The run at work, or done: a mark and its time. */
@@ -1963,20 +2138,20 @@ input[type="range"] {
   gap: 6px;
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--t-small);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .run-line .mark {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: var(--pass);
 }
 
 .run-line[data-state="working"] .mark {
-  background: var(--accent);
+  background: var(--ink);
 }
 
 .run-line[data-state="stale"] .mark,
@@ -1989,18 +2164,18 @@ input[type="range"] {
 .chat .log {
   position: relative;
   overflow-y: auto;
-  padding: 12px 14px 14px;
+  padding: 4px 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .bubble {
   margin: 0;
   max-width: 88%;
-  padding: 8px 12px;
-  border-radius: 16px;
-  line-height: 1.35;
+  padding: 9px 14px;
+  border-radius: 18px;
+  line-height: 1.45;
   /* A long address breaks anywhere, so nothing scrolls sideways at 320px. */
   overflow-wrap: anywhere;
   /* Agents answer in lines and paragraphs, such as a hand-over's points. */
@@ -2014,18 +2189,30 @@ input[type="range"] {
   border: 0;
   background: none;
   font: inherit;
-  color: inherit;
+  color: var(--blue);
   text-align: inherit;
   text-decoration: underline;
+  text-decoration-thickness: 1px;
   text-underline-offset: 2px;
   cursor: pointer;
 }
 
-/* The agents' words read as a document does, down the column, as Waypoint's. */
+/* The agents' answers: what to read, on a near-opaque card. */
 .bubble.agent {
   align-self: stretch;
   max-width: none;
-  padding: 0 2px;
+  padding: 14px 16px;
+  border-radius: var(--radius-card);
+  background: var(--pane);
+  box-shadow: var(--pane-lift);
+}
+
+/* The planner's words, on the right. */
+.bubble.planner {
+  align-self: flex-end;
+  background: var(--primary);
+  color: var(--on-primary);
+  border-bottom-right-radius: 6px;
 }
 
 /* The lead's plan, numbered. */
@@ -2034,7 +2221,7 @@ input[type="range"] {
   padding-left: 22px;
   white-space: normal;
   display: grid;
-  gap: 3px;
+  gap: 4px;
 }
 
 .plan li::marker {
@@ -2049,26 +2236,26 @@ input[type="range"] {
 
 /* Steps ------------------------------------------------------------------ */
 
-/* A specialist, or a tool call: a row with a mark, a name and a badge, which
-   opens to show more. */
+/* A specialist, or a tool call: a glass row with a mark, a name and how it went,
+   which opens to show more. */
 .step {
   align-self: stretch;
-  font-size: 13px;
+  font-size: var(--t-ui);
 }
 
 .step summary,
 .step.tool > summary {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 5px 30px 5px 10px;
-  border-radius: 10px;
-  background: var(--sunken);
-  box-shadow: inset 0 0 0 1px var(--divider);
+  gap: 10px;
+  min-height: 40px;
+  padding: 7px 34px 7px 12px;
+  border-radius: var(--radius-row);
+  background: var(--row);
+  box-shadow: var(--row-edge);
   list-style: none;
   cursor: pointer;
-  position: relative;
 }
 
 .step summary::-webkit-details-marker {
@@ -2079,7 +2266,7 @@ input[type="range"] {
 .step summary::after {
   content: "";
   position: absolute;
-  right: 12px;
+  right: 14px;
   top: 50%;
   width: 7px;
   height: 7px;
@@ -2096,12 +2283,12 @@ input[type="range"] {
 }
 
 .step summary:hover {
-  background: var(--hover);
+  background: var(--row-hover);
 }
 
 .step-name {
   min-width: 0;
-  font-weight: 600;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 
@@ -2125,7 +2312,7 @@ input[type="range"] {
 }
 
 .step .mark[data-state="running"] {
-  border: 2px solid var(--accent);
+  border: 2px solid var(--ink);
   border-right-color: transparent;
 }
 
@@ -2139,6 +2326,7 @@ input[type="range"] {
 
 .step .mark[data-state="stopped"] {
   background: var(--muted);
+  color: var(--pane-solid);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -2150,7 +2338,7 @@ input[type="range"] {
 /* Without motion, a working mark is a still ring with a dot, not a spinner. */
 @media (prefers-reduced-motion: reduce) {
   .step .mark[data-state="running"] {
-    border-right-color: var(--accent);
+    border-right-color: var(--ink);
   }
 
   .step .mark[data-state="running"]::after {
@@ -2158,20 +2346,20 @@ input[type="range"] {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--accent);
+    background: var(--ink);
   }
 }
 
-/* How it went, in a word on its colour's tint, as Waypoint's green Complete. */
+/* How it went, in a word on its colour's tint. */
 .badge {
   flex: none;
-  padding: 1px 8px;
+  padding: 1px 9px;
   border-radius: 999px;
   background: var(--tag);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
+  color: var(--ink);
+  font-size: var(--t-small);
+  font-weight: 500;
+  line-height: 20px;
 }
 
 .badge[data-state="done"] {
@@ -2181,33 +2369,28 @@ input[type="range"] {
 
 .badge[data-state="failed"] {
   background: var(--fail-tint);
-  color: var(--fail);
-}
-
-.badge[data-state="running"] {
-  background: rgba(176, 52, 136, 0.1);
-  color: var(--accent-ink);
+  color: var(--fail-ink);
 }
 
 .skill {
   flex: none;
-  padding: 0 6px;
+  padding: 0 7px;
   border-radius: 6px;
-  background: rgba(176, 52, 136, 0.1);
-  color: var(--accent-ink);
-  font: 600 11px/18px ui-monospace, "SF Mono", Menlo, monospace;
+  background: var(--tag);
+  color: var(--ink);
+  font: 500 var(--t-small) / 20px var(--mono);
 }
 
 .step-body {
   display: grid;
-  gap: 6px;
-  padding: 8px 0 2px 14px;
+  gap: 8px;
+  padding: 10px 0 4px 14px;
 }
 
 .step-meta {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--t-small);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2216,16 +2399,16 @@ input[type="range"] {
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
 .step-detail {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 3px 10px;
-  margin: 6px 0 2px;
-  padding: 0 10px;
-  font-size: 12px;
+  gap: 4px 12px;
+  margin: 8px 0 4px;
+  padding: 0 12px;
+  font-size: var(--t-small);
 }
 
 .step-detail dt {
@@ -2239,36 +2422,33 @@ input[type="range"] {
 }
 
 .step-detail code {
-  font: 12px ui-monospace, "SF Mono", Menlo, monospace;
+  font: var(--t-small) var(--mono);
 }
 
 /* A specialist's answer, under its row, with its cited pages. */
 .step-summary {
-  margin: 6px 2px 0;
-  color: var(--muted);
+  margin: 8px 4px 0;
+  color: var(--ink);
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
 
-.bubble.planner {
-  align-self: flex-end;
-  background: var(--accent);
-  color: #fff;
-  border-bottom-right-radius: 5px;
+/* What an agent made, under its answer: a near-opaque card with its title, its
+   kind and a button to open it. */
+.doc-card,
+.exec-card {
+  align-self: stretch;
+  border-radius: var(--radius-card);
+  background: var(--pane);
+  box-shadow: var(--pane-lift);
 }
 
-/* A document an agent made, in the chat: its title, its kind and a link to open it. */
 .doc-card {
-  align-self: flex-start;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 10px;
-  max-width: 88%;
-  padding: 10px 12px;
-  border-radius: 16px;
-  border-bottom-left-radius: 5px;
-  background: var(--bubble);
+  gap: 12px;
+  padding: 12px 14px;
 }
 
 .doc-card p {
@@ -2278,51 +2458,46 @@ input[type="range"] {
 }
 
 .doc-icon {
-  color: var(--accent-ink);
+  color: var(--ink);
 }
 
 .doc-title {
-  font-weight: 600;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 
-.doc-kind {
-  color: var(--muted);
-  font-size: 13px;
-}
-
+.doc-kind,
 .doc-edit {
-  color: var(--accent-ink);
-  font-size: 13px;
+  color: var(--muted);
+  font-size: var(--t-small);
 }
 
 .doc-open {
-  padding: 6px 14px;
+  padding: 7px 16px;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--t-ui);
   text-decoration: none;
 }
 
-.doc-open:hover {
-  background: var(--accent-ink);
+/* The simulator the lead opens, under its answer: a name and a button. */
+.sim-card {
+  grid-template-columns: 1fr auto;
+}
+
+.sim-card .doc-open {
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--t-ui);
+  font-weight: 500;
 }
 
 /* Under an answer that needs an executive's decision: the decision, and a
    planner's button that pings the executive on Slack. */
 .exec-card {
-  align-self: flex-start;
   display: grid;
   justify-items: start;
-  gap: 6px;
-  max-width: 88%;
-  padding: 10px 12px 12px;
-  border-radius: 16px;
-  border-bottom-left-radius: 5px;
-  background: var(--bubble);
-  box-shadow: inset 3px 0 0 var(--accent);
+  gap: 8px;
+  padding: 14px 16px 16px;
 }
 
 .exec-card p {
@@ -2331,44 +2506,33 @@ input[type="range"] {
 }
 
 .exec-label {
-  color: var(--accent-ink);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  color: var(--amber-ink);
 }
 
 .exec-decision {
-  font-weight: 600;
-  line-height: 1.35;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 .exec-offer,
 .exec-note {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--t-ui);
 }
 
 .exec-ping {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  min-height: 32px;
+  gap: 8px;
+  min-height: 36px;
   margin-top: 2px;
-  padding: 6px 14px 6px 12px;
-  border: 0;
+  padding: 6px 16px 6px 13px;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
   font: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--t-ui);
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
-}
-
-.exec-ping:hover {
-  background: var(--accent-ink);
 }
 
 .exec-ping[aria-disabled="true"] {
@@ -2376,23 +2540,23 @@ input[type="range"] {
 }
 
 .exec-ping:disabled {
-  background: var(--field);
+  background: var(--well);
   color: var(--muted);
-  box-shadow: inset 0 0 0 1px var(--hairline);
+  box-shadow: var(--well-edge);
   cursor: default;
 }
 
 .exec-error {
-  color: var(--fail);
-  font-size: 13px;
+  color: var(--fail-ink);
+  font-size: var(--t-ui);
 }
 
 .exec-sent {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 600;
+  gap: 8px;
+  font-size: var(--t-ui);
+  font-weight: 500;
 }
 
 .exec-sent:focus {
@@ -2414,38 +2578,34 @@ input[type="range"] {
   color: #fff;
 }
 
-/* The agent at work: three dots in its bubble. They pulse only for those who
-   want motion, and hold still otherwise. */
-.bubble.typing {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-}
-
-/* The agent has gone quiet: said once, with a way to ask again. */
+/* The agent at work: three dots. They pulse only for those who want motion, and
+   hold still otherwise. */
+.bubble.typing,
 .bubble.stalled {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  padding: 6px 4px;
+  background: none;
+  box-shadow: none;
   color: var(--muted);
 }
 
 .stalled .retry {
-  min-height: 28px;
-  padding: 4px 12px;
-  border: 1px solid var(--hairline);
-  border-radius: 14px;
-  background: var(--field);
-  color: var(--accent-ink);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  min-height: 30px;
+  padding: 4px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--well);
+  box-shadow: var(--well-edge);
+  color: var(--ink);
+  font-size: var(--t-small);
+  font-weight: 500;
 }
 
 .stalled .retry:hover {
-  border-color: var(--accent);
+  box-shadow: var(--well-edge), 0 0 0 1.5px var(--ink);
 }
 
 .suggestions button:disabled,
@@ -2502,96 +2662,103 @@ input[type="range"] {
 /* What the log held when the page opened, folded into one quiet line. */
 .earlier {
   align-self: center;
-  min-height: 28px;
-  padding: 2px 10px;
+  min-height: 30px;
+  padding: 2px 12px;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
+  font-size: var(--t-small);
 }
 
 .earlier:hover {
-  background: var(--bubble);
+  background: var(--hover);
+  color: var(--ink);
 }
 
-/* Things to ask, offered until the viewer says something. */
+/* Things to ask, offered while the chat is empty. */
 .suggestions {
   padding: 0 14px 10px;
 }
 
 .suggestions p {
-  margin: 0 0 6px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
+  margin: 0 0 8px 4px;
 }
 
 .suggestions ul {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 6px;
 }
 
 .suggestions button {
-  min-height: 28px;
-  padding: 4px 10px;
-  border: 1px solid var(--hairline);
-  border-radius: 14px;
-  background: var(--field);
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: var(--radius-row);
+  background: var(--row);
+  box-shadow: var(--row-edge);
   color: var(--ink);
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.3;
+  font-size: var(--t-ui);
+  line-height: 1.35;
   text-align: left;
-  cursor: pointer;
 }
 
 .suggestions button:hover {
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  background: var(--row-hover);
 }
 
 /* The service's words under the chat when it turns something down. */
 .refusal {
   margin: 0;
-  padding: 0 14px;
-  font-size: 13px;
-  line-height: 1.35;
+  padding: 0 18px;
+  font-size: var(--t-ui);
+  line-height: 1.4;
 }
 
 .refusal:not(:empty) {
   padding-bottom: 8px;
 }
 
+/* A notice that isn't a refusal, such as the simulator opening. */
+.refusal.ok {
+  color: var(--muted);
+}
+
 .usage {
   margin: 0;
-  padding: 0 14px 6px;
+  padding: 0 18px 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--t-small);
   font-variant-numeric: tabular-nums;
 }
 
+/* The composer: a glass capsule at the chat's foot. */
 .chat form {
   display: flex;
-  gap: 8px;
-  padding: 10px;
-  border-top: 1px solid var(--hairline);
+  gap: 6px;
+  margin: 2px 10px 10px;
+  padding: 5px;
+  border-radius: 999px;
+  background: var(--row);
+  box-shadow: var(--row-edge), 0 4px 14px -6px rgba(28, 25, 23, 0.18);
 }
 
 .chat input {
   flex: 1;
   min-width: 0;
   height: 36px;
-  padding: 0 14px;
-  border: 1px solid var(--hairline);
+  padding: 0 12px;
+  border: 0;
   border-radius: 999px;
-  background: var(--field);
+  background: none;
+}
+
+.chat input:focus-visible {
+  outline-offset: 0;
 }
 
 .chat button[type="submit"] {
@@ -2601,14 +2768,31 @@ input[type="range"] {
   height: 36px;
   border: 0;
   border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
 }
 
 .chat button[type="submit"]:disabled {
-  background: var(--fill-off);
+  background: var(--tag);
   color: var(--muted);
   cursor: default;
+}
+
+/* A new answer typing out: a thin caret at its end. */
+.bubble .caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: currentColor;
+  animation: caret 0.9s steps(1) infinite;
+}
+
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
 }
 
 /* Quick Look ------------------------------------------------------------ */
@@ -2623,22 +2807,20 @@ input[type="range"] {
 
 .quicklook::backdrop {
   background: var(--scrim);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
 
+/* A page to read: a near-opaque pane. */
 .quicklook .sheet {
-  background: rgba(255, 255, 255, 0.92);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
   display: grid;
-  gap: 10px;
-  padding: 14px;
+  gap: 12px;
   max-height: 92vh;
+  padding: 18px 20px 20px;
   overflow: auto;
+  border-radius: 24px;
+  background: var(--pane-solid);
+  box-shadow: var(--pane-lift);
 }
 
 .quicklook header {
@@ -2650,11 +2832,13 @@ input[type="range"] {
 
 .quicklook h2 {
   margin: 0;
-  font: 600 18px/1.2 var(--font);
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.25;
 }
 
 .quicklook .value {
-  color: var(--accent-ink);
+  font-weight: 700;
 }
 
 .quicklook h2 .unit {
@@ -2664,9 +2848,9 @@ input[type="range"] {
 
 /* Who recorded the figure. */
 .quicklook .by {
-  margin: -6px 0 8px;
+  margin: -6px 0 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--t-small);
 }
 
 /* How a derived figure is worked out, and the values planners set for it, each
@@ -2681,9 +2865,9 @@ input[type="range"] {
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 6px;
+  gap: 8px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--t-ui);
 }
 
 .quicklook .steps li {
@@ -2692,8 +2876,8 @@ input[type="range"] {
 }
 
 .quicklook .steps .why {
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: var(--t-small);
+  line-height: 1.4;
 }
 
 .quicklook .steps strong {
@@ -2702,13 +2886,18 @@ input[type="range"] {
 }
 
 .quicklook .close {
-  width: 32px;
-  height: 32px;
+  flex: none;
+  width: 34px;
+  height: 34px;
   border: 0;
   border-radius: 50%;
-  background: var(--fill);
+  background: var(--tag);
   font-size: 20px;
   line-height: 1;
+}
+
+.quicklook .close:hover {
+  background: var(--press);
 }
 
 .quicklook .tabs {
@@ -2718,18 +2907,19 @@ input[type="range"] {
 }
 
 .quicklook .tabs button {
-  min-height: 32px;
-  padding: 4px 12px;
-  border: 1px solid var(--hairline);
+  min-height: 34px;
+  padding: 4px 14px;
+  border: 0;
   border-radius: 999px;
-  background: var(--field);
-  font-size: 13px;
+  background: var(--well);
+  box-shadow: var(--well-edge);
+  font-size: var(--t-small);
 }
 
 .quicklook .tabs button[aria-pressed="true"] {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--on-ink);
+  background: var(--primary);
+  color: var(--on-primary);
+  box-shadow: none;
 }
 
 .quicklook figure {
@@ -2738,34 +2928,26 @@ input[type="range"] {
 
 .quicklook .note {
   margin: 0;
-  max-width: 60ch;
-  font-size: 14px;
-  line-height: 1.4;
+  max-width: 64ch;
+  font-size: var(--t-text);
+  line-height: 1.45;
 }
 
 .quicklook .alert {
-  color: var(--fail);
+  color: var(--fail-ink);
 }
 
 .quicklook .act {
   justify-self: start;
-  min-height: 32px;
-  padding: 0 14px;
-  border: 1px solid transparent;
+  min-height: 36px;
+  padding: 0 16px;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.quicklook .act:hover {
-  background: var(--accent-ink);
+  font-size: var(--t-ui);
 }
 
 .quicklook .page {
   position: relative;
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
   box-shadow: 0 0 0 1px var(--hairline);
 }
@@ -2778,7 +2960,7 @@ input[type="range"] {
 
 /* A page with no image, set as a page: its text on a sheet of paper the shape of a
    letter page, as the sources are, that grows if the text runs longer. Its number
-   is at the foot, and the quote is marked as with a highlighter. */
+   is at the foot, and the quote is marked as selected text is. */
 .quicklook .paper {
   display: flex;
   flex-direction: column;
@@ -2788,7 +2970,7 @@ input[type="range"] {
   background: #fff;
   color: var(--ink);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.08), 0 10px 28px rgba(0, 0, 0, 0.12);
-  font: 14px/1.55 var(--font);
+  font: 15px/1.55 var(--font);
 }
 
 .quicklook .paper p {
@@ -2806,18 +2988,17 @@ input[type="range"] {
   margin-top: auto;
   padding-top: 1.5em;
   color: var(--muted);
-  font: 12px/1 var(--font);
+  font: var(--t-small) / 1 var(--font);
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
 
-/* A highlighter's stroke on each line: uneven ends, and a flat colour, so its
-   contrast can be checked. */
+/* The quote, marked as selected text is, in a flat colour so its contrast can be checked. */
 .quicklook .paper mark {
-  margin: 0 -0.15em;
-  padding: 0.05em 0.15em;
-  border-radius: 0.7em 0.25em 0.6em 0.3em;
-  background: rgba(176, 52, 136, 0.24);
+  margin: 0 -0.1em;
+  padding: 0.05em 0.1em;
+  border-radius: 0.2em;
+  background: rgba(0, 102, 204, 0.18);
   color: inherit;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
@@ -2828,28 +3009,28 @@ input[type="range"] {
   margin: -2px;
   padding: 2px;
   border-radius: 3px;
-  background: rgba(176, 52, 136, 0.22);
-  box-shadow: 0 0 0 2px rgba(176, 52, 136, 0.6);
+  background: rgba(0, 102, 204, 0.16);
+  box-shadow: 0 0 0 2px rgba(0, 85, 170, 0.6);
   box-sizing: content-box;
 }
 
 /* The figure's own number, so a table row's other columns aren't taken for it. */
 .quicklook .mark.cell {
-  background: rgba(176, 52, 136, 0.2);
-  box-shadow: 0 0 0 3px var(--accent);
+  background: rgba(0, 102, 204, 0.16);
+  box-shadow: 0 0 0 3px #0055aa;
 }
 
 .quicklook figcaption {
-  margin-top: 6px;
+  margin-top: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--t-small);
   text-align: right;
 }
 
 .quicklook figcaption a {
   display: inline-block;
   padding: 4px 0;
-  color: inherit;
+  color: var(--blue);
 }
 
 /* The engagement viewer is a Quick Look sheet, sized before its file arrives. */
@@ -2861,9 +3042,9 @@ input[type="range"] {
 .viewer .media {
   position: relative;
   margin: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
-  background: var(--sunken);
+  background: var(--inset);
 }
 
 .viewer .media img,
@@ -2877,21 +3058,21 @@ input[type="range"] {
 .viewer .alt {
   margin: 0;
   max-width: 732px;
-  font-size: 14px;
-  line-height: 1.4;
+  font-size: var(--t-text);
+  line-height: 1.45;
 }
 
 .viewer .made {
   margin: 0;
-  font-size: 12px;
   color: var(--muted);
+  font-size: var(--t-small);
 }
 
 .viewer .made .link {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--accent-ink);
+  color: var(--blue);
   text-decoration: underline;
 }
 
@@ -2900,320 +3081,16 @@ input[type="range"] {
   top: 10px;
   left: 10px;
   margin: 0;
+  background: var(--pane-solid);
 }
 
-/* Small screens --------------------------------------------------------- */
-
-/* A phone: the workspace fills the screen, the chat is one of its tabs, and the
-   rail lies along the foot. */
-@media (max-width: 860px) {
-  .app {
-    height: 100dvh;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    gap: 0;
-    padding: 0;
+/* A source's page is paper, white with dark words, in dark mode too. */
+@media (prefers-color-scheme: dark) {
+  .quicklook .paper {
+    --ink: #1c1917;
+    --muted: #3d3935;
+    color-scheme: light;
   }
-
-  .workspace,
-  .chat {
-    grid-column: 1;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
-  }
-
-  .workspace {
-    grid-row: 1 / 3;
-  }
-
-  .chat {
-    display: none;
-  }
-
-  .app[data-tab="chat"] .workspace {
-    grid-row: 1;
-  }
-
-  .app[data-tab="chat"] .chat {
-    display: grid;
-    grid-row: 2;
-    border-top: 1px solid var(--divider);
-  }
-
-  .headlines {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .rail {
-    grid-row: 3;
-    flex-direction: row;
-    gap: 2px;
-    padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
-    border-top: 1px solid var(--divider);
-    background: var(--pane);
-    overflow-x: auto;
-  }
-
-  .rail .brand {
-    display: none;
-  }
-
-  .rail-foot {
-    flex-direction: row;
-    gap: 2px;
-    margin: 0 0 0 auto;
-  }
-
-  .rail-item {
-    width: 54px;
-  }
-
-  .rail-tag {
-    align-self: center;
-    margin: 0 4px;
-  }
-
-  /* Menus open up from the rail, across the screen. */
-  .popover,
-  .notice-list {
-    position: fixed;
-    inset: auto 8px 68px 8px;
-    width: auto;
-    max-height: 70vh;
-    overflow-y: auto;
-  }
-
-  .phone-only {
-    display: inline-flex;
-  }
-
-  .workspace-head {
-    padding: 10px 10px 8px;
-  }
-
-  .workspace-head h1 {
-    flex-basis: 100%;
-    font-size: 19px;
-  }
-
-  .tabs {
-    width: 100%;
-    overflow-x: auto;
-  }
-
-  .tab {
-    flex: 1;
-    justify-content: center;
-    padding: 0 6px;
-    font-size: 13px;
-  }
-
-  .tab svg {
-    display: none;
-  }
-
-  .study-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .study-page,
-  .files {
-    padding: 14px 12px 32px;
-  }
-
-  .headlines .figure {
-    font-size: 22px;
-  }
-
-  .toasts {
-    inset: auto 8px 72px 8px;
-    width: auto;
-  }
-
-  .map-top {
-    top: 8px;
-    left: 8px;
-    max-width: calc(100% - 60px);
-  }
-
-  .map-buttons {
-    top: 8px;
-    right: 8px;
-  }
-
-  .time {
-    grid-template-columns: auto auto auto 1fr;
-  }
-
-  .when {
-    grid-column: 1 / -1;
-    justify-items: start;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-@media (forced-colors: active) {
-  .status,
-  .override,
-  .round,
-  .chat button[type="submit"] {
-    forced-color-adjust: none;
-  }
-
-  .pin .dot,
-  .pin::before,
-  .need .spinner {
-    forced-color-adjust: none;
-  }
-
-  .pin .dot,
-  .pin::before {
-    background: CanvasText;
-  }
-
-  .pin .dot {
-    box-shadow: 0 0 0 2px Canvas;
-  }
-
-  .need .spinner {
-    border-color: CanvasText;
-    border-right-color: transparent;
-  }
-
-  /* The panels are opaque, as forced colours keep a translucent background
-     translucent. */
-  .workspace,
-  .chat,
-  .time,
-  .map-toolbar .tool,
-  .map-search,
-  .layers-panel,
-  .popover,
-  .map-notes {
-    background: Canvas;
-    border: 1px solid CanvasText;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-
-  .tab[aria-selected="true"] {
-    border: 1px solid CanvasText;
-  }
-
-  .step summary,
-  .badge,
-  .step .mark,
-  .layers-panel .swatch {
-    forced-color-adjust: none;
-  }
-
-  .step summary {
-    background: Canvas;
-    color: CanvasText;
-    box-shadow: inset 0 0 0 1px CanvasText;
-  }
-
-  .badge {
-    background: Canvas;
-    color: CanvasText;
-    box-shadow: inset 0 0 0 1px CanvasText;
-  }
-
-  /* Markers keep their shapes, and a rated note's dot its colour, as the tests'
-     marks do: filled once a planner rates a note, a ring while it, or a test,
-     awaits one. */
-  .finding .dot {
-    forced-color-adjust: none;
-  }
-
-  .finding.neutral .dot {
-    background: ButtonText;
-  }
-
-  .finding.unrated .dot {
-    border-color: ButtonText;
-  }
-
-  .status.unverified {
-    border-color: CanvasText;
-  }
-
-  /* The quote on a page set as text is marked as the system marks text. */
-  .quicklook .paper mark {
-    forced-color-adjust: none;
-    background: Mark;
-    color: MarkText;
-  }
-
-  /* Said outright, so contrast checkers, which read the colour each rule sets,
-     read the forced colours too. */
-  html,
-  body,
-  .tag,
-  .step-summary,
-  .step-name,
-  .exec-label,
-  .exec-offer,
-  .exec-note,
-  .decision,
-  .decision strong,
-  .when .clock,
-  .track .legend,
-  .bubble.planner,
-  .need .place,
-  .need .state,
-  .viewer .made,
-  .quicklook .alert,
-  .viewer h2 .place {
-    color: CanvasText;
-  }
-
-  button,
-  .figure,
-  .finding,
-  .rail-item,
-  .need .create,
-  .quicklook .act {
-    color: ButtonText;
-  }
-}
-
-/* Legend for vehicles: solid is live, a ring is scheduled. */
-.legend {
-  position: absolute;
-  inset: calc(50% + 12px) auto auto 0;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--muted);
-  pointer-events: none;
-}
-
-.legend .dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  border: 2px solid var(--accent);
-}
-
-.legend .dot.live {
-  background: var(--accent);
-}
-
-.legend .dot.scheduled {
-  margin-left: 8px;
 }
 
 /* Notices --------------------------------------------------------------- */
@@ -3229,43 +3106,27 @@ input[type="range"] {
   transform-origin: 50% 3px;
 }
 
+/* Unread: a count in ink. */
 .bell .badge {
   position: absolute;
   top: 2px;
   right: 8px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: var(--t-small);
+  font-weight: 600;
+  line-height: 20px;
   text-align: center;
-  box-shadow: 0 0 0 2px var(--panel-solid);
-}
-
-/* Liquid glass: a bright, translucent pane with a soft rim and a lit top edge.
-   Opaque enough that text keeps its contrast over any part of the map. */
-.toast,
-.notice-list {
-  border: 1px solid rgba(255, 255, 255, 0.75);
-  border-radius: 18px;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.74));
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
-  backdrop-filter: blur(28px) saturate(190%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 0 0 0.5px rgba(0, 0, 0, 0.12),
-    0 2px 6px rgba(0, 0, 0, 0.05),
-    0 16px 44px rgba(0, 0, 0, 0.14);
 }
 
 .toasts {
   position: fixed;
-  top: 72px;
-  right: calc(var(--chat) + 2 * var(--gap) + 12px);
+  top: calc(var(--gap) + var(--head) + 10px);
+  right: calc(var(--side-r) + 14px);
   z-index: 7;
   width: 368px;
   margin: 0;
@@ -3282,6 +3143,7 @@ input[type="range"] {
   align-items: center;
   gap: 12px;
   padding: 12px;
+  border-radius: 22px;
   pointer-events: auto;
 }
 
@@ -3302,8 +3164,8 @@ input[type="range"] {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--t-ui);
+  font-weight: 500;
   line-height: 1.3;
 }
 
@@ -3311,87 +3173,69 @@ input[type="range"] {
 .notice .study {
   overflow: hidden;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--t-small);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .line .count {
   display: inline-block;
-  min-width: 18px;
-  height: 18px;
+  min-width: 20px;
+  height: 20px;
   margin-left: 6px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--tag);
+  color: var(--ink);
+  font-size: var(--t-small);
+  font-weight: 600;
+  line-height: 20px;
   text-align: center;
   vertical-align: 1px;
 }
 
+/* What a notice is about: ink, or amber where it awaits a planner. */
 .glyph {
   display: grid;
   place-items: center;
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: var(--ink) linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0));
-  color: var(--on-ink);
-  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+  background: var(--primary);
+  color: var(--on-primary);
 }
 
-/* By kind, not by class: the card and the map already style .finding and .need. */
 .glyph[data-kind="finding"],
 .glyph[data-kind="handover"] {
-  background-color: var(--accent);
+  background: var(--amber);
+  color: #fff;
 }
 
-.glyph[data-kind="need"],
-.glyph[data-kind="media"] {
-  background-color: #3f93dc;
-}
-
-.glyph[data-kind="document"] {
-  background-color: var(--accent-ink);
-}
-
-.glyph[data-kind="answer"] {
-  background-color: var(--muted);
-}
-
-.glyph[data-kind="brief"] {
-  background-color: #8a5a00;
+.glyph[data-kind="decision"] {
+  background: var(--pass);
+  color: #fff;
 }
 
 .toast .review {
-  height: 30px;
-  padding: 0 14px;
+  height: 32px;
+  padding: 0 16px;
   border: 0;
   border-radius: 999px;
-  background: rgba(176, 52, 136, 0.1);
-  color: var(--accent-ink);
-  font-size: 13px;
-  font-weight: 600;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: var(--t-small);
+  font-weight: 500;
 }
 
 .toast .review:hover {
-  background: rgba(176, 52, 136, 0.18);
+  background: var(--primary-hover);
 }
 
 .notice-list {
-  bottom: 0;
+  bottom: -4px;
   width: 380px;
   max-height: calc(100vh - 40px);
   overflow-y: auto;
-  padding: 6px;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.86));
-}
-
-.notice-list[hidden] {
-  display: none;
 }
 
 .notice-list ol {
@@ -3409,9 +3253,9 @@ input[type="range"] {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 8px 10px;
+  padding: 9px 12px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 14px;
   background: transparent;
   text-align: left;
 }
@@ -3429,7 +3273,7 @@ input[type="range"] {
   align-self: start;
   padding-top: 1px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--t-small);
 }
 
 /* New since the list last opened. */
@@ -3441,14 +3285,14 @@ input[type="range"] {
   height: 6px;
   margin-top: -3px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--blue);
 }
 
 .notice-list .none {
   margin: 0;
-  padding: 14px;
+  padding: 16px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--t-small);
   text-align: center;
 }
 
@@ -3457,8 +3301,7 @@ input[type="range"] {
   flex-wrap: wrap;
   gap: 4px 18px;
   margin-top: 4px;
-  padding: 8px 10px 4px;
-  border-top: 1px solid var(--hairline);
+  padding: 8px 12px 4px;
 }
 
 .switches button {
@@ -3469,7 +3312,7 @@ input[type="range"] {
   padding: 0;
   border: 0;
   background: none;
-  font-size: 13px;
+  font-size: var(--t-small);
 }
 
 .switches button:disabled {
@@ -3479,10 +3322,10 @@ input[type="range"] {
 
 .switches .knob {
   position: relative;
-  width: 32px;
+  width: 34px;
   height: 20px;
   border-radius: 10px;
-  background: #8e8e93;
+  background: #78716c;
   transition: background 0.2s;
 }
 
@@ -3500,18 +3343,18 @@ input[type="range"] {
 }
 
 .switches [aria-checked="true"] .knob {
-  background: var(--accent);
+  background: var(--pass);
 }
 
 .switches [aria-checked="true"] .knob::after {
-  transform: translateX(12px);
+  transform: translateX(14px);
 }
 
 /* Where Review took the planner, lit for a moment, in the focus ring's colour. */
 .noticed {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
-  box-shadow: 0 0 0 8px rgba(176, 52, 136, 0.16);
+  box-shadow: 0 0 0 8px var(--selection);
 }
 
 /* They slide in from the right. With reduced motion they simply appear. */
@@ -3564,11 +3407,313 @@ input[type="range"] {
 
 @keyframes noticed {
   50% {
-    box-shadow: 0 0 0 14px rgba(176, 52, 136, 0.04);
+    box-shadow: 0 0 0 14px transparent;
   }
 }
 
+/* While the map moves --------------------------------------------------- */
+
+/* The glass stops blurring, the GPU's biggest cost in a drag, and turns a little
+   more opaque so the lines passing under it stay soft. It clears again once the
+   map settles. */
+:root[data-moving]
+  :is(.rail, .chat, .workspace-head .tabs, .map-toolbar .tool, .map-search, .layers-panel, .map-buttons, .map-notes, .time, .need, .app[data-tab="map"] .workspace-head h1) {
+  background: var(--moving);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* Less transparency ----------------------------------------------------- */
+
+/* Opaque for anyone who asks for less transparency, and the backdrop stays the
+   map's own ground. */
+@media (prefers-reduced-transparency: reduce) {
+  .rail,
+  .chat,
+  .workspace-head .tabs,
+  .map-toolbar .tool,
+  .map-search,
+  .layers-panel,
+  .map-buttons,
+  .map-notes,
+  .time,
+  .need,
+  .popover,
+  .notice-list,
+  .toast,
+  .app[data-tab="map"] .workspace-head h1 {
+    background: var(--glass-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .workspace::before,
+  .bubble.agent,
+  .doc-card,
+  .exec-card {
+    background: var(--pane-solid);
+  }
+
+  .map-panel[data-ambient] .map {
+    visibility: hidden;
+  }
+}
+
+/* Small screens --------------------------------------------------------- */
+
+/* Narrower, the tabs lose their icons, so the title keeps its line. */
+@media (max-width: 1360px) {
+  .tab svg {
+    display: none;
+  }
+
+  .tab {
+    padding: 0 13px;
+  }
+}
+
+/* A phone: the workspace fills the screen, the chat is one of its tabs, and the
+   rail lies along the foot. */
+@media (max-width: 860px) {
+  :root {
+    --gap: 0px;
+    --head: 104px;
+    --side-l: 0px;
+    --side-r: 0px;
+    --map-top: 112px;
+  }
+
+  .app {
+    height: 100dvh;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 0;
+    padding: 0;
+  }
+
+  .workspace,
+  .chat {
+    grid-column: 1;
+  }
+
+  .workspace {
+    grid-row: 1;
+  }
+
+  .workspace::before {
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .panel {
+    border-radius: 0;
+  }
+
+  .chat {
+    display: none;
+  }
+
+  .app[data-tab="chat"] .workspace {
+    grid-row: 1;
+    align-self: start;
+  }
+
+  .app[data-tab="chat"] .chat {
+    display: grid;
+    grid-row: 1;
+    margin-top: var(--head);
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .headlines {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .rail {
+    grid-row: 2;
+    flex-direction: row;
+    gap: 2px;
+    padding: 4px 6px calc(4px + env(safe-area-inset-bottom, 0px));
+    border-width: 1px 0 0;
+    border-radius: 0;
+    overflow-x: auto;
+  }
+
+  .rail .brand {
+    display: none;
+  }
+
+  .rail-foot {
+    flex-direction: row;
+    gap: 2px;
+    margin: 0 0 0 auto;
+  }
+
+  .rail-item {
+    width: 58px;
+  }
+
+  .rail-tag {
+    align-self: center;
+    margin: 0 4px;
+  }
+
+  /* Menus open up from the rail, across the screen. */
+  .popover,
+  .notice-list {
+    position: fixed;
+    inset: auto 8px 72px 8px;
+    width: auto;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  .phone-only {
+    display: inline-flex;
+  }
+
+  .workspace-head {
+    flex-wrap: wrap;
+    padding: 12px 10px 8px;
+  }
+
+  .workspace-head h1 {
+    flex-basis: 100%;
+    padding-left: 6px;
+    font-size: 20px;
+  }
+
+  .app[data-tab="map"] .workspace-head h1 {
+    flex: 0 1 auto;
+    max-width: 100%;
+    padding: 6px 16px;
+    font-size: 17px;
+  }
+
+  .tabs {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .tab {
+    flex: 1;
+    justify-content: center;
+    padding: 0 6px;
+    font-size: var(--t-small);
+  }
+
+  .study-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .study-page,
+  .files {
+    padding: 10px 16px 32px;
+  }
+
+  .sim-head {
+    padding: 2px 10px 8px 16px;
+  }
+
+  .headlines .figure {
+    font-size: 26px;
+  }
+
+  .toasts {
+    inset: auto 8px 76px 8px;
+    width: auto;
+  }
+
+  .map-top {
+    left: 8px;
+    max-width: calc(100% - 64px);
+  }
+
+  .map-buttons {
+    right: 8px;
+  }
+
+  /* Clear of the rail along the foot. */
+  .map-foot {
+    inset: auto 8px calc(76px + env(safe-area-inset-bottom, 0px)) 8px;
+  }
+
+  .time {
+    grid-template-columns: auto auto auto 1fr;
+  }
+
+  .when {
+    grid-column: 1 / -1;
+    justify-items: start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .bubble .caret {
+    animation: none;
+  }
+}
+
+/* Forced colours -------------------------------------------------------- */
+
 @media (forced-colors: active) {
+  /* Plain panes and fields, edged in the system's colours, as forced colours keep
+     a translucent background translucent and would show the map through. */
+  .rail,
+  .chat,
+  .workspace::before,
+  .workspace-head .tabs,
+  .map-toolbar .tool,
+  .map-search,
+  .layers-panel,
+  .map-buttons,
+  .map-notes,
+  .time,
+  .need,
+  .popover,
+  .notice-list,
+  .toast,
+  .quicklook .sheet,
+  .bubble.agent,
+  .doc-card,
+  .exec-card,
+  .chat form,
+  .decide select,
+  .decide input,
+  .suggestions button,
+  .need .action {
+    background: Canvas;
+    border: 1px solid CanvasText;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .tab[aria-selected="true"] {
+    border: 1px solid CanvasText;
+  }
+
+  .status,
+  .override,
+  .round,
+  .chat button[type="submit"],
+  .pin .dot,
+  .pin::before,
+  .need .spinner,
+  .step summary,
+  .badge,
+  .step .mark,
+  .layers-panel .swatch,
+  .finding .dot,
   .bell .badge,
   .line .count,
   .glyph,
@@ -3577,14 +3722,55 @@ input[type="range"] {
     forced-color-adjust: none;
   }
 
-  /* The glass goes in forced colours, so they'd show the map through. */
-  .toast,
-  .notice-list {
-    border-color: CanvasText;
-    background: Canvas;
+  .pin .dot,
+  .pin::before {
+    background: CanvasText;
   }
 
-  /* Without their tint, Review and the list's rows need an edge to read as buttons. */
+  .pin .dot {
+    box-shadow: 0 0 0 2px Canvas;
+  }
+
+  .need .spinner {
+    border-color: CanvasText;
+    border-right-color: transparent;
+  }
+
+  .step summary {
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: inset 0 0 0 1px CanvasText;
+  }
+
+  .badge {
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: inset 0 0 0 1px CanvasText;
+  }
+
+  /* Markers keep their shapes, and a rated note's dot its colour, as the tests'
+     marks do: filled once a planner rates a note, a ring while it, or a test,
+     awaits one. */
+  .finding.neutral .dot {
+    background: ButtonText;
+  }
+
+  .finding.unrated .dot {
+    border-color: ButtonText;
+  }
+
+  .status.unverified {
+    border-color: CanvasText;
+  }
+
+  /* The quote on a page set as text is marked as the system marks text. */
+  .quicklook .paper mark {
+    forced-color-adjust: none;
+    background: Mark;
+    color: MarkText;
+  }
+
+  /* Without their fill, Review and the list's rows need an edge to read as buttons. */
   .toast .review,
   .notice {
     border: 1px solid ButtonText;
@@ -3608,228 +3794,38 @@ input[type="range"] {
     background: HighlightText;
   }
 
+  /* Said outright, so contrast checkers, which read the colour each rule sets,
+     read the forced colours too. */
+  html,
+  body,
+  .tag,
+  .step-summary,
+  .step-name,
+  .exec-label,
+  .exec-offer,
+  .exec-note,
+  .decision,
+  .decision strong,
+  .when .clock,
+  .track .legend,
+  .bubble.planner,
+  .need .place,
+  .need .state,
+  .viewer .made,
+  .quicklook .alert,
+  .viewer h2 .place,
   .toast .study,
   .notice .study,
   .notice time {
     color: CanvasText;
   }
-}
 
-/* A new answer typing out: a thin caret at its end. */
-.bubble .caret {
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  margin-left: 2px;
-  vertical-align: -0.15em;
-  background: currentColor;
-  animation: caret 0.9s steps(1) infinite;
-}
-@keyframes caret {
-  50% {
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .bubble .caret {
-    animation: none;
-  }
-}
-
-/* A draft option and what isn't known yet show only their title until pointed
-   at, focused or opened, wherever they sit, so the map stays clear and a card's
-   size never depends on where it is placed. */
-.need.option:not(:hover):not(:focus-within) .words:not([aria-expanded="true"]) .place,
-.need.option:not(:hover):not(:focus-within) .words:not([aria-expanded="true"]) .state,
-.need.gap:not(:hover):not(:focus-within) .place {
-  display: none;
-}
-
-/* A need's Create shows when its card is pointed at or focused: still in the tab
-   order, out of the card's size, and in its details for touch. */
-@media (hover: hover) {
-  .need:not(:hover):not(:focus-within) .create {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-  }
-}
-
-/* A card pointed at lies over its neighbours while it shows more. */
-.pin:hover {
-  z-index: 2;
-}
-
-/* A notice that isn't a refusal, such as the simulator opening. */
-.refusal.ok {
-  color: var(--muted);
-}
-
-/* The simulator the lead opens, under its answer: a name and a button. */
-.sim-card {
-  grid-template-columns: 1fr auto;
-}
-
-.sim-card .doc-open {
-  border: none;
-  cursor: pointer;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-/* Liquid glass, small ------------------------------------------------------ */
-
-/* What floats small over the map, the cards on it, its buttons, the bell, the
-   notices and Quick Look, in the panels' glass. A shade more opaque, as these sit
-   right on the lines, and their muted text darker to match. */
-.map-buttons,
-.map-toolbar .tool,
-.map-search,
-.layers-panel,
-.time,
-.popover,
-.need,
-.toast,
-.notice-list,
-.quicklook .sheet {
-  --muted: var(--muted-glass);
-  border: 1px solid var(--panel-rim);
-  background: var(--panel-solid);
-  box-shadow: var(--chip-sheen), var(--chip-lift);
-}
-
-@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .map-buttons,
-  .map-toolbar .tool,
-  .map-search,
-  .layers-panel,
-  .time,
-  .popover,
-  .need,
-  .toast,
-  .notice-list,
-  .quicklook .sheet {
-    background: var(--chip);
-    -webkit-backdrop-filter: var(--panel-frost);
-    backdrop-filter: var(--panel-frost);
-  }
-
-  .map-toolbar .tool:hover {
-    background: var(--chip-hover);
-  }
-}
-
-/* Fields and choices inside a pane sit in it as wells: lighter glass, pressed in. */
-.chat input,
-.decide select,
-.decide input,
-.suggestions button,
-.need .action {
-  border-color: transparent;
-  background: var(--well);
-  box-shadow: var(--well-edge);
-}
-
-.suggestions button:hover,
-.need .action:hover {
-  background: var(--field);
-  box-shadow: var(--well-edge), 0 0 0 1px var(--accent);
-}
-
-.need .action[aria-pressed="true"] {
-  box-shadow: var(--well-edge), 0 0 0 1px var(--accent);
-}
-
-.chat form {
-  border-top-color: var(--divider);
-  box-shadow: inset 0 1px 0 var(--divider-lit);
-}
-
-.tag {
-  background: var(--tag);
-  box-shadow: inset 0 0 0 0.5px var(--hairline);
-}
-
-/* Filled buttons are glossy: lit at the top, shaded at the foot, glowing. The
-   gloss fades out before the words, so their contrast is the colour's own. */
-.decide button:not([aria-disabled="true"]),
-.chat button[type="submit"]:not(:disabled),
-.need .create,
-.round {
-  background-image: var(--gloss);
-  box-shadow: var(--gloss-edge), 0 3px 10px -2px rgba(176, 52, 136, 0.45);
-}
-
-.round {
-  box-shadow: var(--gloss-edge), 0 3px 10px -2px rgba(0, 0, 0, 0.35);
-}
-
-/* While the map moves the glass stops blurring, the GPU's biggest cost in a drag,
-   and turns a little more opaque so the lines passing under it stay soft. It
-   clears again once the map settles. */
-:root[data-moving] :is(.map-buttons, .map-toolbar .tool, .map-search, .layers-panel, .time, .need) {
-  background: var(--moving-chip);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
-/* Opaque for anyone who asks for less transparency. */
-@media (prefers-reduced-transparency: reduce) {
-  .map-buttons,
-  .map-toolbar .tool,
-  .map-search,
-  .layers-panel,
-  .time,
-  .popover,
-  .need,
-  .toast,
-  .notice-list,
-  .quicklook .sheet {
-    background: var(--panel-solid);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-
-  .chat input,
-  .decide select,
-  .decide input,
-  .suggestions button,
-  .need .action {
-    background: var(--field);
-  }
-}
-
-/* Forced colours: plain panes and fields, edged in the system's colours. */
-@media (forced-colors: active) {
-  .map-buttons,
-  .map-toolbar .tool,
-  .map-search,
-  .layers-panel,
-  .time,
-  .popover,
-  .need,
-  .toast,
-  .notice-list,
-  .quicklook .sheet,
-  .chat input,
-  .decide select,
-  .decide input,
-  .suggestions button,
-  .need .action {
-    background: Canvas;
-    border-color: CanvasText;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-
-/* A source's page is paper, white with dark words, in dark mode too. */
-@media (prefers-color-scheme: dark) {
-  .quicklook .paper {
-    --ink: #1d1d1f;
-    --muted: #5f5f66;
-    --accent-ink: #8e2a6e;
-    color-scheme: light;
+  button,
+  .figure,
+  .finding,
+  .rail-item,
+  .need .create,
+  .quicklook .act {
+    color: ButtonText;
   }
 }

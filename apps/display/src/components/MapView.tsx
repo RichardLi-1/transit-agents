@@ -82,6 +82,8 @@ type Props = {
   picked?: string | null;
   // A layer to show and zoom to, as a figure measured on it asks; n counts each ask.
   focus?: { id: string; n: number } | null;
+  // The map is the backdrop behind another tab: still, and with nothing over it.
+  ambient?: boolean;
   onNeed: (need: Opened, from: Element) => void;
   // Whether the engagement viewer is open, which hides the rest of the page.
   onViewer: (open: boolean) => void;
@@ -92,7 +94,7 @@ type Props = {
 // The map pane: the WebGL map, or the flat one where WebGL is missing, with the
 // tools along its top, the agents' layers, the engagement needs pinned to their
 // places, and the credits its data asks for at its foot.
-export function MapView({ study, simulator, canCreate, reads, layerVersion, picked = null, focus = null, onNeed, onViewer, children }: Props) {
+export function MapView({ study, simulator, canCreate, reads, layerVersion, picked = null, focus = null, ambient = false, onNeed, onViewer, children }: Props) {
   const glCanvas = useRef<HTMLCanvasElement>(null);
   const flatCanvas = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<Renderer | null>(null);
@@ -102,6 +104,10 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, pick
   const liveVehicles = useRef<Float32Array>(new Float32Array());
   const serviceUntil = useRef(Infinity);
   const [ready, setReady] = useState(false);
+  // As the backdrop, nothing redraws the map but a new study, a layer or the theme:
+  // no flights, no line drawing in, no vehicles moving.
+  const still = useRef(ambient);
+  still.current = ambient;
   const [flat, setFlat] = useState(false);
   const [networkShown, setNetworkShown] = useState(true);
   const [needsShown, setNeedsShown] = useState(true);
@@ -132,7 +138,7 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, pick
     const map = renderer.current;
     const line = lineKey ? lines.current[lineKey] : undefined;
     if (isFlat(map)) map.setCamera(null);
-    else map?.flyTo(line ? (VIEWS[lineKey as string] ?? OVERVIEW) : OVERVIEW, reduced() ? 0 : CAMERA_MS);
+    else map?.flyTo(line ? (VIEWS[lineKey as string] ?? OVERVIEW) : OVERVIEW, reduced() || still.current ? 0 : CAMERA_MS);
   };
   const controls = useMemo(
     () =>
@@ -230,7 +236,7 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, pick
   }, [picked]);
 
   useEffect(() => {
-    if (ready && renderer.current) showStudy(renderer.current, !reduced());
+    if (ready && renderer.current) showStudy(renderer.current, !reduced() && !still.current);
   }, [lineKey, ready, flat]);
 
   useEffect(() => {
@@ -263,7 +269,7 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, pick
   useEffect(() => {
     const render = (ms: number) => {
       const map = renderer.current;
-      if (!map || !ready) return;
+      if (!map || !ready || still.current) return;
       const covered = ms <= serviceUntil.current;
       const clock = clockAt(ms);
       if (!isFlat(map)) map.setClock(covered ? clock.dayType : null, clock.hour);
@@ -277,7 +283,7 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, pick
       stop();
       stopState();
     };
-  }, [simulator, ready, lineKey, flat]);
+  }, [simulator, ready, lineKey, flat, ambient]);
 
   // Live vehicles only for a change that is running. An unbuilt proposal has
   // none, and today's buses on the old route would misrepresent it.
@@ -299,7 +305,7 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, pick
         out.push(x, y, 1);
       }
       liveVehicles.current = new Float32Array(out);
-      if (simulator.live) renderer.current?.setVehicles(liveVehicles.current);
+      if (simulator.live && !still.current) renderer.current?.setVehicles(liveVehicles.current);
     };
     void load();
     const timer = setInterval(load, LIVE_REFRESH_MS);
@@ -376,14 +382,13 @@ export function MapView({ study, simulator, canCreate, reads, layerVersion, pick
   return (
     <div class="map-pane">
       {/* The map showing takes the keys and the gestures. */}
-      <canvas ref={glCanvas} class={flat ? "map hidden" : "map"} role="application" aria-roledescription="map" aria-label={label} aria-describedby="map-keys" aria-hidden={flat} tabIndex={flat ? undefined : 0} />
-      <canvas ref={flatCanvas} class={flat ? "map" : "map hidden"} role="application" aria-roledescription="map" aria-label={label} aria-describedby="map-keys" aria-hidden={!flat} tabIndex={flat ? 0 : undefined} />
+      <canvas ref={glCanvas} class={flat ? "map hidden" : "map"} role="application" aria-roledescription="map" aria-label={label} aria-describedby="map-keys" aria-hidden={flat} tabIndex={flat || ambient ? -1 : 0} />
+      <canvas ref={flatCanvas} class={flat ? "map" : "map hidden"} role="application" aria-roledescription="map" aria-label={label} aria-describedby="map-keys" aria-hidden={!flat} tabIndex={flat && !ambient ? 0 : -1} />
       {/* Read only as the map's description, so not twice. */}
       <p id="map-keys" hidden>
         {moved && "You have moved the map. Home or Reset view goes back. "}
         Drag, scroll or use the arrow keys to move. Pinch, or plus and minus, to zoom. Shift with a drag or the arrow keys turns and tilts. Home goes back to the study.
       </p>
-      <div class="fade" aria-hidden="true" />
       {needsShown && <Needs study={study} feed={feed} canCreate={canCreate} onDetails={onNeed} onViewer={onViewer} />}
 
       <div class="map-top">

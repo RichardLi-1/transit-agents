@@ -98,15 +98,16 @@ export class FlatMap {
     // of the canvas that the page's panels leave clear.
     const style = getComputedStyle(this.canvas);
     const top = Math.min((parseFloat(style.getPropertyValue("--map-top")) || 0) * ratio, height / 2);
-    const right = Math.min((parseFloat(style.getPropertyValue("--map-right")) || 0) * ratio, width / 2);
+    const left = Math.min((parseFloat(style.getPropertyValue("--map-left")) || 0) * ratio, width / 4);
+    const right = Math.min((parseFloat(style.getPropertyValue("--map-right")) || 0) * ratio, width / 4);
     const points = [...this.lines, ...this.proposed].flat();
     const xs = points.length ? points.map((p) => p[0]) : [-25000, 20000];
     const ys = points.length ? points.map((p) => p[1]) : [-12000, 14000];
     const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const scale = Math.min((width - right) / ((maxX - minX) * 1.4 || 1), (height - top) / ((maxY - minY) * 1.4 || 1));
+    const scale = Math.min((width - left - right) / ((maxX - minX) * 1.4 || 1), (height - top) / ((maxY - minY) * 1.4 || 1));
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
-    const middle: Point = [(width - right) / 2, top + (height - top) / 2];
+    const middle: Point = [left + (width - left - right) / 2, top + (height - top) / 2];
     const { camera } = this;
     const centre: Point = camera ? [camera.x, camera.y] : [cx, cy];
     const zoom = camera ? flatScale(camera.distance, height) : scale;

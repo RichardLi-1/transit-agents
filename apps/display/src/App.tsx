@@ -116,6 +116,8 @@ export function App() {
   }, []);
   // The chat is a tab only on a phone. Wider, it's always beside the workspace.
   const current: Tab = tab === "chat" && !phone ? "study" : tab;
+  // Off the Map tab the map is the backdrop, blurred and still, so time stops too.
+  const ambient = current !== "map";
   useEffect(() => {
     if (current === "sim") setSimulator((now) => now ?? { src: "/simulator/", key: 0 });
   }, [current]);
@@ -137,6 +139,9 @@ export function App() {
   useEffect(() => {
     if (!trial) clock.backToNow();
   }, [clock, studyId, Boolean(trial)]);
+  useEffect(() => {
+    if (ambient) clock.pause();
+  }, [clock, ambient]);
 
   useEffect(() => {
     if (!studyId || !reads) return;
@@ -338,7 +343,17 @@ export function App() {
           )}
         </section>
 
-        <section id="panel-map" class="panel map-panel" role="tabpanel" aria-labelledby="tab-map" hidden={current !== "map"}>
+        {/* Always there: the whole app's backdrop, blurred and still behind the other
+            tabs, and in front, to use, on this one. */}
+        <section
+          id="panel-map"
+          class="map-panel"
+          role="tabpanel"
+          aria-labelledby="tab-map"
+          data-ambient={ambient || undefined}
+          aria-hidden={ambient || undefined}
+          inert={ambient}
+        >
           <MapView
             study={shown}
             simulator={clock}
@@ -347,6 +362,7 @@ export function App() {
             layerVersion={layerVersion}
             picked={selected}
             focus={focusLayer}
+            ambient={ambient}
             onNeed={openNeed}
             onViewer={setViewing}
           >
