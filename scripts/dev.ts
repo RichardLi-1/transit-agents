@@ -55,6 +55,31 @@ const run = (name: string, command: string, args: string[], env: NodeJS.ProcessE
   return child;
 };
 
+// The agents run on an open model on this machine unless told otherwise
+// (agents/openai_compat.py): start Ollama, with room for an agent's long turns, if it
+// isn't running, and say so if the model hasn't been downloaded.
+const OLLAMA = "http://127.0.0.1:11434";
+async function openModel() {
+  const base = setting(process.env, envFile, "MODEL_BASE_URL") ?? "";
+  if (base.toLowerCase() === "off" || (base && !base.startsWith(OLLAMA))) return;
+  const model = setting(process.env, envFile, "LEAD_MODEL") ?? "qwen3.5:9b";
+  if (model.startsWith("gemini")) return;
+  const tags = async () => fetch(`${OLLAMA}/api/tags`).then((r) => (r.ok ? (r.json() as Promise<{ models?: { name: string }[] }>) : null)).catch(() => null);
+  let listed = await tags();
+  if (!listed) {
+    if (spawnSync("which", ["ollama"]).status !== 0) {
+      console.log("The agents run on an open model on this machine, but Ollama isn't installed: https://ollama.com. Or set LEAD_MODEL and SPECIALIST_MODEL to Gemini models.");
+      return;
+    }
+    run("ollama", "ollama", ["serve"], { OLLAMA_CONTEXT_LENGTH: process.env.OLLAMA_CONTEXT_LENGTH ?? "32768" });
+    for (let i = 0; i < 50 && !listed; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      listed = await tags();
+    }
+  }
+  if (listed && !listed.models?.some((m) => m.name === model)) console.log(`The agents run on ${model}, which isn't downloaded: ollama pull ${model}`);
+}
+
 const stopAll = () => {
   for (const child of children) child.kill("SIGTERM");
   setTimeout(() => process.exit(0), 500);
@@ -89,6 +114,7 @@ if (!up) {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   const env = { TRANSIT_URL: url, ...(process.env.DATA_DIR ? { DATA_DIR: process.env.DATA_DIR } : {}) };
+  await openModel();
   run("agent", python, [join(root, "agents/main.py"), "listen"], { ...env, COMPUTER_USE_CHAT: "1" });
   run("media", python, [join(root, "agents/media.py"), "listen"], env);
   // Computer use from the chat: a planner's ask for the simulator opens it here.
