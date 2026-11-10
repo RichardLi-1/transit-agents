@@ -104,6 +104,7 @@ TIMEOUT_RETRIES = 1
 RETRIED = frozenset({408, 429, 500, 502, 503, 504})
 HINTS = {
     401: " Check GEMINI_API_KEY.",
+    402: " The key's prepaid credit is used up: top it up at https://ai.studio/projects.",
     403: " Check GEMINI_API_KEY, and that the key may use this model.",
     404: " Check LEAD_MODEL and SPECIALIST_MODEL.",
 }

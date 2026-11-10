@@ -429,6 +429,20 @@ class GeminiErrorTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(sent), 3)  # retried before giving up
         self.assertEqual(support.activities(study, "usage"), [])
 
+    async def test_used_up_credit_stops_everything(self):
+        study = support.open_study("credit")
+
+        def handler(request: httpx2.Request) -> httpx2.Response:
+            error = {"code": 402, "message": "Your prepayment credits are depleted.", "status": "RESOURCE_EXHAUSTED"}
+            return httpx2.Response(402, json={"error": error})
+
+        client = core.gemini(api_key="fake", async_client_args={"transport": httpx2.MockTransport(handler)})
+        async with client.aio as aio:
+            with self.assertRaises(core.ModelError) as caught:
+                await run(aio, study)
+        self.assertTrue(caught.exception.everywhere)  # an eval run stops rather than failing each case
+        self.assertIn("top it up", str(caught.exception))
+
     async def test_a_stalled_call_times_out(self):
         """Gemini's address takes the connection and never answers."""
         study = support.open_study("stall")
