@@ -201,10 +201,17 @@ class LocalPriceTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"MODEL_BASE_URL": "https://api.example.com/v1", "MODEL_PRICES": ""}):
             self.assertIsNone(prices.cost("qwen3.5:9b", 10_000, 2_000))
 
-    def test_without_a_server_every_model_is_gemini(self):
-        with mock.patch.dict(os.environ, {"MODEL_BASE_URL": ""}):
+    def test_off_makes_every_model_gemini(self):
+        with mock.patch.dict(os.environ, {"MODEL_BASE_URL": "off"}):
             self.assertIsNone(openai_compat.base_url())
             self.assertFalse(openai_compat.is_local("qwen3.5:9b"))
+
+    def test_on_prem_by_default_ollama_on_this_machine(self):
+        with mock.patch.dict(os.environ, {"MODEL_BASE_URL": ""}):
+            self.assertEqual(openai_compat.base_url(), "http://127.0.0.1:11434/v1")
+            self.assertTrue(openai_compat.is_local("qwen3.5:9b"))
+            self.assertFalse(openai_compat.is_local("gemini-3.6-flash"))
+            self.assertEqual(core.config().specialist_concurrency, 1)
 
 
 class WorkTest(unittest.IsolatedAsyncioTestCase):

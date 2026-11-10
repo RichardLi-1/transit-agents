@@ -14,8 +14,9 @@ can be read and scored by a Gemini reader, or by a local one for a free run.
     MODEL_EXTRA={"reasoning_effort": "none"}   JSON added to every request
     MODEL_LOG=runs/raw.jsonl                    keep each raw request and reply, one a line
 
-With MODEL_BASE_URL unset, every model is Gemini, as before. A server on this machine
-costs nothing per call, so its models are priced at zero (prices.py).
+With MODEL_BASE_URL unset, it's Ollama on this machine; with MODEL_BASE_URL=off, every
+model is Gemini, as before. A server on this machine costs nothing per call, so its models
+are priced at zero (prices.py).
 """
 
 import json
@@ -31,9 +32,17 @@ DEFAULT_TIMEOUT_S = 900
 THINK = re.compile(r"<think>.*?</think>\s*", re.S)
 
 
+# On-prem by default: Ollama on this machine.
+DEFAULT_URL = "http://127.0.0.1:11434/v1"
+
+
 def base_url() -> str | None:
-    """The OpenAI-compatible server, or None when every model is Gemini."""
-    return os.environ.get("MODEL_BASE_URL", "").strip().rstrip("/") or None
+    """The OpenAI-compatible server: MODEL_BASE_URL, or Ollama on this machine. None, with
+    MODEL_BASE_URL=off, when every model is Gemini."""
+    given = os.environ.get("MODEL_BASE_URL", "").strip().rstrip("/")
+    if given.lower() == "off":
+        return None
+    return given or DEFAULT_URL
 
 
 def is_gemini(model: str) -> bool:

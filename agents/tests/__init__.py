@@ -15,8 +15,11 @@ import os
 os.environ["GEMINI_API_KEY"] = "fake-key-for-tests"
 os.environ["GOOGLE_GEMINI_BASE_URL"] = "http://127.0.0.1:9"
 os.environ.pop("GOOGLE_API_KEY", None)
+# Every model is Gemini's, faked, unless a test sets its own server: the default, Ollama
+# on this machine, is never called.
+os.environ["MODEL_BASE_URL"] = "off"
 # The fake models cost nothing. Tests of costs set their own prices.
-os.environ["MODEL_PRICES"] = "test-model=0/0,lead-model=0/0,specialist-model=0/0,reader-model=0/0"
+os.environ["MODEL_PRICES"] = "test-model=0/0,lead-model=0/0,specialist-model=0/0,reader-model=0/0,qwen3.5:9b=0/0,qwen3.5:4b=0/0"
 
 import core  # noqa: E402  once the key and prices are set
 

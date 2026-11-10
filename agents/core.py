@@ -39,7 +39,9 @@ import prices
 HERE = Path(__file__).parent
 dotenv.load_dotenv(HERE / ".env")
 
-DEFAULT_MODEL = "gemini-3.6-flash"  # 3.8 Flash is often overloaded
+# On-prem by default: an open model on this machine's Ollama (openai_compat.py). Name a
+# gemini-* model to use Gemini instead.
+DEFAULT_MODEL = "qwen3.5:9b"
 
 # Code reports activity and tokens, and checks the visitors' budget, so models never see
 # these tools: a model can't know its own token counts.
@@ -245,8 +247,9 @@ def config() -> Config:
         specialist_model=os.environ.get("SPECIALIST_MODEL") or DEFAULT_MODEL,
         max_model_calls=_count("MAX_MODEL_CALLS", 30),
         max_run_calls=_count("MAX_RUN_CALLS", 60),
-        # 2, because the free tier allows 5 requests a minute.
-        specialist_concurrency=_count("SPECIALIST_CONCURRENCY", 2),
+        # 2 on Gemini, whose free tier allows 5 requests a minute; 1 on a model on this
+        # machine, which answers one request at a time.
+        specialist_concurrency=_count("SPECIALIST_CONCURRENCY", 1 if openai_compat.is_local(os.environ.get("SPECIALIST_MODEL") or DEFAULT_MODEL) else 2),
         runs_at_once=_count("RUNS_AT_ONCE", 2),
         guest_run_calls=_count("GUEST_RUN_CALLS", 20),
         max_run_usd=_dollars("MAX_RUN_USD", 2.0),
