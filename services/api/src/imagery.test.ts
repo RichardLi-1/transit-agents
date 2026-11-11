@@ -1,6 +1,6 @@
 // Aerial photo tiles: only the city's, fetched from the City once and kept.
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -48,6 +48,24 @@ describe("imagery tiles", () => {
     const fresh = new ImageryTiles(dir, { fetcher });
     assert.equal((await fresh.get(...DOWNTOWN))?.type, "image/jpeg");
     assert.equal(asked.length, 1);
+  });
+
+  it("stop keeping tiles once the cache is full, and pass them through instead", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "imagery-"));
+    let asked = 0;
+    const fetcher = (async () => {
+      asked++;
+      return new Response(JPEG, { status: 200 });
+    }) as unknown as typeof fetch;
+    const tiles = new ImageryTiles(dir, { fetcher, maxBytes: JPEG.byteLength });
+    const [z, x, y] = DOWNTOWN;
+    assert.equal((await tiles.get(z, x, y))?.type, "image/jpeg");
+    assert.equal((await tiles.get(z, x + 1, y))?.type, "image/jpeg");
+    assert.ok(existsSync(join(dir, `${z}/${x}/${y}`)));
+    assert.ok(!existsSync(join(dir, `${z}/${x + 1}/${y}`)));
+    // The one it couldn't keep is fetched again each time it's asked for.
+    await tiles.get(z, x + 1, y);
+    assert.equal(asked, 3);
   });
 
   it("serve nothing for a tile off the city, or one the City has none of, and don't ask again at once", async () => {
