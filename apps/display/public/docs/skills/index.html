@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Skills · Transit Agents</title>
+<meta name="description" content="Every skill a Transit Agents specialist can take: what it does, its scripts and its eval cases.">
+<meta name="theme-color" content="#f2f1ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161618" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="preload" href="/fonts/GoogleSans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/docs/skills.json" as="fetch" type="application/json" crossorigin>
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/docs/docs.css">
+<script type="module" src="/docs/skills/skills.js"></script>
+</head>
+<body>
+<header class="top">
+  <nav class="pill" aria-label="Docs">
+    <a href="/docs/">How it works</a>
+    <a href="/docs/skills/" aria-current="page">Skills</a>
+    <a href="/docs/models/">Models<span class="narrow-hide">&nbsp;and evals</span></a>
+    <a class="back" href="/"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M19 12H5.5M11 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="narrow-hide">Back to the app</span></a>
+  </nav>
+</header>
+<main>
+  <h1 class="title">Skills</h1>
+  <ul class="grid" id="skills" aria-busy="true"></ul>
+  <p class="status" id="status" role="status"></p>
+</main>
+</body>
+</html>
