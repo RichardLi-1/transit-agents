@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { StudyView } from "@transit-agents/contracts";
 import { studyColor } from "../map/views.ts";
 import { isGuest, signIn, signOut, type Session } from "../session.ts";
+import { showIntro } from "../intro.ts";
 import { readChoice, setChoice, type ThemeChoice } from "../theme.ts";
 import { LineIcon } from "./icons.tsx";
 
@@ -141,6 +142,12 @@ function Settings() {
             ))}
           </div>
         </fieldset>
+        <button type="button" class="settings-link" onClick={() => {
+          setOpen(false);
+          showIntro();
+        }}>
+          Show the intro
+        </button>
       </div>
     </div>
   );

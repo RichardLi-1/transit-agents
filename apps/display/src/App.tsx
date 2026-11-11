@@ -6,6 +6,7 @@ import { LineIcon } from "./components/icons.tsx";
 import { MapView } from "./components/MapView.tsx";
 import { Notices } from "./components/Notices.tsx";
 import { QuickLook, type Opened } from "./components/QuickLook.tsx";
+import { Intro } from "./components/Intro.tsx";
 import { Rail } from "./components/Rail.tsx";
 import { StudyPage } from "./components/StudyPage.tsx";
 import { spatialLayer } from "./spatial.ts";
@@ -413,6 +414,7 @@ export function App() {
         }}
       />
       <QuickLook opened={opened} contexts={store.contexts} onClose={closeQuickLook} />
+      <Intro />
     </div>
   );
 }
