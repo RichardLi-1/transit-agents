@@ -6,7 +6,7 @@
 // after. Only tiles over the city, at the zooms the map draws, are fetched, so
 // the service is no open proxy. The City's service needs no key.
 
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const CITY = "https://gis.toronto.ca/arcgis/rest/services/basemap/cot_ortho/MapServer/tile";
@@ -50,11 +50,25 @@ export class ImageryTiles {
   private readonly pending = new Map<string, Promise<Tile | null>>();
   // Tiles the City has none of, for a while, so a gap isn't asked for again and again.
   private readonly missing = new Map<string, number>();
+  // The most the cache keeps on disk. It shares the disk with the log, so past this it
+  // stops keeping tiles and passes each one through instead: it never fills the disk.
+  private readonly maxBytes: number;
+  private kept: Promise<number> | null = null;
 
-  constructor(dir: string, { fetcher = fetch, timeoutMs = 10_000 }: { fetcher?: typeof fetch; timeoutMs?: number } = {}) {
+  constructor(
+    dir: string,
+    { fetcher = fetch, timeoutMs = 10_000, maxBytes = 400 * 1024 * 1024 }: { fetcher?: typeof fetch; timeoutMs?: number; maxBytes?: number } = {},
+  ) {
     this.dir = dir;
     this.fetcher = fetcher;
     this.timeoutMs = timeoutMs;
+    this.maxBytes = maxBytes;
+  }
+
+  // What the cache holds, counted once from disk, then added to as tiles are kept.
+  private size(): Promise<number> {
+    this.kept ??= total(this.dir);
+    return this.kept;
   }
 
   // The tile, from disk or else from the City, or null where there is none.
@@ -85,11 +99,23 @@ export class ImageryTiles {
       this.missing.set(key, Date.now() + 5 * 60_000);
       return null;
     }
+    if ((await this.size()) + body.byteLength > this.maxBytes) return { body, type };
     // Written whole and then moved into place, so a reader never sees half a tile.
     await mkdir(join(path, ".."), { recursive: true });
     const partial = `${path}.${process.pid}.part`;
     await writeFile(partial, body);
     await rename(partial, path);
+    this.kept = this.size().then((bytes) => bytes + body.byteLength);
     return { body, type };
   }
+}
+
+// The bytes in a folder and everything under it; none if it isn't there yet.
+async function total(dir: string): Promise<number> {
+  const entries = await readdir(dir, { withFileTypes: true, recursive: true }).catch(() => []);
+  let bytes = 0;
+  for (const entry of entries) {
+    if (entry.isFile()) bytes += (await stat(join(entry.parentPath, entry.name)).catch(() => null))?.size ?? 0;
+  }
+  return bytes;
 }
