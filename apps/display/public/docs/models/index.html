@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Models and evals · Transit Agents</title>
+<meta name="description" content="The models Transit Agents' agents run on, on-prem by default, and how its eval set scores them.">
+<meta name="theme-color" content="#f2f1ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161618" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="preload" href="/fonts/GoogleSans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/docs/docs.css">
+</head>
+<body>
+<header class="top">
+  <nav class="pill" aria-label="Docs">
+    <a href="/docs/">How it works</a>
+    <a href="/docs/skills/">Skills</a>
+    <a href="/docs/models/" aria-current="page">Models<span class="narrow-hide">&nbsp;and evals</span></a>
+    <a class="back" href="/"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M19 12H5.5M11 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="narrow-hide">Back to the app</span></a>
+  </nav>
+</header>
+<main>
+  <h1 class="title">Models and evals</h1>
+
+  <section class="section" aria-labelledby="onprem">
+    <h2 id="onprem">On-prem by default</h2>
+    <div class="models">
+      <div class="model pane">
+        <p class="role">Lead and specialists</p>
+        <p class="name">qwen3.5:9b</p>
+        <p>In Ollama, on the same machine.</p>
+      </div>
+      <div class="model pane">
+        <p class="role">Eval reader</p>
+        <p class="name">qwen3.5:4b</p>
+        <p>Reads each answer into fields to score: a different model from the agents'.</p>
+      </div>
+    </div>
+    <p class="lead-line">Evals cost nothing, no document leaves the machine, and specialists work one at a time.</p>
+  </section>
+
+  <section class="section" aria-labelledby="any">
+    <h2 id="any">Or any other model</h2>
+    <dl class="rows">
+      <div>
+        <dt>Any chat completions server</dt>
+        <dd><code>MODEL_BASE_URL</code>: Ollama, vLLM or a hosted service. <code>LEAD_MODEL</code>, <code>SPECIALIST_MODEL</code> and <code>READER_MODEL</code> name the models.</dd>
+      </div>
+      <div>
+        <dt>Gemini</dt>
+        <dd>Any model named gemini-…, with <code>GEMINI_API_KEY</code>. <code>MODEL_BASE_URL=off</code> sends every model there.</dd>
+      </div>
+      <div>
+        <dt>Media and computer use</dt>
+        <dd>Always on Gemini: they need its image, video and computer-use models.</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="section" aria-labelledby="evals">
+    <h2 id="evals">Evals</h2>
+    <dl class="figures">
+      <div class="pane"><dt>Cases</dt><dd data-figure="cases">205</dd></div>
+      <div class="pane"><dt>Dev</dt><dd data-figure="dev">105</dd></div>
+      <div class="pane"><dt>Test, held out</dt><dd data-figure="test">99</dd></div>
+      <div class="pane"><dt>Future</dt><dd data-figure="future">1</dd></div>
+    </dl>
+    <p class="lead-line">Over <span data-figure="skills">19</span> skills, each with at least 8 cases of its own. <span data-figure="review">139</span> new cases await a planner's review: until one checks their answers, they don't count.</p>
+
+    <h3>What's scored</h3>
+    <ul class="scored">
+      <li>Pass rate <span>by skill and by capability, with and without skills</span></li>
+      <li>Changed numbers <span><span data-figure="changed">7</span> cases, where a remembered answer is wrong</span></li>
+      <li>Citations <span>recall and precision</span></li>
+      <li>Hand-overs <span>on judgement cases</span></li>
+      <li>Refusals <span>where it should refuse</span></li>
+      <li>Answer length <span>in words, before "Not known yet"</span></li>
+    </ul>
+  </section>
+
+  <section class="section" aria-labelledby="tuning">
+    <h2 id="tuning">Fine-tuning</h2>
+    <p class="lead-line">In progress. Nothing is claimed yet.</p>
+  </section>
+</main>
+</body>
+</html>

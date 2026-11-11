@@ -1,5 +1,5 @@
 // The slim rail down the app's left edge: the studies, then what belongs to the
-// app rather than a study: notifications, spend, the system page, settings and the account.
+// app rather than a study: notifications, spend, the system page, the docs, settings and the account.
 // Up and down move along it; a menu closes on Escape, giving focus back.
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -210,6 +210,10 @@ export function Rail({ studies, studyId, session, testBuild, onSelect, notices }
         <a class="rail-item" href="/system/">
           <LineIcon name="system" />
           <span class="rail-label">System</span>
+        </a>
+        <a class="rail-item" href="/docs/">
+          <LineIcon name="docs" />
+          <span class="rail-label">Docs</span>
         </a>
         <Settings />
         <Account session={session} testBuild={testBuild} />
