@@ -13,6 +13,8 @@ COPY apps/display apps/display
 # The mock simulator, which the build copies to /simulator.
 COPY apps/microsim-mock apps/microsim-mock
 COPY scripts/build-simulator.ts scripts/
+# Without the skills here, it keeps the docs' committed skills.json.
+COPY scripts/build-docs-data.ts scripts/
 RUN npm run build
 
 FROM node:24-slim
