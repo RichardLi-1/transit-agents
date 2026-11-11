@@ -1,5 +1,5 @@
 // The docs' data: each skill as its SKILL.md and the eval cases give it, and the
-// committed skills.json kept true to them.
+// committed skills.json, and the Models page's figures, kept true to them.
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -70,5 +70,13 @@ describe("the docs data", () => {
       committed.skills.map(({ name, cases }) => ({ skill: name, ...cases })),
       counts.map(({ skill, dev, test, future }) => ({ skill, dev, test, future })),
     );
+  });
+
+  it("the Models and evals page gives the eval set's figures", () => {
+    const page = readFileSync(join(OUT, "../models/index.html"), "utf8");
+    const figures = Object.fromEntries([...page.matchAll(/data-figure="(\w+)">([\d,]+)</g)].map(([, key, value]) => [key, Number(value?.replace(/,/g, ""))]));
+    assert.deepEqual(figures, { ...committed.evals, skills: committed.skills.length });
+    // It says each skill has at least 8 cases of its own.
+    for (const { name, cases } of committed.skills) assert.ok(cases.dev + cases.test + cases.future >= 8, `${name} has fewer than 8 cases`);
   });
 });
