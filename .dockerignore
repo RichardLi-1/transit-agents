@@ -11,6 +11,7 @@ evals
 docs
 scripts
 !scripts/build-simulator.ts
+!scripts/build-docs-data.ts
 coverage
 .lighthouse
 references

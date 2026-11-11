@@ -1,0 +1,240 @@
+{
+  "skills": [
+    {
+      "name": "active-transportation",
+      "description": "Measure walking, cycling and bike share near transit, as multimodal and first and last mile access, from the City's open data: km of cycle tracks, bike lanes, trails and shared roads near a route or stops, streets with no sidewalk, Bike Share Toronto stations and docks, and which stops have no bike share station or bikeway within reach. For who lives near a stop use gis-analyst; for collisions and road safety use safety-audit.",
+      "summary": "Measure walking, cycling and bike share near transit, as multimodal and first and last mile access, from the City's open data: km of cycle tracks, bike lanes, trails and shared roads near a route or stops, streets with no sidewalk, Bike Share Toronto stations and docks, and which stops have no bike share station or bikeway within reach.",
+      "scripts": true,
+      "tools": 12,
+      "cases": {
+        "dev": 5,
+        "test": 5,
+        "future": 0
+      }
+    },
+    {
+      "name": "business-case-template",
+      "description": "Lay out a Metrolinx business case for its stage (Initial, Preliminary Design, Full or Post In-Service): the chapters, and what the Strategic, Economic, Financial and Deliverability and Operations cases must each contain at that stage, from the Business Case Manual's stage matrix. It fills in no figures.",
+      "summary": "Lay out a Metrolinx business case for its stage (Initial, Preliminary Design, Full or Post In-Service): the chapters, and what the Strategic, Economic, Financial and Deliverability and Operations cases must each contain at that stage, from the Business Case Manual's stage matrix. It fills in no figures.",
+      "scripts": false,
+      "tools": null,
+      "cases": {
+        "dev": 5,
+        "test": 4,
+        "future": 0
+      }
+    },
+    {
+      "name": "consultation",
+      "description": "Summarize public and community feedback on a proposal channel by channel (events, surveys, operators, stakeholders) without averaging them, propose a tone for planners to rate, and flag any instructions found inside documents.",
+      "summary": "Summarize public and community feedback on a proposal channel by channel (events, surveys, operators, stakeholders) without averaging them, propose a tone for planners to rate, and flag any instructions found inside documents.",
+      "scripts": false,
+      "tools": null,
+      "cases": {
+        "dev": 5,
+        "test": 5,
+        "future": 0
+      }
+    },
+    {
+      "name": "economic-development",
+      "description": "Count the work and activity near a route's stops, a line or its stations from open data, as they were, never as they will be: the people who work within reach from the 2021 census by census tract of work, beside the people who live there, and the land zoned for employment, homes and mixed use on the Don Mills corridor; and say what Metrolinx's Business Case Manual asks of wider economic impacts, with its pages. For residents and other census totals alone use gis-analyst; for who a change serves, equity-analysis; for benefits in dollars, metrolinx-bca. Forecasts no growth.",
+      "summary": "Count the work and activity near a route's stops, a line or its stations from open data, as they were, never as they will be: the people who work within reach from the 2021 census by census tract of work, beside the people who live there, and the land zoned for employment, homes and mixed use on the Don Mills corridor; and say what Metrolinx's Business Case Manual asks of wider economic impacts, with its pages. Forecasts no growth.",
+      "scripts": true,
+      "tools": 10,
+      "cases": {
+        "dev": 5,
+        "test": 4,
+        "future": 0
+      }
+    },
+    {
+      "name": "engagement-needs",
+      "description": "Propose what to make so people near a change can see it before they are consulted, such as a poster or a short video at a proposed station with no illustration yet: when one is worth proposing, how to write it, and why only a planner asks for it to be made.",
+      "summary": "Propose what to make so people near a change can see it before they are consulted, such as a poster or a short video at a proposed station with no illustration yet: when one is worth proposing, how to write it, and why only a planner asks for it to be made.",
+      "scripts": true,
+      "tools": 2,
+      "cases": {
+        "dev": 4,
+        "test": 5,
+        "future": 0
+      }
+    },
+    {
+      "name": "equity-analysis",
+      "description": "Say who a route, its stops or a line serves, from open data: the people within reach in low income (LIM-AT), commuting by transit, 65 and over or 0 to 14, each beside the City of Toronto as a whole from the same 2021 census, the Neighbourhood Improvement Areas it reaches and the people in them, and the stops near an NIA that the TTC's 125% equity weighting covers. For one census total, collisions or a plain buffer or overlay use gis-analyst; for whether a change passes the TTC's tests, ttc-standards; for who must hear about a change, engagement-needs.",
+      "summary": "Say who a route, its stops or a line serves, from open data: the people within reach in low income (LIM-AT), commuting by transit, 65 and over or 0 to 14, each beside the City of Toronto as a whole from the same 2021 census, the Neighbourhood Improvement Areas it reaches and the people in them, and the stops near an NIA that the TTC's 125% equity weighting covers.",
+      "scripts": true,
+      "tools": 9,
+      "cases": {
+        "dev": 5,
+        "test": 4,
+        "future": 0
+      }
+    },
+    {
+      "name": "gis-analyst",
+      "description": "Answer where-questions in Toronto with GIS on open data, such as who lives within 400 m of a route's stops, which Neighbourhood Improvement Areas a corridor reaches, or how many people were killed or seriously injured in collisions near it, by buffering routes and lines and overlaying them with 2021 census areas, neighbourhoods and police collision records. For trips, headways and spans use gtfs-analyst; for ridership forecasts, a business case.",
+      "summary": "Answer where-questions in Toronto with GIS on open data, such as who lives within 400 m of a route's stops, which Neighbourhood Improvement Areas a corridor reaches, or how many people were killed or seriously injured in collisions near it, by buffering routes and lines and overlaying them with 2021 census areas, neighbourhoods and police collision records.",
+      "scripts": true,
+      "tools": 10,
+      "cases": {
+        "dev": 8,
+        "test": 5,
+        "future": 0
+      }
+    },
+    {
+      "name": "gtfs-analyst",
+      "description": "Answer questions about a TTC route's scheduled service from the timetable in this repo: trips each hour, trips and gaps in each period of the Service Standards' Table 3, and the first and last trip of the day, each with the date of the timetable it comes from.",
+      "summary": "Answer questions about a TTC route's scheduled service from the timetable in this repo: trips each hour, trips and gaps in each period of the Service Standards' Table 3, and the first and last trip of the day, each with the date of the timetable it comes from.",
+      "scripts": true,
+      "tools": 3,
+      "cases": {
+        "dev": 4,
+        "test": 5,
+        "future": 0
+      }
+    },
+    {
+      "name": "handover",
+      "description": "What agents must never do (decide, approve, rate, set rules, invent figures, alter the record), how to hand a judgement case to a planner with the tests, the reasons and the pages, and how to end a first pass with what isn't known yet, each gap with its next step and who to contact.",
+      "summary": "What agents must never do (decide, approve, rate, set rules, invent figures, alter the record), how to hand a judgement case to a planner with the tests, the reasons and the pages, and how to end a first pass with what isn't known yet, each gap with its next step and who to contact.",
+      "scripts": false,
+      "tools": null,
+      "cases": {
+        "dev": 5,
+        "test": 4,
+        "future": 0
+      }
+    },
+    {
+      "name": "metrolinx-bca",
+      "description": "Run a benefit-cost analysis by Metrolinx's Business Case Manual on a project's own yearly benefits and costs: present values at the manual's discount rate over 60 years of operation, optimism bias on capital cost by level of design, the NPV and the benefit-cost ratio. It refuses to fill in a missing input.",
+      "summary": "Run a benefit-cost analysis by Metrolinx's Business Case Manual on a project's own yearly benefits and costs: present values at the manual's discount rate over 60 years of operation, optimism bias on capital cost by level of design, the NPV and the benefit-cost ratio. It refuses to fill in a missing input.",
+      "scripts": true,
+      "tools": 1,
+      "cases": {
+        "dev": 5,
+        "test": 4,
+        "future": 0
+      }
+    },
+    {
+      "name": "metrolinx-business-case",
+      "description": "Draft or check a Metrolinx business case for a rail project, such as the Ontario Line's Don Mills extension: the four cases, optimism bias on capital cost, the appraisal rules, and which figures are precedents or gaps rather than estimates.",
+      "summary": "Draft or check a Metrolinx business case for a rail project, such as the Ontario Line's Don Mills extension: the four cases, optimism bias on capital cost, the appraisal rules, and which figures are precedents or gaps rather than estimates.",
+      "scripts": false,
+      "tools": null,
+      "cases": {
+        "dev": 5,
+        "test": 4,
+        "future": 0
+      }
+    },
+    {
+      "name": "planning-glossary",
+      "description": "Look up transit planning and business-case jargon and acronyms, such as BCR, QCRA, optimism bias, Class 5, TPAP, GGHM, headway or a major service change, each defined in its source's words with the page, and say when no source defines a term rather than guess.",
+      "summary": "Look up transit planning and business-case jargon and acronyms, such as BCR, QCRA, optimism bias, Class 5, TPAP, GGHM, headway or a major service change, each defined in its source's words with the page, and say when no source defines a term rather than guess.",
+      "scripts": false,
+      "tools": null,
+      "cases": {
+        "dev": 5,
+        "test": 4,
+        "future": 0
+      }
+    },
+    {
+      "name": "safety-audit",
+      "description": "Audit road safety along a route, line or area the Vision Zero way, from police-reported collisions where someone was killed or seriously injured (KSI): by year, road user, severity and time of day, the places with the most, whether there are more or fewer a year than before, and countermeasures only as the City's Vision Zero plans and FHWA's Proven Safety Countermeasures give them, with pages. For a KSI count beside census or neighbourhood overlays use gis-analyst; for bike lanes, sidewalks and bike share use active-transportation.",
+      "summary": "Audit road safety along a route, line or area the Vision Zero way, from police-reported collisions where someone was killed or seriously injured (KSI): by year, road user, severity and time of day, the places with the most, whether there are more or fewer a year than before, and countermeasures only as the City's Vision Zero plans and FHWA's Proven Safety Countermeasures give them, with pages.",
+      "scripts": true,
+      "tools": 11,
+      "cases": {
+        "dev": 5,
+        "test": 5,
+        "future": 0
+      }
+    },
+    {
+      "name": "stop-accessibility",
+      "description": "Inventory the stops and stations along a TTC route or line for accessibility, as an asset inventory: which stops and platforms the TTC's GTFS marks wheelchair accessible or not, which stations have a platform marked not accessible, which stops have a City transit shelter, and what Ontario's AODA transportation standards (O. Reg. 191/11) ask of transit stops, with their pages. Lists what is there and what is missing; never says whether anything complies with the law. For who lives near a route use gis-analyst or equity-analysis.",
+      "summary": "Inventory the stops and stations along a TTC route or line for accessibility, as an asset inventory: which stops and platforms the TTC's GTFS marks wheelchair accessible or not, which stations have a platform marked not accessible, which stops have a City transit shelter, and what Ontario's AODA transportation standards (O. Reg. 191/11) ask of transit stops, with their pages. Lists what is there and what is missing; never says whether anything complies with the law.",
+      "scripts": true,
+      "tools": 9,
+      "cases": {
+        "dev": 5,
+        "test": 4,
+        "future": 0
+      }
+    },
+    {
+      "name": "tpap-brief",
+      "description": "Build a brief for Ontario's Transit Project Assessment Process (TPAP) as a PDF, a report or slides, from what the study already holds: its findings, figures and needs, each point with its page. For the lead, with get_study and create_document.",
+      "summary": "Build a brief for Ontario's Transit Project Assessment Process (TPAP) as a PDF, a report or slides, from what the study already holds: its findings, figures and needs, each point with its page.",
+      "scripts": false,
+      "tools": null,
+      "cases": {
+        "dev": 4,
+        "test": 4,
+        "future": 0
+      }
+    },
+    {
+      "name": "transit-cost-benchmark",
+      "description": "Compare a rail line's capital cost per km with the comparables the sources hold, the Ontario Line and Relief Line South in the Ontario Line Initial Business Case, on the same basis, and say what the comparison can't tell.",
+      "summary": "Compare a rail line's capital cost per km with the comparables the sources hold, the Ontario Line and Relief Line South in the Ontario Line Initial Business Case, on the same basis, and say what the comparison can't tell.",
+      "scripts": false,
+      "tools": null,
+      "cases": {
+        "dev": 7,
+        "test": 5,
+        "future": 0
+      }
+    },
+    {
+      "name": "trial-monitor",
+      "description": "Follow a service change on trial with live data: measured on-time departures by trial week and so far, each with its sample size, kept apart from the published forecasts.",
+      "summary": "Follow a service change on trial with live data: measured on-time departures by trial week and so far, each with its sample size, kept apart from the published forecasts.",
+      "scripts": true,
+      "tools": 2,
+      "cases": {
+        "dev": 5,
+        "test": 4,
+        "future": 1
+      }
+    },
+    {
+      "name": "ttc-service-change",
+      "description": "Classify a proposed TTC service change as minor or major by the Service Standards' Table 7, list the steps that class requires (Board Period or Annual Service Plan, consultation, Board approval, trial), and say when only a planner can classify it.",
+      "summary": "Classify a proposed TTC service change as minor or major by the Service Standards' Table 7, list the steps that class requires (Board Period or Annual Service Plan, consultation, Board approval, trial), and say when only a planner can classify it.",
+      "scripts": true,
+      "tools": 1,
+      "cases": {
+        "dev": 5,
+        "test": 5,
+        "future": 0
+      }
+    },
+    {
+      "name": "ttc-standards",
+      "description": "Test a proposed TTC service change against the Service Standards (May 2024) and the 2026 plan's tests (customer time, boardings per service hour, riders per $100, trial period), record traceable figures and checks, and say when the rules alone don't decide.",
+      "summary": "Test a proposed TTC service change against the Service Standards (May 2024) and the 2026 plan's tests (customer time, boardings per service hour, riders per $100, trial period), record traceable figures and checks, and say when the rules alone don't decide.",
+      "scripts": false,
+      "tools": null,
+      "cases": {
+        "dev": 13,
+        "test": 19,
+        "future": 0
+      }
+    }
+  ],
+  "evals": {
+    "cases": 205,
+    "dev": 105,
+    "test": 99,
+    "future": 1,
+    "review": 139,
+    "changed": 7
+  }
+}
