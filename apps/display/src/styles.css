@@ -3223,15 +3223,11 @@ input[type="range"] {
   margin-bottom: 12px;
 }
 
-.suggestions ul.first button,
-.suggestions ul.first button:hover {
-  background: var(--primary);
-  box-shadow: none;
-  color: var(--on-primary);
-}
-
-.suggestions ul.first button:hover {
-  filter: brightness(1.15);
+/* A row like the rest, picked out by a muted ink edge and a heavier weight: a fill in
+   the primary ink glared, white in dark. */
+.suggestions ul.first button {
+  box-shadow: var(--row-edge), 0 0 0 1.5px var(--muted);
+  font-weight: 500;
 }
 
 /* After an answer: what to look at in it, and what to try next, with a way to hide both. */
