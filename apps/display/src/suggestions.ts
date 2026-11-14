@@ -54,7 +54,7 @@ export const withAsked = (asked: Asked, studyId: string, words: string): Asked =
 // next as "Try next" with the tip, until each is asked in the study or the tips are hidden.
 export const GUIDE: readonly { ask: string; look: string | null }[] = [
   { ask: SUGGESTIONS[0] as string, look: "Open a cited page in the answer to see where its figure came from." },
-  { ask: "Compare the two alignment options", look: "Picking one is an executive's call, so the agents hand it over instead of choosing." },
+  { ask: "Compare the two alignment options", look: "The agents compare the two routes but won't pick one: choosing a route is an executive's decision, so the answer ends by asking for it." },
   { ask: "Make a TPAP brief as a PDF", look: null },
 ];
 
