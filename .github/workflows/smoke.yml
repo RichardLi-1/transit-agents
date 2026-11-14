@@ -1,0 +1,29 @@
+# Asks the live site one question, as a visitor would, and fails if no agent answers in
+# five minutes. Each morning, and by hand from the Actions tab after a deploy. A failure
+# posts to Discord when the repository has the DISCORD_WEBHOOK_URL secret. Each run costs
+# a few US cents of Gemini, from visitors' daily budget.
+name: Live check
+
+on:
+  schedule:
+    - cron: "0 13 * * *" # 8 or 9 in the morning in Toronto
+  workflow_dispatch:
+    inputs:
+      url:
+        description: The site to ask
+        default: https://transit-agents.fly.dev
+
+jobs:
+  ask:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run smoke -- "${{ inputs.url || 'https://transit-agents.fly.dev' }}"
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
