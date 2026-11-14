@@ -50,6 +50,17 @@ async def listening(fake, after, url=URL):
                 await listener
 
 
+class SmallTalkTest(unittest.TestCase):
+    def test_a_message_that_is_only_small_talk(self):
+        for text in ["hi", "Hello???", "hey!", "hiii", "Hi there", "Good morning", "what can you do???", "Help", "thanks!", "Thank you so much"]:
+            self.assertIsNotNone(main.small_talk(text), text)
+        self.assertEqual(main.small_talk("what can you do???"), main.CAPABILITIES)
+
+    def test_anything_more_goes_to_the_lead(self):
+        for text in ["hi, what would the extension cost?", "How many riders?", "help me compare the options", "This is a hit", ""]:
+            self.assertIsNone(main.small_talk(text), text)
+
+
 class ListenTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.enterContext(mock.patch.dict(os.environ, {"LEAD_MODEL": "lead-model", "MAX_MODEL_CALLS": ""}))
@@ -82,6 +93,20 @@ class ListenTest(unittest.IsolatedAsyncioTestCase):
         )
         kinds = [a["kind"] for a in support.activities(study)]
         self.assertEqual(kinds, ["message", "message", "run.started", "usage", "message", "run.finished"])
+
+    async def test_small_talk_is_answered_at_once_with_no_model(self):
+        study = support.open_study("listen-hi")
+        head = api("GET", "/v1/log/head")["seq"]
+        say(study, "hello???", PLANNER)
+        fake = FakeGemini(lambda request: reply(text="The extension would cost $4,640M."))
+
+        async with listening(fake, head):
+            await until(lambda: len(chat(study)) == 2)
+
+        self.assertEqual(fake.requests, [])
+        self.assertTrue(chat(study)[1][1].startswith("Hi! I lead a team of specialist agents"))
+        kinds = [a["kind"] for a in support.activities(study)]
+        self.assertEqual(kinds, ["message", "run.started", "message", "run.finished"])
 
     async def test_a_failure_goes_in_the_chat_and_it_keeps_listening(self):
         study = support.open_study("listen-fails")
@@ -422,7 +447,7 @@ class VisitorListenTest(unittest.IsolatedAsyncioTestCase):
         head = self.head()
         say(self.study, f"Mine: {canary}", a, self.url)
         say(self.study, "And then?", a, self.url)  # sent with A's first: one answer, to the last
-        say(self.study, "Hello?", b, self.url)
+        say(self.study, "Cost?", b, self.url)
         say(self.study, "Riders?", PLANNER, self.url)
         fake = FakeGemini(lambda request: reply(text="Done."))
 
@@ -432,13 +457,13 @@ class VisitorListenTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.3)  # time to answer A's first too, if it would
 
         runs = {request.first_turn[-1]: request.first_turn[:-1] for request in fake.requests}
-        self.assertEqual(sorted(runs), ["A planner asks: Riders?", "A visitor asks: And then?", "A visitor asks: Hello?"])
+        self.assertEqual(sorted(runs), ["A planner asks: Riders?", "A visitor asks: And then?", "A visitor asks: Cost?"])
         self.assertEqual(
             runs["A visitor asks: And then?"],
             [f"Earlier in this study's chat, oldest first, for context:\n<chat>\nPlanner: What changes here?\nVisitor: Mine: {canary}\n</chat>"],
         )
         # Nobody else's run is given A's words: not B's, nor the planner's, whose answer is shared.
-        for question in ("A visitor asks: Hello?", "A planner asks: Riders?"):
+        for question in ("A visitor asks: Cost?", "A planner asks: Riders?"):
             self.assertEqual(runs[question], ["Earlier in this study's chat, oldest first, for context:\n<chat>\nPlanner: What changes here?\n</chat>"])
 
     async def test_a_visitors_run_takes_guest_run_calls(self):

@@ -18,6 +18,7 @@ import argparse
 import asyncio
 import contextlib
 import os
+import re
 import signal
 import sys
 import time
@@ -80,6 +81,34 @@ MINUTE = 60
 SPENT = "The agent has reached today's spending limit, so it won't answer again today."
 BUSY = "The agent has answered as many messages as it may this hour. Try again later."
 HOUR = 3600
+
+
+# Small talk, answered at once, with no model and no study tools: a greeting, thanks, or
+# asking what the agent can do, and nothing else in the message. "hi" used to get the
+# study's cost. Anything more goes to the lead, whose instructions cover other small talk.
+GREETING = re.compile(r"^(?:h+i+|h+e+l+o+|h+e+y+|hiya|yo|howdy|good (?:morning|afternoon|evening))(?: there)?$")
+THANKS = re.compile(r"^(?:ok(?:ay)? )?(?:thanks?(?: you)?(?: so much)?|thx|ty|cheers)$")
+CAN_DO = re.compile(
+    r"^(?:help|what (?:can|do) you do|what can i ask(?: you)?|what can you help (?:me )?with|who are you|what are you|how does this work)$"
+)
+CAPABILITIES = """I lead a team of specialist agents that do the first pass of a transit study, from the documents and open data here. Ask in plain words, for example:
+- What would this cost, and what's the figure based on? Each figure links to its page.
+- Does a service change pass the TTC's Service Standards?
+- Who lives, works and travels near the route: income, jobs, collisions, cycling.
+- Compare the options, or make a TPAP brief as a PDF.
+Planners decide: I hand every judgement to one."""
+
+
+def small_talk(text: str) -> str | None:
+    """The reply to a message that is only small talk, or None for anything else."""
+    words = " ".join(re.sub(r"[^a-z ]+", " ", text.lower()).split())
+    if GREETING.match(words):
+        return f"Hi! {CAPABILITIES}"
+    if CAN_DO.match(words):
+        return CAPABILITIES
+    if THANKS.match(words):
+        return "You're welcome. Ask me anything else about the study."
+    return None
 
 
 # Who wrote a chat message, by the start of its actor, and how its history names them.
@@ -334,7 +363,13 @@ class Listener:
 
     async def _answer(self, session: ClientSession, study: str, seq: int, text: str, audience: str | None) -> str:
         """The lead's answer, for a planner; for a visitor, only how it went: their words
-        stay out of the terminal. Past the listener's limits, the person is told once."""
+        stay out of the terminal. Past the listener's limits, the person is told once.
+        Small talk is answered at once, as a run of its own, and costs nothing."""
+        if (said := small_talk(text)) is not None:
+            await report(session, study, "run.started")
+            await report(session, study, "message", text=said)
+            await report(session, study, "run.finished")
+            return "small talk"
         if audience:
             budget = await call(session, "get_budget")
             if isinstance(budget, dict) and budget.get("capped") and budget.get("leftUsd", 0) <= 0:
