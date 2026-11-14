@@ -16,7 +16,7 @@ import { plain, plainBold } from "../plain.ts";
 import { elapsed, specialistState, type Run } from "../runs.ts";
 import { duration, foldRuns, grouped, planOf, stepName, stepState, togetherState, type Grouped, type StepState, type ToolStep } from "../steps.ts";
 import { EMPTY_USAGE, type Store, type Subagent } from "../store.ts";
-import { unasked, withAsked, type Asked } from "../suggestions.ts";
+import { MORE, unasked, withAsked, type Asked } from "../suggestions.ts";
 import { foldAt, waiting } from "../typing.ts";
 import { DocumentCard } from "./DocumentCard.tsx";
 import { ExecutiveCard, withoutExecutive, type Ping } from "./ExecutiveCard.tsx";
@@ -317,6 +317,8 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
   // Whether the earlier messages show, and the studies the viewer has said something in.
   const [expanded, setExpanded] = useState(false);
   const [asked, setAsked] = useState<Asked>(readAsked);
+  // More's suggestions shown too, after the first four.
+  const [showMore, setShowMore] = useState(false);
   const [sending, setSending] = useState(false);
   // The messages this viewer has pinned, theirs alone, and one to scroll to.
   const [pins, setPins] = useState<Pins>(readPins);
@@ -418,6 +420,8 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
   const question = messages.filter((m) => m.from === "planner").at(-1)?.text;
   // Things to ask, only while the chat shows nothing yet.
   const left = studyId && !shown.length ? unasked(asked, studyId) : [];
+  const more = studyId && !shown.length ? unasked(asked, studyId, MORE) : [];
+  const offered = showMore ? [...left, ...more] : left;
 
   const toFoot = () => {
     const element = log.current;
@@ -431,7 +435,7 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
   // showing whole, or the dots, keeps the last message in view, unless the viewer
   // has scrolled up to read. So do the notice and the suggestions, which take room
   // from its foot: the suggestions come back as a run finishes.
-  useLayoutEffect(toFoot, [studyId, notice, working, left.length]);
+  useLayoutEffect(toFoot, [studyId, notice, working, offered.length]);
   useEffect(() => {
     const element = log.current;
     if (!element) return;
@@ -461,6 +465,7 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
     setSending(false);
     if (response?.ok) {
       setAsked((now) => keepAsked(withAsked(now, studyId, trimmed)));
+      setShowMore(false);
       return setNotice(null);
     }
     setText((now) => now || trimmed);
@@ -594,11 +599,24 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
         )}
       </div>
       {/* Only while the chat is empty, and not while the agent works: the answer coming has the room. */}
-      {canPost && studyId && !working && left.length > 0 && (
+      {canPost && studyId && !working && left.length + more.length > 0 && (
         <div class="suggestions">
-          <p id="suggestions-title">Some things I can do</p>
-          <ul aria-labelledby="suggestions-title">
-            {left.map((suggestion) => (
+          <div class="suggestions-head">
+            <p id="suggestions-title">Some things I can do</p>
+            {more.length > 0 && (
+              <button
+                type="button"
+                class="suggestions-more"
+                aria-expanded={showMore}
+                aria-controls="suggestions-list"
+                onClick={() => setShowMore((now) => !now)}
+              >
+                {showMore ? "Fewer" : "More"}
+              </button>
+            )}
+          </div>
+          <ul id="suggestions-list" aria-labelledby="suggestions-title" class={showMore ? "all" : undefined}>
+            {offered.map((suggestion) => (
               <li key={suggestion}>
                 <button type="button" disabled={sending} onClick={() => void post(suggestion, false)}>
                   {suggestion}

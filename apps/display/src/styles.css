@@ -3123,8 +3123,33 @@ input[type="range"] {
   padding: 0 14px 10px;
 }
 
-.suggestions p {
+.suggestions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin: 0 0 8px 4px;
+}
+
+.suggestions p {
+  margin: 0;
+}
+
+/* More, as quiet as the line for what the log held: muted words, no fill. */
+.suggestions .suggestions-more {
+  width: auto;
+  min-height: 30px;
+  padding: 2px 12px;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: var(--t-small);
+}
+
+.suggestions .suggestions-more:hover {
+  background: var(--hover);
+  color: var(--ink);
 }
 
 .suggestions ul {
@@ -3133,6 +3158,14 @@ input[type="range"] {
   padding: 0;
   display: grid;
   gap: 6px;
+}
+
+/* With More's too, the list scrolls, so the box to type in stays in view. */
+.suggestions ul.all {
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1px;
 }
 
 .suggestions button {
