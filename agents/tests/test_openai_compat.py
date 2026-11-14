@@ -207,7 +207,8 @@ class LocalPriceTest(unittest.TestCase):
             self.assertFalse(openai_compat.is_local("qwen3.5:9b"))
 
     def test_on_prem_by_default_ollama_on_this_machine(self):
-        with mock.patch.dict(os.environ, {"MODEL_BASE_URL": ""}):
+        # As when Ollama runs; without it, Gemini's fallback (ConfigTest in test_core).
+        with mock.patch.dict(os.environ, {"MODEL_BASE_URL": ""}), mock.patch.object(openai_compat, "answers", return_value=True):
             self.assertEqual(openai_compat.base_url(), "http://127.0.0.1:11434/v1")
             self.assertTrue(openai_compat.is_local("qwen3.5:9b"))
             self.assertFalse(openai_compat.is_local("gemini-3.6-flash"))

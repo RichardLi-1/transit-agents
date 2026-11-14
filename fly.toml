@@ -22,6 +22,11 @@ swap_size_mb = 512
   GUEST_DAILY_USD = "10"
   GUEST_MARGIN_USD = "2"
   GUEST_SHARE_USD = "1"
+  # The agents' models. Their default, qwen3.5:9b, needs a model server this machine
+  # doesn't have, so the public demo runs on Gemini.
+  MODEL_BASE_URL = "off"
+  LEAD_MODEL = "gemini-3.6-flash"
+  SPECIALIST_MODEL = "gemini-3.6-flash"
   # The service's own agent tokens, by name, that may act for a visitor.
   VISITOR_AGENTS = "lead,media"
   # The chat agent: runs answered at once, and the model calls a visitor's run may make.
