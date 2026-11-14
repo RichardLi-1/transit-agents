@@ -317,6 +317,7 @@ export const NOT_TOOLS: Record<string, string> = {
   "GET /v1/tiles/imagery/:z/:x/:y": "Aerial photo tiles, for the display's map to draw",
   "GET /v1/studies/:id/layers/:layer/geojson": "A layer's features, for the display's map. Too large for a model; summarise_layer gives an agent its totals and first rows",
   "POST /v1/guests": "Guest passes are for the display",
+  "POST /v1/track": "Page views the display reports, for a Discord channel. An agent never visits a page",
   "POST /v1/studies/:id/escalate": "A person's button under an answer: only a planner pings the executive on Slack, never an agent",
   "POST /v1/studies/:id/findings/:finding/review": "A person's button on an option's card. An agent proposes options, and only people hand one over for review",
   "POST /v1/studies/:id/findings/:finding/renders": "A person's button on an option's card. An agent proposes needs itself with add_engagement_need",
