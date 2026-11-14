@@ -436,7 +436,7 @@ describe("README's MCP section", () => {
   const python = readme.match(/```python\n([\s\S]*?)```/)?.[1] ?? "";
 
   it("says which routes aren't tools", () => {
-    assert.match(prose, /Every route except the event stream, webhook subscriptions, guest passes, and file uploads and downloads is a tool/);
+    assert.match(prose, /Every route except the event stream, webhook subscriptions, guest passes, page views, and file uploads and downloads is a tool/);
   });
 
   it("holds the Gemini client open while it runs", () => {

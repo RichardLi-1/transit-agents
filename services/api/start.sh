@@ -7,7 +7,7 @@ cd "$(dirname "$0")/../.." || exit 1
 
 (
   while true; do
-    env -u GEMINI_API_KEY -u GUEST_SECRET -u TRANSIT_TOKENS -u TRANSIT_TOKEN_AGENT -u TRANSIT_TOKEN_MEDIA \
+    env -u GEMINI_API_KEY -u GUEST_SECRET -u TRANSIT_TOKENS -u TRANSIT_TOKEN_AGENT -u TRANSIT_TOKEN_MEDIA -u DISCORD_WEBHOOK_URL \
       -u SLACK_BOT_TOKEN -u SLACK_APP_TOKEN -u TRANSIT_TOKEN_SLACK \
       node --disable-warning=ExperimentalWarning services/api/src/collect.ts
     echo "Collector stopped. Restarting in 10 seconds." >&2
@@ -23,7 +23,7 @@ if [ -n "$GEMINI_API_KEY" ] && [ -n "$TRANSIT_TOKEN_AGENT" ]; then
     (
       echo 1000 > /proc/self/oom_score_adj
       while true; do
-        env -u GUEST_SECRET -u TRANSIT_TOKENS -u SLACK_BOT_TOKEN -u SLACK_APP_TOKEN -u TRANSIT_TOKEN_SLACK TRANSIT_URL="http://127.0.0.1:${PORT:-4100}" \
+        env -u GUEST_SECRET -u TRANSIT_TOKENS -u SLACK_BOT_TOKEN -u SLACK_APP_TOKEN -u TRANSIT_TOKEN_SLACK -u DISCORD_WEBHOOK_URL TRANSIT_URL="http://127.0.0.1:${PORT:-4100}" \
           /opt/agents/bin/python "agents/$agent.py" listen
         echo "The $agent.py agent stopped. Restarting in 10 seconds." >&2
         sleep 10
@@ -40,8 +40,8 @@ if [ -n "$SLACK_BOT_TOKEN" ] && [ -n "$SLACK_APP_TOKEN" ]; then
     (
       echo 1000 > /proc/self/oom_score_adj
       while true; do
-        env -u GEMINI_API_KEY -u GUEST_SECRET -u TRANSIT_TOKENS -u TRANSIT_TOKEN_AGENT -u TRANSIT_TOKEN_MEDIA \
-          -u SLACK_WEBHOOK_URL TRANSIT_URL="http://127.0.0.1:${PORT:-4100}" \
+        env -u GEMINI_API_KEY -u GUEST_SECRET -u TRANSIT_TOKENS -u TRANSIT_TOKEN_AGENT -u TRANSIT_TOKEN_MEDIA -u DISCORD_WEBHOOK_URL \
+          -u SLACK_WEBHOOK_URL -u DISCORD_WEBHOOK_URL TRANSIT_URL="http://127.0.0.1:${PORT:-4100}" \
           /opt/agents/bin/python agents/slack_bridge.py
         echo "The Slack bridge stopped. Restarting in 10 seconds." >&2
         sleep 10

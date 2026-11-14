@@ -129,8 +129,8 @@ curl -N 'localhost:4100/v1/events?access_token=SECRET1'
 ```
 
 Python agents can connect over MCP instead, at `/v1/mcp`. Every route except
-the event stream, webhook subscriptions, guest passes, and file uploads and
-downloads is a tool, and an agent sees only the tools its role may call. A
+the event stream, webhook subscriptions, guest passes, page views, and file
+uploads and downloads is a tool, and an agent sees only the tools its role may call. A
 video is larger than an MCP message may be, so an agent posts media to
 `POST /v1/studies/{id}/needs/{need}/media` as a form, with its token. With `pip install mcp google-genai`
 (mcp 2.3, google-genai 3.0), and `TRANSIT_TOKEN_AGENT` and `GEMINI_API_KEY` set:

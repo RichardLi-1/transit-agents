@@ -66,6 +66,7 @@ import { issueGuest, userAudience, verifyGuest } from "./guests.ts";
 import type { ImageryTiles } from "./imagery.ts";
 import { EVERYONE, visible, type Entry } from "./log.ts";
 import { VisitorLimits } from "./limits.ts";
+import { aiFetchMessage, matchAiFetcher, readVisit, visitMessage, type Visits } from "./visits.ts";
 import { checkOrigin, fixedAddress, mcp, rpcError } from "./mcp.ts";
 import { byteRange, formParts } from "./media.ts";
 import { ApiError, type MediaFile, type Service } from "./service.ts";
@@ -123,6 +124,9 @@ export type AppOptions = {
   clock?: () => Date;
   // Aerial photo tiles for the map, kept on disk. Without them, there are none.
   imagery?: Pick<ImageryTiles, "get">;
+  // Page views, bounces and AI assistants' fetches, to a Discord channel, from
+  // DISCORD_WEBHOOK_URL. Without it, /v1/track takes them and sends nothing.
+  visits?: Pick<Visits, "take" | "send"> | null;
 };
 
 // The principal is the credential behind a request, which a name alone can't tell
@@ -1228,6 +1232,25 @@ export function createApp(options: AppOptions) {
     });
   }
 
+  // A page view or a quick bounce, which the display's track.js reports. Not in
+  // `routes`, so it's no agent's tool. Always 204, sent or not: tracking is best
+  // effort, and a page never waits on it.
+  const visits = options.visits ?? null;
+  publicRoutes.push({ method: "POST", path: /^\/v1\/track$/ });
+  app.post("/v1/track", async (c) => {
+    if (visits) {
+      let visit = null;
+      try {
+        visit = readVisit(JSON.parse(await c.req.text()));
+      } catch {
+        // Not JSON: nothing to send.
+      }
+      const address = c.req.header("fly-client-ip") ?? c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
+      if (visit && visits.take(address)) void visits.send(visitMessage(visit, c.req.raw.headers, clock()));
+    }
+    return c.body(null, 204);
+  });
+
   // Agents can connect over MCP instead. Each tool call runs one route above, as the caller.
   app.all("/v1/mcp", mcp(app, routes, { publicUrl: options.publicUrl }));
 
@@ -1320,6 +1343,20 @@ export function createApp(options: AppOptions) {
 
   // Anyone may ask, so it gives the shared record's head.
   app.get("/health", (c) => c.json({ ok: true, head: service.log.headFor(null) }));
+
+  // AI assistants fetching a page themselves, which run no JavaScript, so track.js
+  // never sees them: each one a JSON log line, and one a person asked for (a "user"
+  // fetcher) a message to Discord as well.
+  app.use("*", async (c, next) => {
+    const fetcher = c.req.method === "GET" && !c.req.path.startsWith("/v1/") && !extname(c.req.path) ? matchAiFetcher(c.req.header("user-agent")) : null;
+    if (fetcher) {
+      const url = new URL(c.req.url);
+      const page = url.pathname + url.search;
+      console.log(JSON.stringify({ type: "ai_fetch", vendor: fetcher.vendor, bot: fetcher.token, kind: fetcher.kind, page }));
+      if (fetcher.kind === "user" && visits?.take(undefined)) void visits.send(aiFetchMessage(fetcher, page, clock()));
+    }
+    await next();
+  });
 
   if (staticDir && existsSync(staticDir)) {
     const root = resolve(staticDir);
