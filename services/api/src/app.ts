@@ -53,6 +53,8 @@ import {
   type GuestPass,
   type Me,
   type Role,
+  modelName,
+  type ModelChoices,
   type ServiceConfig,
   type SignIn,
   type VisitorBudget as BudgetView,
@@ -127,6 +129,8 @@ export type AppOptions = {
   // Page views, bounces and AI assistants' fetches, to a Discord channel, from
   // DISCORD_WEBHOOK_URL. Without it, /v1/track takes them and sends nothing.
   visits?: Pick<Visits, "take" | "send"> | null;
+  // The models a chat message may ask for, from MODEL_CHOICES. Without them, none.
+  models?: ModelChoices;
 };
 
 // The principal is the credential behind a request, which a name alone can't tell
@@ -295,6 +299,13 @@ function securityHeaders(signIn: SignIn | null): Record<string, string> {
 
 // A planner's name for open mode, from PLANNER_NAME: letters, numbers, spaces and
 // . ' -, at most 80, so it reads well in the log as role:name. Undefined otherwise.
+// MODEL_CHOICES as choices: model names, comma-separated, the first the default. A name
+// that isn't one is dropped, so a typo can't be offered.
+export function modelChoices(raw: string | undefined): ModelChoices | undefined {
+  const choices = [...new Set((raw ?? "").split(",").map((name) => name.trim()).filter((name) => modelName.safeParse(name).success))];
+  return choices.length ? { choices, default: choices[0] as string } : undefined;
+}
+
 export function plannerName(raw: string | undefined): string | undefined {
   const name = raw?.trim().replace(/\s+/g, " ");
   return name && /^[\p{L}\p{N} .'-]{1,80}$/u.test(name) ? name : undefined;
@@ -525,7 +536,8 @@ export function createApp(options: AppOptions) {
       summary: "How to sign in, what a request without a token may do, and whether visitors get guest passes. Needs no token",
       roles: anyone,
       public: true,
-      handler: (c) => c.json({ auth: access, signIn, guests: Boolean(guests), executive: slack ? executive.name : null } satisfies ServiceConfig),
+      handler: (c) =>
+        c.json({ auth: access, signIn, guests: Boolean(guests), executive: slack ? executive.name : null, models: options.models } satisfies ServiceConfig),
     },
     {
       method: "post",
@@ -1000,6 +1012,11 @@ export function createApp(options: AppOptions) {
       body: Activity,
       handler: async (c) => {
         const activity = await bodyOf(c, Activity);
+        // A message may ask for a model only from this service's choices, which name
+        // what its agents can run: no model server on the public demo, so no open model.
+        if (activity.kind === "message" && activity.model && !options.models?.choices.includes(activity.model)) {
+          throw new ApiError(400, "unknown_model", `Choose a model from ${options.models?.choices.join(", ") || "none: this service offers no choice"}`);
+        }
         // A visitor chats, and the agents report the rest. Usage from a visitor
         // would misstate what the agents spent.
         if (isGuest(c)) {

@@ -555,6 +555,38 @@ a {
   box-shadow: var(--well-edge);
 }
 
+/* A setting with more choices than fit in a row, such as the agents' model: a select. */
+.settings-field {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.settings-field span {
+  color: var(--muted);
+  font-size: var(--t-small);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.settings-field select {
+  height: 36px;
+  padding: 0 10px 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--well);
+  box-shadow: var(--well-edge);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-ui);
+}
+
+.settings-field select:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .segmented legend {
   margin-bottom: 8px;
   padding: 0;
@@ -4332,6 +4364,7 @@ input[type="range"] {
   .exec-card,
   .chat form,
   .decide select,
+  .settings-field select,
   .decide input,
   .suggestions button,
   .need .action {
@@ -4549,6 +4582,7 @@ input[type="range"] {
   .awaiting .dot,
   .sign-in,
   .decide select,
+  .settings-field select,
   .decide input,
   .decide button,
   .override,

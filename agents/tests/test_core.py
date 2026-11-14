@@ -837,6 +837,26 @@ class ConfigTest(unittest.TestCase):
             port = server.getsockname()[1]
             self.assertEqual(self._models(f"http://127.0.0.1:{port}/v1"), ("qwen3.5:9b", "qwen3.5:9b", 1))
 
+    def _chosen(self, model, url, **env):
+        token = core.chosen_model.set(model)
+        self.addCleanup(core.chosen_model.reset, token)
+        return self._models(url, **env)[:2]
+
+    def test_the_model_the_chat_asked_for(self):
+        self.assertEqual(self._chosen("gemini-3.8-flash", "off"), ("gemini-3.8-flash", "gemini-3.8-flash"))
+        with socket.create_server(("127.0.0.1", 0)) as server:
+            url = f"http://127.0.0.1:{server.getsockname()[1]}/v1"
+            self.assertEqual(self._chosen("qwen3.5:9b", url, LEAD_MODEL="gemini-3.6-flash"), ("qwen3.5:9b", "qwen3.5:9b"))
+
+    def test_not_one_this_machine_cant_run(self):
+        # An open model with no model server, as on the public demo: the settings' own.
+        settings = {"LEAD_MODEL": "gemini-3.6-flash", "SPECIALIST_MODEL": "gemini-3.6-flash"}
+        self.assertEqual(self._chosen("qwen3.5:9b", "off", **settings), ("gemini-3.6-flash", "gemini-3.6-flash"))
+        # Gemini with no key: the default, an open model on this machine.
+        with socket.create_server(("127.0.0.1", 0)) as server:
+            url = f"http://127.0.0.1:{server.getsockname()[1]}/v1"
+            self.assertEqual(self._chosen("gemini-3.8-flash", url, GEMINI_API_KEY=""), ("qwen3.5:9b", "qwen3.5:9b"))
+
     def test_from_the_environment(self):
         env = {
             "TRANSIT_URL": "http://example.test/",

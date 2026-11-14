@@ -108,6 +108,21 @@ class ListenTest(unittest.IsolatedAsyncioTestCase):
         kinds = [a["kind"] for a in support.activities(study)]
         self.assertEqual(kinds, ["message", "run.started", "message", "run.finished"])
 
+    async def test_the_run_uses_the_model_the_message_asked_for(self):
+        chosen, unchosen = support.open_study("listen-model"), support.open_study("listen-no-model")
+        head = api("GET", "/v1/log/head")["seq"]
+        # One of the service's MODEL_CHOICES; here, its defaults.
+        api("POST", f"/v1/studies/{chosen}/activity", {"kind": "message", "text": "Riders?", "model": "gemini-3.6-flash"}, token=PLANNER)
+        api("POST", f"/v1/studies/{unchosen}/activity", {"kind": "message", "text": "Cost?"}, token=PLANNER)
+        fake = FakeGemini(lambda request: reply(text=f"On {request.model}."))
+
+        async with listening(fake, head):
+            await until(lambda: len(chat(chosen)) == 2 and len(chat(unchosen)) == 2)
+
+        # The one that asked, on its model; the other, on LEAD_MODEL.
+        self.assertEqual(chat(chosen)[1][1], "On gemini-3.6-flash.")
+        self.assertEqual(chat(unchosen)[1][1], "On lead-model.")
+
     async def test_a_failure_goes_in_the_chat_and_it_keeps_listening(self):
         study = support.open_study("listen-fails")
         head = api("GET", "/v1/log/head")["seq"]

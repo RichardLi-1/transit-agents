@@ -3,11 +3,12 @@
 // Up and down move along it; a menu closes on Escape, giving focus back.
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { StudyView } from "@transit-agents/contracts";
+import type { ModelChoices, StudyView } from "@transit-agents/contracts";
 import { studyColor } from "../map/views.ts";
 import { isGuest, signIn, signOut, type Session } from "../session.ts";
 import { showIntro } from "../intro.ts";
 import { readChoice, setChoice, type ThemeChoice } from "../theme.ts";
+import { chooseModel, modelLabel, shownModel } from "../models.ts";
 import { LineIcon } from "./icons.tsx";
 
 type Props = {
@@ -96,10 +97,13 @@ const APPEARANCE: [ThemeChoice, string][] = [
   ["dark", "Dark"],
 ];
 
-// Settings: the viewer's own, kept in this browser. For now, light or dark.
-function Settings() {
+// Settings: the viewer's own, kept in this browser: light or dark, and the model the
+// agents answer their chat on, from those the service offers.
+function Settings({ models }: { models: ModelChoices | undefined }) {
   const [open, setOpen] = useState(false);
   const [choice, setShown] = useState<ThemeChoice>(readChoice);
+  const [model, setModel] = useState<string | null>(null);
+  const shown = models ? (model ?? shownModel(models)) : null;
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -142,6 +146,25 @@ function Settings() {
             ))}
           </div>
         </fieldset>
+        {models && models.choices.length > 1 && shown && (
+          <label class="settings-field">
+            <span>Model</span>
+            <select
+              value={shown}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                chooseModel(value);
+                setModel(value);
+              }}
+            >
+              {models.choices.map((name) => (
+                <option key={name} value={name}>
+                  {modelLabel(name)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <button type="button" class="settings-link" onClick={() => {
           setOpen(false);
           showIntro();
@@ -215,7 +238,7 @@ export function Rail({ studies, studyId, session, testBuild, onSelect, notices }
           <LineIcon name="docs" />
           <span class="rail-label">Docs</span>
         </a>
-        <Settings />
+        <Settings models={session?.config?.models} />
         <Account session={session} testBuild={testBuild} />
         {testBuild && <p class="tag rail-tag build">Test build</p>}
       </div>

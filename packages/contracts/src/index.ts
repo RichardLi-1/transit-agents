@@ -25,7 +25,13 @@ export type SignIn = { provider: "auth0"; domain: string; clientId: string; audi
 // guests is true when the service gives out guest passes. executive is the name of
 // the person a planner can ping on Slack about an executive decision, and null when
 // Slack isn't set up. Older services send none.
-export type ServiceConfig = { auth: AccessMode; signIn: SignIn | null; guests: boolean; executive?: string | null };
+export type ServiceConfig = { auth: AccessMode; signIn: SignIn | null; guests: boolean; executive?: string | null; models?: ModelChoices };
+
+// The models a chat message may ask the agents to answer on, from MODEL_CHOICES, the
+// first the default. The display's Settings offers them.
+export type ModelChoices = { choices: string[]; default: string };
+// A model's name as the agents take it, such as gemini-3.6-flash or qwen3.5:9b.
+export const modelName = z.string().regex(/^[a-z0-9][a-z0-9.:-]{0,59}$/);
 
 // GET /v1/me: who the caller is.
 export type Me = { role: Role; name: string };
@@ -639,7 +645,8 @@ export type StudyView = {
 export const Activity = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("run.started") }),
   z.object({ kind: z.literal("run.finished") }),
-  z.object({ kind: z.literal("message"), text: z.string().min(1).max(4000) }),
+  // model: what a person's message asks the agents to answer on, one of MODEL_CHOICES.
+  z.object({ kind: z.literal("message"), text: z.string().min(1).max(4000), model: modelName.optional() }),
   // subagentId names the specialist whose reading or usage it is. The lead's has none.
   z.object({ kind: z.literal("reading"), contextId: slug, page: z.number().int().positive().optional(), subagentId: slug.optional() }),
   // skill is the skill the lead gave it, if any.

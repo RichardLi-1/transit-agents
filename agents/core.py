@@ -263,12 +263,22 @@ def config() -> Config:
     )
 
 
+# The model the chat message a run answers asked for, from the display's Settings: the
+# lead's and its specialists'. None: the settings' own.
+chosen_model: ContextVar[str | None] = ContextVar("chosen_model", default=None)
+
+
 def _model(name: str) -> str:
-    """The model the setting names, or the default; Gemini's fallback in its place when
-    it's served by a model server that doesn't answer and there's a Gemini key."""
+    """The model the chat asked for, if this machine can run it, else the one the setting
+    names, or the default; Gemini's fallback in its place when it's served by a model
+    server that doesn't answer and there's a Gemini key."""
     model = os.environ.get(name) or DEFAULT_MODEL
     url = openai_compat.base_url()
     has_key = any(os.environ.get(key) for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY"))
+    chosen = chosen_model.get()
+    # Gemini needs a key, and an open model a server: without them, the asked-for model is left.
+    if chosen and (has_key if openai_compat.is_gemini(chosen) else url is not None):
+        model = chosen
     if openai_compat.is_gemini(model) or url is None or not has_key or openai_compat.answers(url):
         return model
     return FALLBACK_MODEL

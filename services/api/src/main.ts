@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { AccessMode, Role } from "@transit-agents/contracts";
 import { mkdirSync } from "node:fs";
-import { createApp, plannerName, type Actor } from "./app.ts";
+import { createApp, modelChoices, plannerName, type Actor } from "./app.ts";
 import { ImageryTiles } from "./imagery.ts";
 import { auth0Settings } from "./auth0.ts";
 import { VisitorBudget } from "./budget.ts";
@@ -85,6 +85,12 @@ const slack = slackAddress ? new Slack(service, slackAddress, { publicUrl: proce
 const executive = parseExecutive(process.env.SLACK_EXECUTIVE);
 if (slack) console.log(`Slack is on: the shared record's notices go to SLACK_WEBHOOK_URL, and planners can ping ${executive.name}${executive.member ? " (with an @-mention)" : ""}.`);
 else if (process.env.SLACK_WEBHOOK_URL) console.warn("Slack is off: SLACK_WEBHOOK_URL must be a Slack incoming webhook, https://hooks.slack.com/services/...");
+// The models a chat message may ask the agents to answer on, the first the default. Without
+// MODEL_CHOICES, the agents' own: qwen3.5:9b on this machine's Ollama, and Gemini, their
+// fallback (agents/core.py; agents/tests/test_deploy.py keeps the two the same).
+const DEFAULT_MODEL_CHOICES = "qwen3.5:9b,gemini-3.6-flash";
+const models = modelChoices(process.env.MODEL_CHOICES || DEFAULT_MODEL_CHOICES);
+
 // Page views and AI assistants' fetches, to one Discord channel. A secret too.
 const discordAddress = discordUrl(process.env.DISCORD_WEBHOOK_URL);
 const visits = discordAddress ? new Visits(discordAddress) : null;
@@ -120,6 +126,7 @@ const app = createApp({
   slack,
   executive,
   visits,
+  models,
 });
 
 // HTTP/1.1, so it can close every connection. PORT=0 takes any free port.

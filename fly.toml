@@ -27,6 +27,9 @@ swap_size_mb = 512
   MODEL_BASE_URL = "off"
   LEAD_MODEL = "gemini-3.6-flash"
   SPECIALIST_MODEL = "gemini-3.6-flash"
+  # What Settings offers visitors and planners, the first the default: Gemini only, as
+  # there's no model server here.
+  MODEL_CHOICES = "gemini-3.6-flash,gemini-3.8-flash,gemini-3.5-flash-lite"
   # The service's own agent tokens, by name, that may act for a visitor.
   VISITOR_AGENTS = "lead,media"
   # The chat agent: runs answered at once, and the model calls a visitor's run may make.

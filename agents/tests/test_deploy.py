@@ -7,6 +7,7 @@ MODEL_BASE_URL=off. These read fly.toml and start.sh themselves.
 """
 
 import os
+import re
 import tomllib
 import unittest
 from pathlib import Path
@@ -41,6 +42,19 @@ class DeployTest(unittest.TestCase):
             settings = core.config()
         self.assertTrue(openai_compat.is_gemini(settings.lead_model))
         self.assertTrue(openai_compat.is_gemini(settings.specialist_model))
+
+    def test_settings_offers_only_models_fly_can_run(self):
+        choices = self.env.get("MODEL_CHOICES", "").split(",")
+        self.assertEqual(choices[0], self.env.get("LEAD_MODEL"), "the first of MODEL_CHOICES is the default, LEAD_MODEL")
+        for model in choices:
+            self.assertTrue(openai_compat.is_gemini(model), f"MODEL_CHOICES on Fly must be Gemini models, not {model!r}")
+            self.assertIsNotNone(prices.cost(model, 1_000, 100), f"{model} has no price in prices.py")
+
+    def test_the_services_default_choices_are_the_agents_defaults(self):
+        main = (ROOT / "services/api/src/main.ts").read_text()
+        default = re.search(r'DEFAULT_MODEL_CHOICES = "([^"]+)"', main)
+        self.assertIsNotNone(default)
+        self.assertEqual(default.group(1).split(","), [core.DEFAULT_MODEL, core.FALLBACK_MODEL])
 
     def test_the_chat_and_media_agents_start_with_the_service(self):
         self.assertIn("for agent in main media", self.start)

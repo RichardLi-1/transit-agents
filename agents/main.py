@@ -40,6 +40,7 @@ from core import (
     SpendCapReached,
     ToolError,
     call,
+    chosen_model,
     clip,
     config,
     connect,
@@ -332,16 +333,18 @@ class Listener:
                     continue
                 text, audience = question
                 study = entry["studyId"]
+                model = (entry.get("data") or {}).get("model")
                 self.latest[(study, audience)] = entry["seq"]
-                task = asyncio.create_task(self.reply(study, entry["seq"], text, audience))
+                task = asyncio.create_task(self.reply(study, entry["seq"], text, audience, model if isinstance(model, str) else None))
                 self.runs.add(task)
                 task.add_done_callback(self.runs.discard)
             if len(entries) < PAGE:
                 await asyncio.sleep(self.poll_seconds)
 
-    async def reply(self, study: str, seq: int, text: str, audience: str | None) -> None:
+    async def reply(self, study: str, seq: int, text: str, audience: str | None, model: str | None = None) -> None:
         """Answer one message, after that person's earlier ones, once a run may start. One
-        they sent in the study meanwhile is answered instead, with this one in its history."""
+        they sent in the study meanwhile is answered instead, with this one in its history.
+        `model`, the one the message asked for, runs the lead and its specialists."""
         who = audience[:8] if audience else "planner"
         key = (study, audience)
         try:
@@ -352,7 +355,11 @@ class Listener:
                     # A planner's words are in the shared record; a visitor's never go in the log here.
                     print(f"{study}, {who}" + ("" if audience else f": {text}"), flush=True)
                     async with open_session(self.url, self.token, on_behalf_of=audience) as session:
-                        said = await self._answer(session, study, seq, text, audience)
+                        chosen = chosen_model.set(model)
+                        try:
+                            said = await self._answer(session, study, seq, text, audience)
+                        finally:
+                            chosen_model.reset(chosen)
         except Exception as error:  # it's in the chat; keep listening
             print(f"  {study}, {who}: that failed: {error}", file=sys.stderr, flush=True)
         else:

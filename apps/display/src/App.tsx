@@ -408,6 +408,7 @@ export function App() {
         canPost={canPost(session?.me ?? null)}
         ping={{ to: session?.config ? (session.config.executive ?? null) : undefined, can: canDecide(session?.me ?? null) }}
         onPage={openPage}
+        models={session?.config?.models}
         onSimulator={() => {
           setSimulator((now) => ({ src: "/simulator/#replay", key: (now?.key ?? 0) + 1 }));
           setTab("sim");

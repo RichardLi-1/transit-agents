@@ -5,7 +5,7 @@
 // called with. The answer is what stands out.
 import { Fragment } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import { EXECUTIVE } from "@transit-agents/contracts";
+import { EXECUTIVE, type ModelChoices } from "@transit-agents/contracts";
 import { api } from "../api.ts";
 import { spentUsd } from "../money.ts";
 import { withCites } from "../cites.ts";
@@ -18,6 +18,7 @@ import { duration, foldRuns, grouped, planOf, stepName, stepState, togetherState
 import { EMPTY_USAGE, type Store, type Subagent } from "../store.ts";
 import { MORE, unasked, withAsked, type Asked } from "../suggestions.ts";
 import { foldAt, waiting } from "../typing.ts";
+import { askedModel } from "../models.ts";
 import { DocumentCard } from "./DocumentCard.tsx";
 import { ExecutiveCard, withoutExecutive, type Ping } from "./ExecutiveCard.tsx";
 import { CheckIcon, CrossIcon, LineIcon, SendIcon, StaleIcon } from "./icons.tsx";
@@ -62,6 +63,8 @@ type Props = {
   onPage: (contextId: string, page: number, element: Element) => void;
   // Shows the intersection simulator, replaying a run, in its tab.
   onSimulator: () => void;
+  // The models the service offers, one of which the viewer may have chosen in Settings.
+  models?: ModelChoices;
 };
 
 const BADGE: Record<StepState, string> = { running: "Working", done: "Complete", failed: "Failed", stopped: "Stopped" };
@@ -311,7 +314,7 @@ function Streamed({ text, ids, onPage, onDone }: { text: string; ids: string[]; 
   );
 }
 
-export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Props) {
+export function Chat({ store, studyId, canPost, ping, onPage, onSimulator, models }: Props) {
   const ids = store.contexts.map((context) => context.id);
   const [text, setText] = useState("");
   // Whether the earlier messages show, and the studies the viewer has said something in.
@@ -460,7 +463,8 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator }: Pro
     const response = await api(`/v1/studies/${studyId}/activity`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ kind: "message", text: trimmed }),
+      // The model chosen in Settings, if any: the agents answer on it.
+      body: JSON.stringify({ kind: "message", text: trimmed, model: askedModel(models) }),
     }).catch(() => undefined);
     setSending(false);
     if (response?.ok) {
