@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import socket
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +16,7 @@ from google.genai import types
 
 import core
 import lead
+import openai_compat
 from tests import support
 from tests.support import AGENT, SOURCE, URL, FakeGemini, api, gemini_error, reply
 
@@ -814,6 +816,26 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(
             settings, core.Config("http://127.0.0.1:4100", "qwen3.5:9b", "qwen3.5:9b", 30, 60, 2, 2, 20)
         )
+
+    def _models(self, url, **env):
+        openai_compat._ANSWERED.clear()
+        self.addCleanup(openai_compat._ANSWERED.clear)
+        names = {"LEAD_MODEL": "", "SPECIALIST_MODEL": "", "SPECIALIST_CONCURRENCY": "", "MODEL_BASE_URL": url}
+        with mock.patch.dict(os.environ, {**names, **env}), contextlib.redirect_stderr(io.StringIO()):
+            settings = core.config()
+        return settings.lead_model, settings.specialist_model, settings.specialist_concurrency
+
+    def test_gemini_when_no_model_server_answers(self):
+        # Nothing listens on port 9, as on the public demo's machine, which has no Ollama.
+        self.assertEqual(self._models("http://127.0.0.1:9/v1"), (core.FALLBACK_MODEL, core.FALLBACK_MODEL, 2))
+
+    def test_no_fallback_without_a_gemini_key(self):
+        self.assertEqual(self._models("http://127.0.0.1:9/v1", GEMINI_API_KEY=""), ("qwen3.5:9b", "qwen3.5:9b", 1))
+
+    def test_the_model_server_when_it_answers(self):
+        with socket.create_server(("127.0.0.1", 0)) as server:
+            port = server.getsockname()[1]
+            self.assertEqual(self._models(f"http://127.0.0.1:{port}/v1"), ("qwen3.5:9b", "qwen3.5:9b", 1))
 
     def test_from_the_environment(self):
         env = {

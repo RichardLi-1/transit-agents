@@ -22,6 +22,9 @@ are priced at zero (prices.py).
 import json
 import os
 import re
+import socket
+import sys
+import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -47,6 +50,32 @@ def base_url() -> str | None:
 
 def is_gemini(model: str) -> bool:
     return model.startswith("gemini")
+
+
+# Whether each server answered when last asked, and when: asked again after a minute,
+# so a server that starts later is used from then on.
+_ANSWERED: dict[str, tuple[float, bool]] = {}
+RECHECK_S = 60
+
+
+def answers(url: str) -> bool:
+    """Whether anything listens at the server's address. A connection only, no request;
+    refused at once when nothing listens on this machine."""
+    now = time.monotonic()
+    kept = _ANSWERED.get(url)
+    if kept and now - kept[0] < RECHECK_S:
+        return kept[1]
+    parsed = urlparse(url)
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((parsed.hostname or "127.0.0.1", port), timeout=1):
+            answered = True
+    except OSError:
+        answered = False
+    if not answered and (not kept or kept[1]):
+        print(f"No model server answers at {url}.", file=sys.stderr)
+    _ANSWERED[url] = (now, answered)
+    return answered
 
 
 def is_local(model: str) -> bool:

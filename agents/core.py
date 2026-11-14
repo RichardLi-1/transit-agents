@@ -42,6 +42,9 @@ dotenv.load_dotenv(HERE / ".env")
 # On-prem by default: an open model on this machine's Ollama (openai_compat.py). Name a
 # gemini-* model to use Gemini instead.
 DEFAULT_MODEL = "qwen3.5:9b"
+# Gemini, when no model server answers and there's a Gemini key, so a machine without
+# one, such as the public demo's, still answers. 3.8 Flash is often overloaded.
+FALLBACK_MODEL = "gemini-3.6-flash"
 
 # Code reports activity and tokens, and checks the visitors' budget, so models never see
 # these tools: a model can't know its own token counts.
@@ -241,15 +244,16 @@ def config() -> Config:
         prices.overrides()  # read again for each model call: a mistake shows here, before any
     except ValueError as error:
         raise SetupError(str(error)) from None
+    specialist_model = _model("SPECIALIST_MODEL")
     return Config(
         service_url=(os.environ.get("TRANSIT_URL") or "http://127.0.0.1:4100").rstrip("/"),
-        lead_model=os.environ.get("LEAD_MODEL") or DEFAULT_MODEL,
-        specialist_model=os.environ.get("SPECIALIST_MODEL") or DEFAULT_MODEL,
+        lead_model=_model("LEAD_MODEL"),
+        specialist_model=specialist_model,
         max_model_calls=_count("MAX_MODEL_CALLS", 30),
         max_run_calls=_count("MAX_RUN_CALLS", 60),
         # 2 on Gemini, whose free tier allows 5 requests a minute; 1 on a model on this
         # machine, which answers one request at a time.
-        specialist_concurrency=_count("SPECIALIST_CONCURRENCY", 1 if openai_compat.is_local(os.environ.get("SPECIALIST_MODEL") or DEFAULT_MODEL) else 2),
+        specialist_concurrency=_count("SPECIALIST_CONCURRENCY", 1 if openai_compat.is_local(specialist_model) else 2),
         runs_at_once=_count("RUNS_AT_ONCE", 2),
         guest_run_calls=_count("GUEST_RUN_CALLS", 20),
         max_run_usd=_dollars("MAX_RUN_USD", 2.0),
@@ -257,6 +261,17 @@ def config() -> Config:
         max_runs_per_hour=_count("MAX_RUNS_PER_HOUR", 20),
         max_run_minutes=_count("MAX_RUN_MINUTES", 10),
     )
+
+
+def _model(name: str) -> str:
+    """The model the setting names, or the default; Gemini's fallback in its place when
+    it's served by a model server that doesn't answer and there's a Gemini key."""
+    model = os.environ.get(name) or DEFAULT_MODEL
+    url = openai_compat.base_url()
+    has_key = any(os.environ.get(key) for key in ("GEMINI_API_KEY", "GOOGLE_API_KEY"))
+    if openai_compat.is_gemini(model) or url is None or not has_key or openai_compat.answers(url):
+        return model
+    return FALLBACK_MODEL
 
 
 def _count(name: str, default: int) -> int:
