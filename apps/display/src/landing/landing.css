@@ -1,0 +1,43 @@
+@font-face {
+  font-family: "Google Sans";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/GoogleSans-latin.woff2") format("woff2");
+}
+
+/* The display's ink and ground, in light and dark. */
+:root {
+  --ink: #1c1917;
+  --muted: #3d3935;
+  --blue: #0055aa;
+  --ground: #f2f1ee;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --ink: #f5f5f4;
+  --muted: #d6d3d1;
+  --blue: #66b3ff;
+  --ground: #161618;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "Google Sans", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  padding: 16px;
+}
