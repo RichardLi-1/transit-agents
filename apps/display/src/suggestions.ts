@@ -48,3 +48,44 @@ export const unasked = (asked: Asked, studyId: string, from: readonly string[] =
 // With one more question asked in a study. Only a suggestion's words are kept.
 export const withAsked = (asked: Asked, studyId: string, words: string): Asked =>
   ALL.includes(words) && !asked[studyId]?.includes(words) ? { ...asked, [studyId]: [...(asked[studyId] ?? []), words] } : asked;
+
+// The first visit's path, in order: each step's question, and what to look at in its
+// answer. The chat offers the first as "Try this first", then, after each answer, the
+// next as "Try next" with the tip, until each is asked in the study or the tips are hidden.
+export const GUIDE: readonly { ask: string; look: string | null }[] = [
+  { ask: SUGGESTIONS[0] as string, look: "Open a cited page in the answer to see where its figure came from." },
+  { ask: "Compare the two alignment options", look: "Picking one is an executive's call, so the agents hand it over instead of choosing." },
+  { ask: "Make a TPAP brief as a PDF", look: null },
+];
+
+// The guide in a study: the next step to try, or null once each is asked, and the tip
+// for the last one asked, or null before the first.
+export function guideStep(asked: Asked, studyId: string): { next: string | null; look: string | null } {
+  const done = GUIDE.filter((step) => asked[studyId]?.includes(step.ask));
+  return { next: GUIDE.find((step) => !done.includes(step))?.ask ?? null, look: done.at(-1)?.look ?? null };
+}
+
+// Whether the viewer hid the tips, in this browser, for good.
+const HIDDEN = "guide.hidden";
+export function guideHidden(storage: Pick<Storage, "getItem"> | null = safeStorage()): boolean {
+  try {
+    return storage?.getItem(HIDDEN) === "1";
+  } catch {
+    return false;
+  }
+}
+export function hideGuide(storage: Pick<Storage, "setItem"> | null = safeStorage()) {
+  try {
+    storage?.setItem(HIDDEN, "1");
+  } catch {
+    // Hidden for this page only.
+  }
+}
+
+function safeStorage(): Storage | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}

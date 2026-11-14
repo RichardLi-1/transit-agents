@@ -3218,6 +3218,101 @@ input[type="range"] {
   background: var(--row-hover);
 }
 
+/* The first visit's first step, as the one thing to press, and "Then" under it. */
+.suggestions ul.first {
+  margin-bottom: 12px;
+}
+
+.suggestions ul.first button,
+.suggestions ul.first button:hover {
+  background: var(--primary);
+  box-shadow: none;
+  color: var(--on-primary);
+}
+
+.suggestions ul.first button:hover {
+  filter: brightness(1.15);
+}
+
+/* After an answer: what to look at in it, and what to try next, with a way to hide both. */
+.guide {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 0 10px 10px 14px;
+}
+
+.guide-body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.guide-look {
+  margin: 0 4px;
+  color: var(--muted);
+  font-size: var(--t-small);
+  line-height: 1.4;
+}
+
+.guide-next {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-next span {
+  flex: none;
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: var(--t-small);
+  font-weight: 500;
+}
+
+.guide-next button {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: var(--radius-row);
+  background: var(--row);
+  box-shadow: var(--row-edge);
+  color: var(--ink);
+  font-size: var(--t-ui);
+  line-height: 1.35;
+  text-align: left;
+}
+
+.guide-next button:hover {
+  background: var(--row-hover);
+}
+
+.guide-next button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.guide-hide {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.guide-hide:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
 /* The service's words under the chat when it turns something down. */
 .refusal {
   margin: 0;
@@ -4367,6 +4462,7 @@ input[type="range"] {
   .settings-field select,
   .decide input,
   .suggestions button,
+  .guide-next button,
   .need .action {
     background: Canvas;
     border: 1px solid CanvasText;

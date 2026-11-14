@@ -16,7 +16,7 @@ import { plain, plainBold } from "../plain.ts";
 import { elapsed, specialistState, type Run } from "../runs.ts";
 import { duration, foldRuns, grouped, planOf, stepName, stepState, togetherState, type Grouped, type StepState, type ToolStep } from "../steps.ts";
 import { EMPTY_USAGE, type Store, type Subagent } from "../store.ts";
-import { MORE, unasked, withAsked, type Asked } from "../suggestions.ts";
+import { guideHidden, guideStep, hideGuide, MORE, unasked, withAsked, type Asked } from "../suggestions.ts";
 import { foldAt, waiting } from "../typing.ts";
 import { askedModel } from "../models.ts";
 import { DocumentCard } from "./DocumentCard.tsx";
@@ -322,6 +322,8 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator, model
   const [asked, setAsked] = useState<Asked>(readAsked);
   // More's suggestions shown too, after the first four.
   const [showMore, setShowMore] = useState(false);
+  // The first visit's tips, until the viewer hides them in this browser.
+  const [guideOff, setGuideOff] = useState(guideHidden);
   const [sending, setSending] = useState(false);
   // The messages this viewer has pinned, theirs alone, and one to scroll to.
   const [pins, setPins] = useState<Pins>(readPins);
@@ -424,7 +426,11 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator, model
   // Things to ask, only while the chat shows nothing yet.
   const left = studyId && !shown.length ? unasked(asked, studyId) : [];
   const more = studyId && !shown.length ? unasked(asked, studyId, MORE) : [];
-  const offered = showMore ? [...left, ...more] : left;
+  // The first visit's path: what to try first, and after each answer, what next.
+  const guide = studyId && !guideOff ? guideStep(asked, studyId) : null;
+  const first = guide?.next && left.includes(guide.next) ? guide.next : null;
+  const offered = (showMore ? [...left, ...more] : left).filter((suggestion) => suggestion !== first);
+  const after = guide && shown.length > 0 && !working && (guide.next || guide.look) ? guide : null;
 
   const toFoot = () => {
     const element = log.current;
@@ -438,7 +444,7 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator, model
   // showing whole, or the dots, keeps the last message in view, unless the viewer
   // has scrolled up to read. So do the notice and the suggestions, which take room
   // from its foot: the suggestions come back as a run finishes.
-  useLayoutEffect(toFoot, [studyId, notice, working, offered.length]);
+  useLayoutEffect(toFoot, [studyId, notice, working, offered.length, after?.next, after?.look]);
   useEffect(() => {
     const element = log.current;
     if (!element) return;
@@ -605,8 +611,22 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator, model
       {/* Only while the chat is empty, and not while the agent works: the answer coming has the room. */}
       {canPost && studyId && !working && left.length + more.length > 0 && (
         <div class="suggestions">
+          {first && (
+            <>
+              <div class="suggestions-head">
+                <p id="suggestions-first">Try this first</p>
+              </div>
+              <ul aria-labelledby="suggestions-first" class="first">
+                <li>
+                  <button type="button" disabled={sending} onClick={() => void post(first, false)}>
+                    {first}
+                  </button>
+                </li>
+              </ul>
+            </>
+          )}
           <div class="suggestions-head">
-            <p id="suggestions-title">Some things I can do</p>
+            <p id="suggestions-title">{first ? "Then" : "Some things I can do"}</p>
             {more.length > 0 && (
               <button
                 type="button"
@@ -628,6 +648,33 @@ export function Chat({ store, studyId, canPost, ping, onPage, onSimulator, model
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      {/* After an answer, while the guide lasts: what to look at in it, and what to try next. */}
+      {canPost && after && (
+        <div class="guide">
+          <div class="guide-body">
+            {after.look && <p class="guide-look">{after.look}</p>}
+            {after.next && (
+              <div class="guide-next">
+                <span id="guide-next">Try next</span>
+                <button type="button" aria-describedby="guide-next" disabled={sending} onClick={() => void post(after.next as string, false)}>
+                  {after.next}
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            class="guide-hide"
+            aria-label="Hide these tips"
+            onClick={() => {
+              hideGuide();
+              setGuideOff(true);
+            }}
+          >
+            <CrossIcon />
+          </button>
         </div>
       )}
       {/* Between the log and the form, so its arrival moves nothing but the log's foot. */}
