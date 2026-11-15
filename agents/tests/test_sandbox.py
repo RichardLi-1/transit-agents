@@ -145,6 +145,11 @@ class SandboxTest(unittest.IsolatedAsyncioTestCase):
     async def test_on_macos_reads_nothing_of_the_repos_secrets_or_other_skills(self):
         data = Path(self.enterContext(tempfile.TemporaryDirectory()))
         (data / "demo-tokens.json").write_text('{"planner": "planner-secret"}')
+        (data / ".env").write_text("GEMINI_API_KEY=AIza-secret")
+        (data / ".env.local").write_text("GEMINI_API_KEY=AIza-secret")
+        elsewhere = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (elsewhere / "settings.env").write_text("not a dotenv file")
+        (elsewhere / ".env").write_text("GEMINI_API_KEY=AIza-secret")
         with mock.patch.dict(os.environ, {"DATA_DIR": str(data)}):
             read = self.tools()["read"]
             refused = {
@@ -153,18 +158,22 @@ class SandboxTest(unittest.IsolatedAsyncioTestCase):
                 "repo data": await read(path=str(REPO / "data" / "demo-tokens.json")),
                 "skill": await read(path=str(skills.SKILLS_DIR / "handover" / "SKILL.md")),
                 "home": await read(path=str(Path.home() / ".zshrc")),
+                "env": await read(path=str(elsewhere / ".env")),
+                "env.local": await read(path=str(data / ".env.local")),
             }
             allowed = {
                 "own": await read(path=str(self.skill.folder / "notes.txt")),
                 "repo": await read(path=str(REPO / "apps" / "display" / "public" / "data" / "studies.json")),
+                "not a .env": await read(path=str(elsewhere / "settings.env")),
             }
         self.assertTrue((REPO / "evals" / "cases.jsonl").is_file())
-        for name in ("data", "evals", "skill"):
+        for name in ("data", "evals", "skill", "env", "env.local"):
             self.assertEqual(refused[name], {"refused": "PermissionError"}, name)
         self.assertNotIn("read", refused["repo data"])
         self.assertNotIn("read", refused["home"])
         self.assertEqual(allowed["own"], {"read": "the skill's own file"})
         self.assertIn("read", allowed["repo"])
+        self.assertEqual(allowed["not a .env"], {"read": "not a dotenv file"})
 
     @unittest.skipUnless(sandbox.sandboxed(), "sandbox-exec is macOS's")
     async def test_on_macos_writes_nothing_and_reaches_no_network(self):
