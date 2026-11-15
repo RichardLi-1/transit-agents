@@ -58,7 +58,7 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
         self.enterContext(mock.patch.dict(os.environ, env))
 
     async def tools(self, session):
-        return {tool.name: tool.function for tool in skills.skill_tools(skills.load_skill("active-transportation"), session, self.study)}
+        return {tool.name: tool.function for tool in specialists.script_tools(skills.load_skill("active-transportation"), session, self.study)}
 
     async def test_measures_walking_and_cycling_near_a_routes_stops(self):
         async with support.session() as session:

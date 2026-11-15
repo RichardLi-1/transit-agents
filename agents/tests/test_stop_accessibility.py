@@ -66,7 +66,7 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_inventories_a_lines_platforms_and_a_routes_shelters(self):
         async with support.session() as session:
-            tools = {tool.name: tool.function for tool in skills.skill_tools(skills.load_skill("stop-accessibility"), session, self.study)}
+            tools = {tool.name: tool.function for tool in specialists.script_tools(skills.load_skill("stop-accessibility"), session, self.study)}
             line = await tools["route_stops"](route="2")
             access = await tools["stop_accessibility"](layer=line["layer"]["id"])
             route = await tools["route_stops"](route="25")

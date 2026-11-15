@@ -256,7 +256,7 @@ SEEDED = [
 class RulesTest(unittest.IsolatedAsyncioTestCase):
     async def bca(self, rules, **arguments):
         session = FakeSession(rules)
-        [tool] = skills.skill_tools(skills.load_skill(SKILL), session, "study")
+        [tool] = specialists.script_tools(skills.load_skill(SKILL), session, "study")
         self.assertEqual(tool.name, "metrolinx_bca")
         result = await tool.function(**arguments)
         self.assertEqual(session.calls, ["list_rules"])

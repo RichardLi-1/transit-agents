@@ -1,5 +1,6 @@
 """The ttc-service-change skill: its classifier, and every rule it cites, on its page."""
 
+import asyncio
 import os
 import unittest
 from unittest import mock
@@ -178,11 +179,11 @@ class ClassifyTest(unittest.TestCase):
             self.assertIn(self.tools.FARE_TEST, steps)
 
     def test_the_tool_offers_each_kind(self):
-        [tool] = skills.skill_tools(skills.load_skill(SKILL), "session", "study")
+        [tool] = specialists.script_tools(skills.load_skill(SKILL), "session", "study")
         self.assertEqual(tool.name, "classify_service_change")
         self.assertEqual(tool.parameters["properties"]["changes"]["items"]["enum"], list(self.tools.KINDS))
         self.assertNotIn("required", tool.parameters)  # so a model never has to invent one
-        self.assertEqual(tool.function(changes=["new-route"])["class"], "major")
+        self.assertEqual(asyncio.run(tool.function(changes=["new-route"]))["class"], "major")
 
 
 class CitationsTest(unittest.TestCase):

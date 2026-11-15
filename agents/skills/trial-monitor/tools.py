@@ -6,20 +6,14 @@ on time, by trial week and for the trial so far. It counts as the display does, 
 the two agree: a share needs at least 20 departures, and is a whole percent.
 """
 
-import hashlib
 import math
 from datetime import date
-from pathlib import Path
 from typing import Any
 
 from core import LocalTool, call
 
 # Below this many departures, a share says more about chance than service.
 MIN_DEPARTURES = 20
-
-# A planner approves one exact version of a skill before its results can enter a
-# study, so the version is this file's hash: any change needs approving again.
-VERSION = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
 
 WINDOWS = {
     "standard": "1 minute early to 5 minutes late, the Service Standards' on-time departure (ttc-standards-2024 p. 16)",
@@ -77,7 +71,9 @@ def tools(session: Any, study: str) -> list[LocalTool]:
             period, run = found[0], f"trial week {int(week)}"
         if period["percentOnTime"] is None:
             raise ValueError(f"Too few departures to record a share: {period['departures']}, under {MIN_DEPARTURES}.")
-        basis = {"kind": "computed", "skill": "trial-monitor", "version": VERSION, "run": f"{run}, {window} window"}
+        # The agent adds the skill's version, the content hash a planner approved, as it
+        # passes the call on: a script never names its own version.
+        basis = {"kind": "computed", "skill": "trial-monitor", "run": f"{run}, {window} window"}
         figure = {"id": id, "label": label, "unit": "%", "value": period["percentOnTime"][window], "basis": basis}
         return await call(session, "record_figure", {"studyId": study, **figure})
 
@@ -114,7 +110,7 @@ def measure(timeline: dict[str, Any], started_on: str | None) -> dict[str, Any]:
         "byTrialWeek": [{"week": week, **total(days)} for week, days in sorted(weeks.items())],
         "network": total([day for day in timeline["network"]["days"] if day["date"] in dates]),
         "forecast": {"note": FORECAST, "figures": timeline["forecast"]},
-        "computed": {"skill": "trial-monitor", "version": VERSION},
+        "computed": {"skill": "trial-monitor"},
     }
     if before:
         result["beforeTrial"] = total(before)

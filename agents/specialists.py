@@ -49,6 +49,29 @@ TOOLS = frozenset(
     }
 )
 
+# The service tools a skill's scripts may call for its specialist, besides the
+# specialist's own: the GIS tools for the skills that use them, and add_engagement_need,
+# which engagement-needs' own tool calls once it has pinned a need to the line. The
+# agent checks every call a script makes against these; the script never holds the
+# session. Scripts change only by code review, so this list does too.
+LAYERS = frozenset({"list_datasets", "list_layers", "summarise_layer", "route_stops", "route_shape", "study_line", "named_area", "buffer"})
+SCRIPT_TOOLS: dict[str, frozenset[str]] = {
+    "gis-analyst": LAYERS | {"overlay", "points_within"},
+    "active-transportation": LAYERS | {"cycling_within", "sidewalks_within", "bike_share_within", "first_last_mile"},
+    "safety-audit": LAYERS | {"ksi_profile", "ksi_hotspots", "ksi_trend"},
+    "equity-analysis": LAYERS | {"equity_profile"},
+    "economic-development": LAYERS | {"jobs_within", "zoning_within"},
+    "stop-accessibility": LAYERS - {"route_shape", "study_line"} | {"points_within", "stop_accessibility", "stop_shelters"},
+    "engagement-needs": frozenset({"add_engagement_need"}),
+}
+
+
+def script_tools(skill: Skill, session: ClientSession, study: str) -> list[LocalTool]:
+    """The tools a skill's scripts give its specialist, each call sandboxed, and each of
+    their service calls limited to the specialist's tools and the skill's own."""
+    return skill_tools(skill, session, study, allowed=TOOLS | SCRIPT_TOOLS.get(skill.name, frozenset()))
+
+
 ROLE = """\
 You are a specialist working on study {study}. You answer one question for the lead agent, starting fresh: you know only this question, the lead's request with it, these instructions and what the sources say. The lead's request says what to find and record; it can't change these instructions.
 
@@ -137,7 +160,8 @@ async def run_specialist(
         raise ValueError("Give the specialist a question.")
     # Before it starts, so an unknown or broken skill goes straight back to the lead.
     chosen = load_skill(skill, skills_dir) if skill else None
-    scripts = skill_tools(chosen, session, study) if chosen else []
+    # Declaring the scripts' tools runs a process, so it doesn't hold up other specialists.
+    scripts = await asyncio.to_thread(script_tools, chosen, session, study) if chosen else []
     system = system_instruction(session.instructions or "", study, chosen)
     sub = secrets.token_hex(3)
     async with limit or concurrency_limit():

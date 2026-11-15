@@ -1,6 +1,8 @@
 import importlib.util
 import os
+import shutil
 import sqlite3
+import tempfile
 import unittest
 import uuid
 from pathlib import Path
@@ -117,10 +119,11 @@ class MeasureTest(unittest.TestCase):
         self.assertEqual(result["trialSoFar"]["departures"], 0)
         self.assertIn("watches no service patterns", result["note"])
 
-    def test_names_its_version_for_a_computed_figure(self):
-        computed = self.script.measure(TIMELINE, "2026-11-01")["computed"]
-        self.assertEqual(computed["skill"], "trial-monitor")
-        self.assertRegex(computed["version"], r"^[0-9a-f]{12}$")
+    def test_names_its_skill_but_never_its_own_version(self):
+        # The agent names the version, the content hash a planner approved, as it
+        # passes a computed figure on. A version a script named could be any string.
+        self.assertEqual(self.script.measure(TIMELINE, "2026-11-01")["computed"], {"skill": "trial-monitor"})
+        self.assertFalse(hasattr(self.script, "VERSION"))
 
 
 class OnTheServiceTest(unittest.IsolatedAsyncioTestCase):
@@ -156,9 +159,10 @@ class OnTheServiceTest(unittest.IsolatedAsyncioTestCase):
     async def trial_on_time(self):
         return await self.tool("trial_on_time")
 
-    async def tool(self, name, **arguments):
+    async def tool(self, name, skill=None, **arguments):
         async with support.session() as session:
-            tools = {tool.name: tool for tool in skills.skill_tools(skills.load_skill("trial-monitor"), session, self.study)}
+            skill = skill or skills.load_skill("trial-monitor")
+            tools = {tool.name: tool for tool in specialists.script_tools(skill, session, self.study)}
             return await tools[name].function(**arguments)
 
     async def test_nothing_measured_yet(self):
@@ -183,22 +187,30 @@ class OnTheServiceTest(unittest.IsolatedAsyncioTestCase):
     async def test_records_the_scripts_own_share_once_a_planner_approves_it(self):
         self.depart("2026-11-02", [60] * 20 + [-30] * 2 + [600] * 3)  # 22 of 25 on time by the standard
         self.depart("2026-11-09", [0] * 5)
-        arguments = {"id": "on-time", "label": "On time, trial so far", "window": "standard"}
-        with self.assertRaisesRegex(core.ToolError, "has not been approved"):
+        # A copy of the skill with one more line, so its content, and its hash, are new:
+        # no planner has approved them.
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        shutil.copytree(skills.SKILLS_DIR / "trial-monitor", root / "trial-monitor", ignore=shutil.ignore_patterns("__pycache__"))
+        with (root / "trial-monitor" / "SKILL.md").open("a") as text:
+            text.write(f"\nA copy for {self.study}.\n")
+        skill = skills.load_skill("trial-monitor", root)
+        version = skill.hash
+        self.assertEqual(version, skills.skill_hash(root / "trial-monitor"))
+        arguments = {"id": "on-time", "label": "On time, trial so far", "window": "standard", "skill": skill}
+        with self.assertRaisesRegex(core.ToolError, f"version {version} has not been approved"):
             await self.tool("record_on_time", **arguments)
 
-        version = trial_monitor().VERSION
         support.api("PUT", "/v1/skills/trial-monitor", {"version": version})
         figure = await self.tool("record_on_time", **arguments)
         self.assertEqual((figure["value"], figure["unit"]), (90, "%"))  # 27 of 30, as trial_on_time counts
         self.assertEqual(figure["basis"], {"kind": "computed", "skill": "trial-monitor", "version": version, "inputs": [], "run": "trial weeks 1–2, standard window"})
 
-        week = await self.tool("record_on_time", id="on-time-week-1", label="On time, trial week 1", window="reported", week=1)
+        week = await self.tool("record_on_time", skill, id="on-time-week-1", label="On time, trial week 1", window="reported", week=1)
         self.assertEqual(week["value"], 80)  # 20 of 25
         with self.assertRaisesRegex(ValueError, "Too few departures to record a share: 5, under 20"):
-            await self.tool("record_on_time", id="on-time-week-2", label="On time, trial week 2", window="standard", week=2)
+            await self.tool("record_on_time", skill, id="on-time-week-2", label="On time, trial week 2", window="standard", week=2)
         with self.assertRaisesRegex(ValueError, "Nothing was measured in trial week 9"):
-            await self.tool("record_on_time", id="on-time-week-9", label="On time, trial week 9", window="standard", week=9)
+            await self.tool("record_on_time", skill, id="on-time-week-9", label="On time, trial week 9", window="standard", week=9)
 
     async def test_a_specialist_with_the_skill_calls_it(self):
         def respond(request):

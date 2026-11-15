@@ -3,6 +3,7 @@
 import unittest
 
 import skills
+import specialists
 from tests.on_pages import on_page, quotes, words_in_order
 from tests.test_skills import normalize
 
@@ -119,7 +120,7 @@ class TemplateTest(unittest.TestCase):
                     self.assertIn(part, body[start:end])
 
     def test_fills_in_nothing_itself(self):
-        self.assertEqual(skills.skill_tools(self.skill, "session", "study"), [])
+        self.assertEqual(specialists.script_tools(self.skill, "session", "study"), [])
         self.assertIn(SKILL, {skill["name"] for skill in skills.list_skills()})
 
 

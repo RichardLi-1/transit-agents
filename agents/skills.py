@@ -14,25 +14,39 @@ specialist, and only that specialist gets the full text.
 
 A skill that computes something keeps its scripts in a tools.py beside SKILL.md.
 Its tools(session, study) returns LocalTools, which only that specialist gets:
-scripts compute, and the model reads their results.
+scripts compute, and the model reads their results. They never run in the agent's
+process: each call runs in a sandboxed process of its own (sandbox.py).
+
+A skill's version is the SHA-256 of its folder, every file's path and bytes
+(skill_runner.files_hash), computed as it is loaded. A planner approves a version, and
+the agents offer only skills whose version now is approved.
 """
 
 import contextlib
 import hashlib
-import importlib.util
 import re
 import shutil
-import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import sandbox
+from skill_runner import files_hash, folder_files
 
 SKILLS_DIR = Path(__file__).parent / "skills"
 
 # A folder name, so a model can't name a path outside the skills folder.
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
+
+# The skills whose scripts load another skill's tools.py, and which ones. Their
+# sandbox lets them read those folders, and they're offered only while those are
+# approved too. Scripts change only by code review, so this list does too.
+USES: dict[str, tuple[str, ...]] = {
+    name: ("gis-analyst",)
+    for name in ("active-transportation", "economic-development", "equity-analysis", "safety-audit", "stop-accessibility")
+}
 
 
 class SkillError(ValueError):
@@ -45,6 +59,12 @@ class Skill:
     description: str
     body: str  # the instructions, after the frontmatter
     folder: Path  # with any scripts the instructions name
+    hash: str = ""  # the folder's SHA-256 as it was read: the skill's version
+
+
+def skill_hash(folder: Path) -> str:
+    """A skill's version: the SHA-256 of its folder's files, paths and bytes."""
+    return files_hash(folder_files(folder))
 
 
 def list_skills(root: Path | None = None) -> list[dict[str, str]]:
@@ -65,8 +85,14 @@ def load_skill(name: str, root: Path | None = None) -> Skill:
 
 
 def read_skill(path: Path) -> Skill:
-    """Read one SKILL.md, checking its name matches its folder."""
-    fields, body = _split(path.read_text(encoding="utf-8"), path)
+    """Read one SKILL.md, checking its name matches its folder, with its folder's hash.
+
+    The instructions and the hash come from the same read of the folder, so the hash
+    names exactly the instructions given."""
+    files = folder_files(path.parent)
+    if path.name not in files:
+        raise SkillError(f"No SKILL.md in {path.parent}")
+    fields, body = _split(files[path.name].decode("utf-8"), path)
     name, description = fields.get("name", ""), fields.get("description", "")
     if name != path.parent.name:
         raise SkillError(f"{path}: name is {name!r}, but the folder is {path.parent.name!r}")
@@ -76,33 +102,33 @@ def read_skill(path: Path) -> Skill:
         raise SkillError(f"{path}: give a description in the frontmatter")
     if not body:
         raise SkillError(f"{path}: write the instructions after the frontmatter")
-    return Skill(name=name, description=description, body=body, folder=path.parent)
+    return Skill(name=name, description=description, body=body, folder=path.parent, hash=files_hash(files))
 
 
-def skill_tools(skill: Skill, session: Any, study: str) -> list[Any]:
+def skill_tools(skill: Skill, session: Any, study: str, *, allowed: Collection[str]) -> list[Any]:
     """The tools a skill's scripts give the specialist using it, from its tools.py. None without one.
 
-    tools.py defines tools(session, study), which returns LocalTools. It is loaded here,
-    only when a specialist takes the skill.
+    tools.py defines tools(session, study), which returns LocalTools. It never runs here:
+    a sandboxed process runs the tools.py of the version this skill was read at, once to
+    declare its tools, and once for each call (sandbox.py). Its calls to the service come
+    back here, and are made with `session` only if `allowed` names the tool.
     """
-    path = skill.folder / "tools.py"
-    if not path.is_file():
+    if not (skill.folder / "tools.py").is_file():
         return []
-    name = f"skill_{skill.name.replace('-', '_')}"
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise SkillError(f"{path}: can't load it")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module  # so code in it that looks itself up, as dataclasses do, finds it
+    root = skill.folder.parent
+    script = sandbox.Script(
+        skill=skill.name,
+        folder=skill.folder,
+        version=skill.hash or skill_hash(skill.folder),
+        study=study,
+        allowed=frozenset(allowed),
+        reads=tuple(root / name for name in USES.get(skill.name, ())),
+    )
     try:
-        spec.loader.exec_module(module)
-    except BaseException:
-        sys.modules.pop(name, None)
-        raise
-    make = getattr(module, "tools", None)
-    if not callable(make):
-        raise SkillError(f"{path}: define tools(session, study), returning the skill's tools")
-    return list(make(session, study))
+        declared = sandbox.describe(script)
+    except Exception as error:  # a script that won't load is a skill that can't be used
+        raise SkillError(str(error)) from None
+    return sandbox.tools(script, session, declared)
 
 
 def version(text: str) -> str:

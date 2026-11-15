@@ -70,7 +70,7 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
         self.enterContext(mock.patch.dict(os.environ, env))
 
     async def tools(self, session):
-        return {tool.name: tool.function for tool in skills.skill_tools(skills.load_skill("gis-analyst"), session, self.study)}
+        return {tool.name: tool.function for tool in specialists.script_tools(skills.load_skill("gis-analyst"), session, self.study)}
 
     async def test_buffers_a_routes_stops_and_totals_the_census_with_figures_that_cite_it(self):
         async with support.session() as session:

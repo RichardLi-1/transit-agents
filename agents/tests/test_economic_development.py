@@ -73,7 +73,7 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_counts_people_working_near_stations_and_refuses_zoning_beyond_the_corridor(self):
         async with support.session() as session:
-            tools = {tool.name: tool.function for tool in skills.skill_tools(skills.load_skill("economic-development"), session, self.study)}
+            tools = {tool.name: tool.function for tool in specialists.script_tools(skills.load_skill("economic-development"), session, self.study)}
             stops = await tools["route_stops"](route="4")
             buffered = await tools["buffer"](layer=stops["layer"]["id"], metres=800)
             jobs = await tools["jobs_within"](layer=buffered["layer"]["id"])

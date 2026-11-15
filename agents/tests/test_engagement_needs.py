@@ -155,7 +155,7 @@ class SpecialistTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_adds_a_need_only_with_a_citation_and_on_the_line(self):
         async with support.session() as session:
-            tools = {tool.name: tool.function for tool in skills.skill_tools(skills.load_skill("engagement-needs"), session, self.study)}
+            tools = {tool.name: tool.function for tool in specialists.script_tools(skills.load_skill("engagement-needs"), session, self.study)}
             add = tools["add_engagement_need"]
             near = (SUNNYBROOK[0] + 0.0005, SUNNYBROOK[1])  # about 40 m east of the line
             for citations in ([], None):
@@ -184,7 +184,7 @@ class SpecialistTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_pin_to_line_reads_the_studys_own_line(self):
         def pin_to_line(study):
-            tools = {tool.name: tool for tool in skills.skill_tools(skills.load_skill("engagement-needs"), session, study)}
+            tools = {tool.name: tool for tool in specialists.script_tools(skills.load_skill("engagement-needs"), session, study)}
             self.assertEqual(set(tools), {"pin_to_line", "add_engagement_need"})
             return tools["pin_to_line"].function
 

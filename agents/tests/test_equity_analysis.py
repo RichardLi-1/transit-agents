@@ -109,7 +109,7 @@ class ServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_profiles_a_routes_catchment_beside_the_city_with_figures_citing_the_census(self):
         async with support.session() as session:
-            tools = {tool.name: tool.function for tool in skills.skill_tools(skills.load_skill("equity-analysis"), session, self.study)}
+            tools = {tool.name: tool.function for tool in specialists.script_tools(skills.load_skill("equity-analysis"), session, self.study)}
             stops = await tools["route_stops"](route="52")
             buffered = await tools["buffer"](layer=stops["layer"]["id"], metres=400)
             profile = await tools["equity_profile"](layer=buffered["layer"]["id"], stops=stops["layer"]["id"])

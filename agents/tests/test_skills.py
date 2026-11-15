@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 import tempfile
@@ -6,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import skills
+import specialists
 from tests.support import ROOT, SKILLS
 
 
@@ -55,18 +57,22 @@ class SkillsTest(unittest.TestCase):
         self.assertEqual(skills.load_skill("folded", self.root).body, "Do the thing.")
 
     def test_a_skill_without_scripts_gives_no_tools(self):
-        self.assertEqual(skills.skill_tools(skills.load_skill("quote-check", SKILLS), "session", "study"), [])
+        self.assertEqual(specialists.script_tools(skills.load_skill("quote-check", SKILLS), "session", "study"), [])
 
     def test_a_skills_scripts_give_its_tools(self):
         path = self.write("counter", "---\nname: counter\ndescription: Count words.\n---\nCall count_words.\n")
         (path.parent / "tools.py").write_text(
             "from core import LocalTool\n\n"
             "def tools(session, study):\n"
-            "    return [LocalTool('count_words', 'Count words.', lambda text='': [session, study, len(text.split())])]\n"
+            "    return [LocalTool('count_words', 'Count words.', lambda text='': [repr(session), study, len(text.split())])]\n"
         )
-        [tool] = skills.skill_tools(skills.load_skill("counter", self.root), "the-session", "the-study")
+        [tool] = specialists.script_tools(skills.load_skill("counter", self.root), "the-session", "the-study")
         self.assertEqual(tool.name, "count_words")
-        self.assertEqual(tool.function(text="one two three"), ["the-session", "the-study", 3])
+        # It runs in a process of its own, which never gets the agent's session.
+        self.assertEqual(
+            asyncio.run(tool.function(text="one two three")),
+            ["<the agent's session, which this process never holds>", "the-study", 3],
+        )
 
     def test_a_candidate_swaps_in_its_instructions_and_keeps_the_live_scripts(self):
         live = self.write("counter", "---\nname: counter\ndescription: Count words.\n---\nCall count_words.\n")
@@ -87,8 +93,8 @@ class SkillsTest(unittest.TestCase):
             )
             skill = skills.load_skill("counter", made)
             self.assertEqual(skill.body, "Call count_words, then check.")
-            [tool] = skills.skill_tools(skill, "session", "study")
-            self.assertEqual(tool.function(), str(live.parent.resolve()))
+            [tool] = specialists.script_tools(skill, "session", "study")
+            self.assertEqual(asyncio.run(tool.function()), str(live.parent.resolve()))
         self.assertFalse(made.exists())
         self.assertEqual(live.read_text(), "---\nname: counter\ndescription: Count words.\n---\nCall count_words.\n")
         self.assertEqual(skills.version(text), skills.version(text))
@@ -107,7 +113,7 @@ class SkillsTest(unittest.TestCase):
         path = self.write("no-tools", "---\nname: no-tools\ndescription: D\n---\nBody.\n")
         (path.parent / "tools.py").write_text("COUNT = 1\n")
         with self.assertRaisesRegex(skills.SkillError, r"define tools\(session, study\)"):
-            skills.skill_tools(skills.load_skill("no-tools", self.root), "session", "study")
+            specialists.script_tools(skills.load_skill("no-tools", self.root), "session", "study")
 
     def test_refuses_a_broken_skill(self):
         cases = {
@@ -122,6 +128,66 @@ class SkillsTest(unittest.TestCase):
             with self.subTest(folder):
                 with self.assertRaisesRegex(skills.SkillError, problem):
                     skills.read_skill(self.write(folder, text))
+
+
+# The same folder as clients/skill-hash.test.ts hashes, and the same hash: a planner
+# approving it there approves what the loader loads here.
+FILES = {
+    "SKILL.md": b"---\nname: tally\ndescription: Count the rows.\n---\nCall tally.\n",
+    "tools.py": b"def tools(session, study):\n    return []\n",
+    "data/rows.json": b"[1, 2]\n",
+}
+HASH = "ee723d94291e47bdda228f9c32b99d257e1d43f0c278aba8d2c7e78811387869"
+
+
+class SkillHashTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.folder = self.root / "tally"
+        for path, data in reversed(FILES.items()):
+            self.write(path, data)
+
+    def write(self, path: str, data: bytes, folder: Path | None = None) -> None:
+        file = (folder or self.folder) / path
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_bytes(data)
+
+    def test_is_stable_and_the_same_as_the_services_clients(self):
+        self.assertEqual(skills.skill_hash(self.folder), HASH)
+        self.assertEqual(skills.skill_hash(self.folder), HASH)
+        self.assertEqual(list(skills.folder_files(self.folder)), ["SKILL.md", "data/rows.json", "tools.py"])
+
+    def test_the_loader_names_the_hash_of_what_it_read(self):
+        skill = skills.load_skill("tally", self.root)
+        self.assertEqual(skill.hash, HASH)
+        self.assertEqual(skill.body, "Call tally.")
+
+    def test_changes_when_any_file_changes_moves_or_is_added(self):
+        for path, data in FILES.items():
+            with self.subTest(path):
+                self.write(path, data + b" ")
+                self.assertNotEqual(skills.skill_hash(self.folder), HASH)
+                self.write(path, data)
+                self.assertEqual(skills.skill_hash(self.folder), HASH)
+        (self.folder / "data" / "rows.json").rename(self.folder / "rows.json")
+        self.assertNotEqual(skills.skill_hash(self.folder), HASH)
+        (self.folder / "rows.json").rename(self.folder / "data" / "rows.json")
+        self.write("notes.txt", b"")
+        self.assertNotEqual(skills.skill_hash(self.folder), HASH)
+
+    def test_leaves_out_what_python_and_finder_write(self):
+        self.write("__pycache__/tools.cpython-314.pyc", b"bytecode")
+        self.write("data/__pycache__/x.pyc", b"bytecode")
+        self.write(".DS_Store", b"finder")
+        self.assertEqual(skills.skill_hash(self.folder), HASH)
+
+    def test_a_folder_of_links_hashes_as_a_copy(self):
+        linked = self.root / "linked"
+        linked.mkdir()
+        (linked / "data").symlink_to(self.folder / "data", target_is_directory=True)
+        (linked / "tools.py").symlink_to(self.folder / "tools.py")
+        self.write("SKILL.md", FILES["SKILL.md"], linked)
+        self.assertEqual(skills.skill_hash(linked), HASH)
 
 
 # The sources the skills cite, page by page, as the seed loads them.
