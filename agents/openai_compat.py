@@ -33,6 +33,10 @@ from google.genai import errors, types
 
 DEFAULT_TIMEOUT_S = 900
 THINK = re.compile(r"<think>.*?</think>\s*", re.S)
+# Some servers, mlx-lm's among them, ignore response_format. So a request for JSON asks
+# for it in words too, with its schema, and of the reply only its first JSON value is
+# kept: a small model wraps it in a code fence, or adds a stray brace after it.
+JSON_ONLY = "Reply with one JSON object and nothing else{schema}."
 
 
 # On-prem by default: Ollama on this machine.
@@ -189,14 +193,37 @@ def request(model: str, contents: list[types.Content], settings: types.GenerateC
         )
         if schema is not None:
             body["response_format"] = {"type": "json_schema", "json_schema": {"name": "answer", "schema": schema}}
+            _ask_for_json(body["messages"], f", in this JSON schema: {json.dumps(schema)}")
         elif settings.response_mime_type == "application/json":
             body["response_format"] = {"type": "json_object"}
+            _ask_for_json(body["messages"], "")
     if extra := os.environ.get("MODEL_EXTRA", "").strip():
         body.update(json.loads(extra))
     return body
 
 
+def _ask_for_json(messages: list[dict[str, Any]], schema: str) -> None:
+    """Ask for JSON in the system message, for a server that ignores response_format."""
+    asked = JSON_ONLY.format(schema=schema)
+    if messages and messages[0]["role"] == "system":
+        messages[0]["content"] = f"{messages[0]['content']}\n\n{asked}"
+    else:
+        messages.insert(0, {"role": "system", "content": asked})
+
+
 # Responses -----------------------------------------------------------------
+
+
+def _first_json(text: str) -> str:
+    """The first JSON object or array in a reply, as JSON, or the reply as it was."""
+    start = min((i for i in (text.find("{"), text.find("[")) if i >= 0), default=-1)
+    if start < 0:
+        return text
+    try:
+        value, _ = json.JSONDecoder().raw_decode(text, start)
+    except json.JSONDecodeError:
+        return text
+    return json.dumps(value, ensure_ascii=False)
 
 
 def _arguments(text: str | None) -> dict[str, Any]:
@@ -207,13 +234,17 @@ def _arguments(text: str | None) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def response(body: dict[str, Any]) -> types.GenerateContentResponse:
+def response(body: dict[str, Any], *, json_reply: bool = False) -> types.GenerateContentResponse:
     """A chat completion as a Gemini response: its text and function calls as parts,
-    and its tokens as usage. Reasoning counts as output, as Gemini bills thinking."""
+    and its tokens as usage. Reasoning counts as output, as Gemini bills thinking.
+    A reply asked for as JSON (`json_reply`) is cut to its first JSON value, if it has one."""
     choice = (body.get("choices") or [{}])[0]
     message = choice.get("message") or {}
     parts: list[types.Part] = []
-    if text := THINK.sub("", message.get("content") or "").strip():
+    text = THINK.sub("", message.get("content") or "").strip()
+    if json_reply:
+        text = _first_json(text)
+    if text:
         parts.append(types.Part(text=text))
     for i, call in enumerate(message.get("tool_calls") or []):
         function = call.get("function") or {}
@@ -281,7 +312,7 @@ class OpenAICompatClient:
             error = said.get("error") if isinstance(said, dict) else None
             message = error.get("message") if isinstance(error, dict) else str(error or said)
             raise errors.APIError(reply.status_code, {"error": {"code": reply.status_code, "message": message, "status": "ERROR"}})
-        return response(reply.json())
+        return response(reply.json(), json_reply="response_format" in body)
 
 
 class _RoutedModels:

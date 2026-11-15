@@ -110,6 +110,18 @@ class RequestTest(unittest.TestCase):
         self.assertEqual(body["response_format"]["type"], "json_schema")
         self.assertEqual(body["response_format"]["json_schema"]["schema"]["properties"]["value"]["type"], "number")
 
+    def test_json_is_asked_for_in_words_too_for_a_server_that_ignores_response_format(self):
+        schema = types.Schema.from_json_schema(json_schema=types.JSONSchema(type="object", properties={"value": {"type": "number"}}))
+        settings = types.GenerateContentConfig(system_instruction="Read it.", response_mime_type="application/json", response_schema=schema)
+        system = openai_compat.request("m", [], settings)["messages"][0]
+        self.assertEqual(system["role"], "system")
+        self.assertTrue(system["content"].startswith("Read it.\n\nReply with one JSON object and nothing else, in this JSON schema: {"))
+        self.assertIn('"value": {"type": "number"}', system["content"])
+        bare = openai_compat.request("m", [], types.GenerateContentConfig(response_mime_type="application/json"))
+        self.assertEqual(bare["messages"], [{"role": "system", "content": "Reply with one JSON object and nothing else."}])
+        self.assertEqual(openai_compat.request("m", [], types.GenerateContentConfig(system_instruction="Go."))["messages"],
+                         [{"role": "system", "content": "Go."}])
+
     def test_model_extra_is_added_to_each_request(self):
         with mock.patch.dict(os.environ, {"MODEL_EXTRA": '{"reasoning_effort": "none"}'}):
             body = openai_compat.request("m", [], None)
@@ -126,6 +138,14 @@ class ResponseTest(unittest.TestCase):
         self.assertEqual(response.function_calls[0].args, {"text": "x"})
         self.assertEqual(response.usage_metadata.prompt_token_count, 200)
         self.assertEqual(response.usage_metadata.candidates_token_count, 40)
+
+    def test_a_json_reply_is_cut_to_its_first_json_value(self):
+        fenced = completion('```json\n{"behaviour": "answer"}\n```')
+        self.assertEqual(openai_compat.response(fenced, json_reply=True).text, '{"behaviour": "answer"}')
+        stray = completion('{"behaviour": "flag", "checks": {"productivity": "fail"}}}')
+        self.assertEqual(openai_compat.response(stray, json_reply=True).text, '{"behaviour": "flag", "checks": {"productivity": "fail"}}')
+        self.assertEqual(openai_compat.response(completion("- behaviour: answer"), json_reply=True).text, "- behaviour: answer")
+        self.assertEqual(openai_compat.response(stray).text, stray["choices"][0]["message"]["content"])
 
     def test_bad_arguments_become_empty_and_a_cut_off_reply_says_so(self):
         body = completion(finish="length")
