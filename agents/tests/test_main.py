@@ -675,6 +675,16 @@ class CommandLineTest(unittest.TestCase):
             self.assertEqual(main.main(["eval", "--split", "dev"]), 3)
         runner.assert_called_once_with(["--split", "dev"])
 
+    def test_evolve_hands_its_arguments_to_the_evolution_loop(self):
+        with mock.patch("evolve.main", return_value=0) as loop:
+            self.assertEqual(main.main(["evolve", "consultation", "--dry-run"]), 0)
+        loop.assert_called_once_with(["consultation", "--dry-run"])
+
+    def test_evolve_names_a_skill_that_doesnt_exist(self):
+        with contextlib.redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(main.main(["evolve", "nope", "--dry-run"]), 1)
+        self.assertIn("No skill named 'nope'.", stderr.getvalue())
+
     def test_eval_checks_its_cases_before_starting_anything(self):
         with contextlib.redirect_stderr(io.StringIO()) as stderr:
             self.assertEqual(main.main(["eval", "--case", "nope-001"]), 1)

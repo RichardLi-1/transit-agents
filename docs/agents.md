@@ -18,6 +18,11 @@ it computes anything, a `tools.py` whose scripts only that specialist gets. The 
 sees each skill's name and description, and only the chosen specialist reads the rest.
 So the skill, not the agent, is the unit this project builds, tests and studies.
 
+Skills improve through a gated loop. The **skill evolution** agent writes a new
+version of a skill's instructions from the dev cases it failed and planners'
+corrections, tests it beside the live one, and puts one that does as well forward.
+A planner approves it, or not.
+
 Every agent:
 
 - runs on-prem by default, on an open model (Qwen3.5) in Ollama on the same machine, or
@@ -91,6 +96,28 @@ Every agent:
   answer back to the thread. Can ping an executive.
 - **Never:** records a decision: only a signed-in planner can.
 - **Code and tests:** [slack_bridge.py](../agents/slack_bridge.py), [test_slack_bridge.py](../agents/tests/test_slack_bridge.py) (28).
+
+### Skill evolution
+
+- **Job:** proposes a better version of one skill's instructions, from its dev cases
+  that failed in the newest eval runs and planners' corrections in the log: figures
+  the service refused from it, and, in studies that used it, findings rated otherwise
+  and overrides. Writes it to `agents/skill-candidates/<skill>/<version>/`, with the
+  parent's version, the diff and the signals (`lineage.json`, `changes.diff`).
+- **Gate:** the skill's dev cases run with the live skill, then with the candidate
+  (`eval --skill-dir`). It passes only if it passes as many, and every case the live
+  skill passed by refusing, flagging or abstaining. Only then do the test cases run,
+  for the record. A candidate that passes is put forward with
+  `POST /v1/skills/{name}/candidates`.
+- **Runs:** `python agents/main.py evolve <skill> [--dry-run]`. A dry run writes
+  nothing to the service. The gate runs every dev case twice, through the lead, so
+  it takes as long as that.
+- **Model:** `EVOLVE_MODEL`, default qwen3.5:9b, on this machine, one call with no
+  tools. The gate's runs use the eval runner's models.
+- **Never:** sees a test case or its answer; writes over a live skill or changes its
+  scripts; approves a version. Only a planner does, with `PUT /v1/skills/{name}`,
+  which refuses an agent's token, then copies the SKILL.md into `agents/skills/`.
+- **Code and tests:** [evolve.py](../agents/evolve.py), [test_evolve.py](../agents/tests/test_evolve.py) (20).
 
 ### Eval reader
 

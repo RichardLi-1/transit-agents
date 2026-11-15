@@ -3,6 +3,7 @@
     python agents/main.py [listen]                          answer each message a planner or a visitor sends from the display's chat
     python agents/main.py run "task" --study ID [--title T]  run one task on a study, opening it if it's new
     python agents/main.py eval [args]                        run the eval set, with agents/evals.py
+    python agents/main.py evolve SKILL [--dry-run]           propose a better version of a skill, test it, and put it to a planner, with agents/evolve.py
 
 Settings come from the environment, or agents/.env: GEMINI_API_KEY, TRANSIT_URL,
 TRANSIT_TOKEN_AGENT (or DATA_DIR, the demo's data folder, for the demo's token),
@@ -550,6 +551,10 @@ def main(argv: list[str] | None = None) -> int:
         import evals
 
         return evals.main(argv[1:]) or 0
+    if argv[:1] == ["evolve"]:
+        import evolve
+
+        return evolve.main(argv[1:])
 
     parser = argparse.ArgumentParser(prog="python agents/main.py", description="Run the lead agent.")
     commands = parser.add_subparsers(dest="command")
@@ -559,6 +564,7 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--study", required=True, help="the study's id; it's opened if it's new")
     one.add_argument("--title", help="a new study's title (default: its id)")
     commands.add_parser("eval", help="run the eval set: python agents/main.py eval [args]")
+    commands.add_parser("evolve", help="improve a skill, for a planner to approve: python agents/main.py evolve SKILL [--dry-run]")
     args = parser.parse_args(argv)
 
     try:

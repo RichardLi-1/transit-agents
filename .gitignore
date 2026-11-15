@@ -7,6 +7,8 @@ dist/
 !.env.example
 /data
 /evals/runs/
+# Candidate skill versions from agents/evolve.py, for a planner to approve
+/agents/skill-candidates/
 coverage/
 .lighthouse/
 .venv/

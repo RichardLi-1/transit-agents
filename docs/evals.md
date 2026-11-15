@@ -123,6 +123,9 @@ above, in each one's own test.
 others with `-- --case ID` (repeat it), `--split` and `--limit N`. Real runs cost
 money, so the limit stays at 3 unless you raise it. Run the same cases again with
 `--no-skills` and report both, so the score shows what the skills add.
+`--skill-dir DIR` runs with a candidate's SKILL.md, from the skill-evolution loop
+([agents.md](agents.md#skill-evolution)), in place of its live skill's instructions,
+and each answer names the candidate, so its runs are never read as the live skill's.
 
 - Each case runs on a throwaway service of its own, on a free port from 4175 to 4179 (set `EVAL_PORTS`, such as `4326-4330`, to use others), with the public sources and the inputs it needs, so no case can read what an earlier one found. Each is deleted once its case is done.
 - Cases run one at a time, each in its own study. The agent never sees a case's id or its inputs' file names, which could give the answer away: the study is `study-<n>`, and the inputs are `rules` and `document-<n>`. A case that names a source the service lacks is skipped: `ttc-standards-deck-2025` and `ttc-standards-note-2025` aren't seeded yet.
