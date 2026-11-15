@@ -1,7 +1,10 @@
 // Scores a run of the eval runner (agents/evals.py) and prints what docs/evals.md
 // asks to report, with a count beside every rate.
 //
-// Usage: node evals/score-run.ts [run.jsonl]    (default: the newest run in evals/runs)
+// Usage: node evals/score-run.ts [--json] [run.jsonl]    (default: the newest run in evals/runs)
+//
+// --json prints each case's result as JSON instead, for code to read, such as the
+// skill-evolution loop's gate (agents/evolve.py), so it scores as this does.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { rulesOnlyDecision, scoreCase, summarize, type Answer, type EvalCase, type Score, type Summary } from "./score.ts";
@@ -254,14 +257,26 @@ export function formatReport(report: RunReport, name = "run"): string {
   return out.join("\n");
 }
 
+// Each case's result, for code to read: its id, capability, skill, whether it passed
+// (null for a rubric case) and why not, with the run's totals.
+export function reportJson(report: RunReport, cases: EvalCase[]): string {
+  const skills = new Map(cases.map((c) => [c.id, c.skill]));
+  const rows = report.rows.map(({ id, capability, passed, failures }) => ({ id, capability, skill: skills.get(id) ?? "unknown", passed, failures }));
+  return JSON.stringify({ summary: report.summary, rows, unknown: report.unknown });
+}
+
 if (import.meta.main) {
-  const file = process.argv[2] ?? latestRun();
+  const args = process.argv.slice(2);
+  const json = args.includes("--json");
+  const file = args.find((arg) => arg !== "--json") ?? latestRun();
   if (!file) {
     console.error("No run to score. Run some cases first: npm run agent:eval");
     process.exit(1);
   }
   try {
-    console.log(formatReport(scoreRun(readCases(), readRun(file)), basename(file)));
+    const cases = readCases();
+    const report = scoreRun(cases, readRun(file));
+    console.log(json ? reportJson(report, cases) : formatReport(report, basename(file)));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);

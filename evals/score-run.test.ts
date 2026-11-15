@@ -179,6 +179,19 @@ describe("the command", () => {
     assert.match(result.stdout, /^Passed: 3 of 6 \(50%\)$/m);
   });
 
+  it("gives each case's result as JSON, for code to read", () => {
+    const file = join(folder, "20261107T120500Z.jsonl");
+    writeFileSync(file, run.map((line) => JSON.stringify(line)).join("\n") + "\n");
+    const result = score("--json", file);
+    assert.equal(result.status, 0, result.stderr);
+    const read = JSON.parse(result.stdout);
+    assert.deepEqual([read.summary.passed, read.summary.total], [3, 6]);
+    const byId = new Map(read.rows.map((row: { id: string }) => [row.id, row]));
+    assert.deepEqual(byId.get("find-002"), { id: "find-002", capability: "find", skill: "ttc-standards", passed: false, failures: ["value: wanted 35, got 30"] });
+    assert.equal((byId.get("draft-001") as { passed: unknown }).passed, null);
+    assert.deepEqual(read.unknown, ["nope-001"]);
+  });
+
   it("says which line is broken", () => {
     const file = join(folder, "broken.jsonl");
     writeFileSync(file, `${JSON.stringify(run[0])}\n{"id":\n`);
