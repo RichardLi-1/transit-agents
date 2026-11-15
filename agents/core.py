@@ -236,6 +236,8 @@ class Config:
     max_daily_usd: float = 10.0  # for this process in a UTC day, while it listens
     max_runs_per_hour: int = 20  # runs started while it listens, in any hour
     max_run_minutes: int = 10  # for one run, while it listens
+    intake_studies: int = 3  # studies the listener triages a new source in, unasked; 0 turns that off
+    intake_run_calls: int = 20  # max_run_calls for each of those runs
 
 
 def config() -> Config:
@@ -260,6 +262,8 @@ def config() -> Config:
         max_daily_usd=_dollars("MAX_DAILY_USD", 10.0),
         max_runs_per_hour=_count("MAX_RUNS_PER_HOUR", 20),
         max_run_minutes=_count("MAX_RUN_MINUTES", 10),
+        intake_studies=_count("INTAKE_STUDIES", 3, least=0),
+        intake_run_calls=_count("INTAKE_RUN_CALLS", 20),
     )
 
 
@@ -284,12 +288,12 @@ def _model(name: str) -> str:
     return FALLBACK_MODEL
 
 
-def _count(name: str, default: int) -> int:
+def _count(name: str, default: int, *, least: int = 1) -> int:
     value = os.environ.get(name, "").strip()
     if not value:
         return default
-    if not value.isdigit() or int(value) < 1:
-        raise SetupError(f"{name} must be a whole number of at least 1, not {value!r}")
+    if not value.isdigit() or int(value) < least:
+        raise SetupError(f"{name} must be a whole number of at least {least}, not {value!r}")
     return int(value)
 
 

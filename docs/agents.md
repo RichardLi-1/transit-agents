@@ -12,6 +12,11 @@ skill that fits. Specialists read the sources and record cited figures, checks a
 findings through the service's tools over MCP. The lead checks their citations and
 answers. Planners decide; no agent can.
 
+Planners also give context without asking anything: when a planner or an agency
+system adds a source, the lead triages it unasked in the newest open studies, and
+says in each study's chat whether it bears on the study, what it changes and which
+open questions it reopens.
+
 One kind of specialist serves every question. A **skill** is what makes it a
 specialist for that question: a folder in `agents/skills/` with a `SKILL.md` and, if
 it computes anything, a `tools.py` whose scripts only that specialist gets. The lead
@@ -42,14 +47,19 @@ Every agent:
 
 - **Job:** plans a first pass on a study, asks specialists, checks their citations
   and answers, ending with what isn't known yet. Hands judgement cases to a planner,
-  and choices above a planner to an executive.
-- **Runs:** `python agents/main.py listen` (the chat), `run "task" --study ID`, `eval`.
+  and choices above a planner to an executive. Triages new context unasked: a source
+  a planner or an agency system adds, through `POST /v1/context` or the watched
+  folder, in the `INTAKE_STUDIES` newest studies (default 3; 0 turns it off), one run
+  a study of at most `INTAKE_RUN_CALLS` model calls (20), within the listener's
+  limits. An agent's upload starts nothing.
+- **Runs:** `python agents/main.py listen` (the chat, and new context), `run "task" --study ID`, `eval`.
 - **Model:** `LEAD_MODEL`, default qwen3.5:9b, on this machine.
 - **Tools:** list_sources, search_sources, read_page, get_study, list_rules,
   trace_figure, compare_versions, preview_change, propose_alignment, create_document;
   and its own list_skills, read_skill and ask_specialist (up to 4 at once).
 - **Never:** records figures itself; makes or leans towards a decision.
-- **Code and tests:** [lead.py](../agents/lead.py), [test_lead.py](../agents/tests/test_lead.py) (21).
+- **Code and tests:** [lead.py](../agents/lead.py), [test_lead.py](../agents/tests/test_lead.py) (21);
+  intake, [intake.py](../agents/intake.py), [test_intake.py](../agents/tests/test_intake.py) (10).
 
 ### Specialist
 

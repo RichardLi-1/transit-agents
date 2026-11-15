@@ -12,7 +12,8 @@ MAX_RUN_USD (for a run: the lead and its specialists; default 60 calls and US$2)
 MAX_DAILY_USD, MAX_RUNS_PER_HOUR and MAX_RUN_MINUTES (while it listens; default US$10
 a UTC day, 20 runs an hour and 10 minutes a run), SPECIALIST_CONCURRENCY, RUNS_AT_ONCE
 (visitors' runs the listener answers at once), GUEST_RUN_CALLS (MAX_RUN_CALLS for a
-visitor's run) and MODEL_PRICES (see agents/prices.py).
+visitor's run), INTAKE_STUDIES and INTAKE_RUN_CALLS (triaging new context unasked; see
+agents/intake.py) and MODEL_PRICES (see agents/prices.py).
 """
 
 import argparse
@@ -53,6 +54,7 @@ from core import (
     spent_today,
 )
 from citations import citations, pages_in
+from intake import arrived, chosen, triage_task
 from lead import run_lead
 
 POLL_SECONDS = 3
@@ -132,11 +134,15 @@ def chat_message(entry: dict[str, Any]) -> tuple[str, str] | None:
 def with_history(question: str, earlier: Sequence[tuple[str, str]], asker: str = "planner") -> list[str]:
     """A run's task: the study's earlier chat, marked as such, then the question, a
     planner's or a visitor's."""
-    line = f"A {asker} asks: {question}"
+    return [*chat_so_far(earlier), f"A {asker} asks: {question}"]
+
+
+def chat_so_far(earlier: Sequence[tuple[str, str]]) -> list[str]:
+    """The study's earlier chat, marked as such, for a run's task, or nothing."""
     if not earlier:
-        return [line]
+        return []
     lines = "\n".join(f"{NAMES.get(who, 'Agent')}: {clip(text, HISTORY_CHARS)}" for who, text in earlier)
-    return [f"Earlier in this study's chat, oldest first, for context:\n<chat>\n{lines}\n</chat>", line]
+    return [f"Earlier in this study's chat, oldest first, for context:\n<chat>\n{lines}\n</chat>"]
 
 
 def asked(entry: dict[str, Any]) -> tuple[str, str | None] | None:
@@ -255,6 +261,9 @@ class Listener:
     Each run gets the study's last few chat messages before the question, as the person
     asking sees the chat, so a follow-up makes sense. It keeps its place in the log,
     and the chat, so it can carry on in a new session.
+
+    When a planner or an agency system adds a source, it triages it unasked, in the
+    newest open studies (intake.py).
     """
 
     def __init__(
@@ -327,9 +336,12 @@ class Listener:
             self.read_back = True
         while True:
             entries = await call(session, "read_log", {"after": self.after, "limit": PAGE})
+            sources = []
             for entry in entries:
                 self.after = entry["seq"]
                 self._hear(entry)
+                if (source := arrived(entry)) is not None:
+                    sources.append(source)
                 if (question := asked(entry)) is None:
                     continue
                 text, audience = question
@@ -339,8 +351,40 @@ class Listener:
                 task = asyncio.create_task(self.reply(study, entry["seq"], text, audience, model if isinstance(model, str) else None))
                 self.runs.add(task)
                 task.add_done_callback(self.runs.discard)
+            if sources and config().intake_studies:
+                task = asyncio.create_task(self.intake(sources))
+                self.runs.add(task)
+                task.add_done_callback(self.runs.discard)
             if len(entries) < PAGE:
                 await asyncio.sleep(self.poll_seconds)
+
+    async def intake(self, sources: list[dict[str, Any]]) -> None:
+        """Triage new sources in the newest open studies, unasked, one run a study, each
+        in planners' turn, so a planner's question waits for one run at most, and within
+        the listener's limits (intake.py)."""
+        names = ", ".join(source["id"] for source in sources)
+        try:
+            async with open_session(self.url, self.token) as session:
+                for study in chosen(await call(session, "list_studies"), config().intake_studies):
+                    async with self._turn(None):
+                        if (reason := self._held_back()) is not None:
+                            print(f"New context {names}: not triaged in {study}. {reason}", file=sys.stderr, flush=True)
+                            return
+                        self.started.append(time.monotonic())
+                        print(f"{study}: triaging new context {names}", flush=True)
+                        task = triage_task(sources, chat_so_far(self._history(study, None, sys.maxsize)))
+                        settings = config()
+                        said = await answer(
+                            session,
+                            self.client,
+                            study,
+                            task,
+                            seconds=settings.max_run_minutes * MINUTE,
+                            max_run_calls=settings.intake_run_calls,
+                        )
+                    print(f"  {clip(said, 300)}", flush=True)
+        except Exception as error:  # it's in the chat; keep listening
+            print(f"  Triaging new context {names} failed: {error}", file=sys.stderr, flush=True)
 
     async def reply(self, study: str, seq: int, text: str, audience: str | None, model: str | None = None) -> None:
         """Answer one message, after that person's earlier ones, once a run may start. One
