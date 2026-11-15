@@ -143,10 +143,41 @@ The evaluator ([agents.md](agents.md#evaluator)) runs a candidate's gate this wa
 - Answers go to `evals/runs/<UTC time>.jsonl` with their tokens, cost and time, and each case's log to `evals/runs/<UTC time>/<id>.log.jsonl`: its subagents, readings, figures and each model call's usage. If Gemini's quota runs out, the run stops and keeps them. Costs come from the prices in [agents/prices.py](../agents/prices.py).
 - [score-run.ts](../evals/score-run.ts) then prints the pass rate by capability and by skill, decisions against the control, hand-overs, citation recall and precision, and tokens and time per case, reading each case's log beside the run file. `npm run agent:score` scores a run again. A run from before the logs were kept fails its safety cases.
 
+## The test split is public; keep a private one
+
+The committed `test` cases, gold answers and all, are in a public repo. Anyone can read
+them, and future models may have been trained on them, so a model may know their
+answers without reading anything. Report a score on the committed test split as a
+score on public cases. Moving them out is the owner's decision; until then they stay.
+
+A private test split stays off the repo:
+
+- Put it in a folder outside the repo, and name the folder in `EVAL_PRIVATE_DIR`. Its
+  `cases.jsonl` holds cases in the same format, each with `"split": "test"` and a
+  `canary`: a string of 20 characters or more, unique to your private set, such as
+  `"transit-agents private eval canary <a new UUID>"`. Ids must differ from the
+  committed ones. Never commit the folder, and keep it out of synced and shared drives.
+- The runner and the scorer merge the private cases with the committed ones. Answers to
+  them go to `EVAL_PRIVATE_DIR/runs`, never `evals/runs`, where the evolver reads.
+- Only the evaluator's process and the eval runner have `EVAL_PRIVATE_DIR`. The agents'
+  commands and the evolver drop it from their environment as they start, the
+  throwaway service and the seed start without it, and the agents' prompts hold the
+  question and its sources only, never the canary. A skill's script can't read the
+  folder (on macOS, sandbox-exec denies it).
+- `npm run eval:check-private` looks for each private case's canary, its gold answer
+  (its `expect` as JSON, however spaced), its required wording of three words or more,
+  and any answer to it, in `agents/skills`, `agents/skill-candidates` and `evals/runs`,
+  and fails if it finds one. It names the file and the case, never what it found. A
+  bare number can't be searched for: a value is found only inside its case's JSON.
+- On one machine, the evaluator and the agents still share a disk, and the eval runner
+  runs the lead in the evaluator's own process. So the private split is kept from what
+  agents read and write, not from the machine. Run the evaluator on another machine
+  for more.
+
 ## Rules for a fair result
 
 1. No web for agents during evals. The plans are online, so the answers are too.
-2. Don't tune on `test` cases. Use `dev`, and move a case to `dev` once you look at its answer.
+2. Don't tune on `test` cases. Use `dev`, and move a case to `dev` once you look at its answer. The committed `test` cases are public; a private split is not (above).
 3. Report the control beside the score. A pass rate alone means little.
 4. Report counts, not only percentages. With 8 real decisions, one case moves the result by 12 points.
 5. Prefer the script. Use judged scoring only for drafts, and check judges against planners.

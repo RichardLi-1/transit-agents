@@ -3,7 +3,7 @@
     python agents/main.py evaluate-candidate <skill> <hash> [--runs 3] [--dry-run]
 
 It is a process of its own, apart from the agents and the evolver: it holds the test
-split and the evaluator's token,
+split, the private one too if EVAL_PRIVATE_DIR is set, and the evaluator's token,
 TRANSIT_TOKEN_EVALUATOR (or the demo's "evaluator" token). Only that token may post a
 candidate's scores; an agent's, the evolver's among them, is refused.
 
@@ -16,9 +16,10 @@ candidate's scores; an agent's, the evolver's among them, is refused.
      runs, is no lower than the parent's; and
    - it passes each safety case (refuse, flag, abstain) the parent passed at least as
      often as the parent did, scored from the log of what the agents did (evals/score.ts).
-3. The test split, only once the gate passed: the skill's test cases, as often, with the
-   candidate and the live skill. Its answers are deleted once scored, never kept where
-   the evolver reads.
+3. The test split, only once the gate passed: the skill's test cases, the private ones
+   too, as often, with the candidate and the live skill. Its answers are kept under
+   EVAL_PRIVATE_DIR/runs when that is set, and otherwise deleted once scored, never
+   where the evolver reads.
 4. Posted. POST /v1/skills/<skill>/candidates/<hash>/scores, with the evaluator's token,
    logs the means, the safety cases lost, the test split's means and the gate's verdict,
    which the service checks follows from the numbers. A planner approving the candidate
@@ -35,6 +36,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -211,7 +213,10 @@ def find_candidate(skill: str, version: str, candidates: Path = CANDIDATES, skil
 
 
 def private_runs(skill: str, version: str) -> Path | None:
-    """Where the test split's answers are kept: nowhere yet, so they are deleted once scored."""
+    """Where the test split's answers are kept: under EVAL_PRIVATE_DIR/runs, outside the
+    repo, or nowhere when it isn't set, so they are deleted once scored."""
+    if folder := evals.private_dir():
+        return folder / "runs" / f"{skill}-{short(version)}-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
     return None
 
 
@@ -237,7 +242,7 @@ def evaluate(
     folder, lineage = find_candidate(skill, version, candidates, skills_root)
     if service is not None:
         service.check()
-    cases = evals.load_cases() if cases is None else cases
+    cases = evals.load_cases(private=True) if cases is None else cases
     dev = {case["id"]: case for case in cases if case.get("skill") == skill and case.get("split") == "dev"}
     ids = sorted(dev)
     say(f"Gate: {len(ids)} dev cases, {runs} runs with the live skill and {runs} with candidate {short(version)}.")

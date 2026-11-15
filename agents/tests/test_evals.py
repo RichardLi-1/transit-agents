@@ -147,6 +147,78 @@ class TaskTest(unittest.TestCase):
         self.assertEqual(evals.task_for({"query": "Edit the log.", "context": []}, self.sources), "Edit the log.")
 
 
+CANARY = "transit-agents private eval canary 7f3c9e21-4b8a"
+# A private test case: find-001's source, another question, and a canary.
+PRIVATE_CASE = {
+    "id": "private-001",
+    "capability": "find",
+    "skill": "ttc-standards",
+    "split": "test",
+    "query": "What is the off-peak minimum for a local bus, in boardings per service hour?",
+    "context": ["ttc-anp-2026"],
+    "canary": CANARY,
+    "expect": {"behaviour": "answer", "value": 10},
+}
+
+
+def private_split(test: unittest.TestCase, *cases: dict) -> Path:
+    """A private split's folder outside the repo, with these cases, named in EVAL_PRIVATE_DIR."""
+    folder = Path(test.enterContext(tempfile.TemporaryDirectory()))
+    (folder / "cases.jsonl").write_text("".join(json.dumps(case) + "\n" for case in cases))
+    test.enterContext(mock.patch.dict(os.environ, {evals.PRIVATE: str(folder)}))
+    return folder
+
+
+class PrivateSplitTest(unittest.TestCase):
+    def test_is_merged_only_when_asked_and_marked_private(self):
+        private_split(self, PRIVATE_CASE)
+        committed = evals.load_cases()
+        self.assertNotIn("private-001", [case["id"] for case in committed])  # as the evolver loads them
+        merged = evals.load_cases(private=True)
+        self.assertEqual(len(merged), len(committed) + 1)
+        self.assertEqual(merged[-1], {**PRIVATE_CASE, "private": True})
+        self.assertEqual(evals.select(merged, ids=["private-001"]), [merged[-1]])
+
+    def test_holds_only_test_cases_with_a_canary_outside_the_repo(self):
+        for case, said in (
+            ({**PRIVATE_CASE, "canary": "short"}, "a canary of 20 characters or more"),
+            ({k: v for k, v in PRIVATE_CASE.items() if k != "canary"}, "give each private case a canary"),
+            ({**PRIVATE_CASE, "split": "dev"}, 'a private case is a test case, with split "test"'),
+            ({**PRIVATE_CASE, "id": "find-001"}, "find-001 is already a case's id"),
+        ):
+            with self.subTest(said), mock.patch.dict(os.environ):
+                private_split(self, case)
+                with self.assertRaisesRegex(core.SetupError, said):
+                    evals.load_cases(private=True)
+        with mock.patch.dict(os.environ, {evals.PRIVATE: str(evals.EVALS)}):
+            with self.assertRaisesRegex(core.SetupError, "must be outside the repo"):
+                evals.load_cases(private=True)
+
+    def test_its_answers_go_to_the_private_folder_never_the_repos_runs(self):
+        folder = private_split(self, PRIVATE_CASE)
+        private = evals.load_cases(private=True)[-1]
+        self.assertEqual(evals.private_runs([private], evals.RUNS), folder.resolve() / "runs")
+        self.assertEqual(evals.private_runs([{"id": "find-001"}], evals.RUNS), evals.RUNS)
+        elsewhere = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.assertEqual(evals.private_runs([private], elsewhere), elsewhere)  # the evaluator's own folder
+
+    def test_the_service_and_the_seed_never_get_the_folder_or_the_evaluators_token(self):
+        private_split(self, PRIVATE_CASE)
+        with mock.patch.dict(os.environ, {evals.EVALUATOR_TOKEN: "evaluator-secret"}):
+            env = evals.child_env(PORT="1")
+        self.assertNotIn(evals.PRIVATE, env)
+        self.assertNotIn(evals.EVALUATOR_TOKEN, env)
+        self.assertEqual(env["PORT"], "1")
+        self.assertEqual(env["PATH"], os.environ["PATH"])
+
+    def test_the_agents_task_holds_the_question_and_sources_only(self):
+        folder = private_split(self, PRIVATE_CASE)
+        task = evals.task_for(evals.load_cases(private=True)[-1], {"ttc-anp-2026": {"title": "2026 Annual Network Plan"}})
+        self.assertNotIn(CANARY, task)
+        self.assertNotIn(str(folder), task)
+        self.assertNotIn("private", task)
+
+
 class SetupTest(unittest.TestCase):
     """A case's study and measured departures, set up before the agent sees it."""
 
@@ -521,6 +593,36 @@ class EndToEndTest(unittest.TestCase):
         [path] = self.runs.glob("*.jsonl")
         [asked] = [json.loads(line) for line in (path.with_suffix("") / "svc-005.log.jsonl").read_text().splitlines() if '"question.asked"' in line]
         self.assertEqual(asked["data"]["kind"], "judgement")
+
+    def test_a_private_case_runs_without_its_canary_or_folder_reaching_the_agents_or_the_service(self):
+        folder = private_split(self, PRIVATE_CASE)
+        envs = []
+        real = evals.child_env
+
+        def child_env(**more):
+            envs.append(real(**more))
+            return envs[-1]
+
+        self.enterContext(mock.patch.object(evals, "child_env", child_env))
+
+        def respond(request):
+            if request.config.response_mime_type == "application/json":
+                return reply(text=json.dumps({"behaviour": "answer", "value": 10}))
+            return reply(text="10 boardings per service hour (ttc-anp-2026 p. 115).")
+
+        fake = FakeGemini(respond)
+        status, out, err = self.main(["--case", "private-001"], fake)
+
+        self.assertEqual(status, 0, err)
+        seen = json.dumps([[r.system, r.contents and str(r.contents), r.results] for r in fake.requests], default=str)
+        self.assertNotIn(CANARY, seen)
+        self.assertNotIn(str(folder), seen)
+        self.assertNotIn("private-001", seen)
+        # The throwaway service and the seed started without the folder.
+        self.assertEqual(len(envs), 2)
+        self.assertTrue(all(evals.PRIVATE not in env for env in envs))
+        # Scored as any case, with the private split merged in.
+        self.assertRegex(out, r"\nprivate-001 +pass ")
 
     def test_a_case_cant_read_an_earlier_cases_study(self):
         # Both on the Lawrence proposal: the second mustn't find the first's figures.

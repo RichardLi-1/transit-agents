@@ -24,6 +24,14 @@ can't be reached, the run stops and keeps the answers so far.
 --skill-dir runs with a candidate's SKILL.md, from agents/evolve.py, in place of its
 live skill's instructions; its scripts and the other skills stay the live ones. Each
 answer names the candidate's skill and version, so it is never taken for the live one's.
+
+EVAL_PRIVATE_DIR names a folder outside the repo, never committed, whose cases.jsonl
+holds a private test split: cases like the committed ones, each with split "test" and a
+canary, a string unique to the private set that marks its files. They are merged with
+the committed cases. Answers to them are kept in EVAL_PRIVATE_DIR/runs, never in
+evals/runs, where the evolver reads. Neither the canary nor the folder reaches an agent:
+the agents' prompts hold the question and the sources only, and the throwaway service
+and the seed start without EVAL_PRIVATE_DIR in their environment.
 """
 
 import argparse
@@ -151,8 +159,64 @@ SCHEMA = types.Schema(
 )
 
 
-def load_cases(path: Path = EVALS / "cases.jsonl") -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+# The folder of the private test split, outside the repo: only the evaluator's and the
+# eval runner's processes have it.
+PRIVATE = "EVAL_PRIVATE_DIR"
+# Only the evaluator holds this token. Like the private split, no agent process gets it.
+EVALUATOR_TOKEN = "TRANSIT_TOKEN_EVALUATOR"
+# A canary is at least this long, so it is unique enough to search for.
+CANARY_CHARS = 20
+
+
+def private_dir() -> Path | None:
+    """The private split's folder, EVAL_PRIVATE_DIR, or None when it isn't set. It must be
+    outside the repo, so nothing in it can be committed or read as the repo's."""
+    text = os.environ.get(PRIVATE, "").strip()
+    if not text:
+        return None
+    folder = Path(text).expanduser().resolve()
+    if folder.is_relative_to(ROOT.resolve()):
+        raise SetupError(f"{PRIVATE} must be outside the repo, not {folder}: nothing private may be committed.")
+    if not (folder / "cases.jsonl").is_file():
+        raise SetupError(f"{PRIVATE} is {folder}, which has no cases.jsonl.")
+    return folder
+
+
+def private_cases(folder: Path, public: Iterable[str] = ()) -> list[dict[str, Any]]:
+    """The private split's cases, each marked private. Each must be a test case with a
+    canary, and its id must not be a committed case's."""
+    taken = set(public)
+    cases = []
+    for n, line in enumerate((folder / "cases.jsonl").read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        case = json.loads(line)
+        where = f"{PRIVATE}/cases.jsonl, line {n}"
+        if not isinstance(case.get("canary"), str) or len(case["canary"].strip()) < CANARY_CHARS:
+            raise SetupError(f"{where}: give each private case a canary of {CANARY_CHARS} characters or more.")
+        if case.get("split") != "test":
+            raise SetupError(f"{where}: a private case is a test case, with split \"test\".")
+        if case.get("id") in taken:
+            raise SetupError(f"{where}: {case.get('id')} is already a case's id.")
+        taken.add(case["id"])
+        cases.append({**case, "private": True})
+    return cases
+
+
+def load_cases(path: Path = EVALS / "cases.jsonl", *, private: bool = False) -> list[dict[str, Any]]:
+    """The committed cases, and, with `private`, the private split's after them, if
+    EVAL_PRIVATE_DIR is set. Only the eval runner and the evaluator ask for those."""
+    cases = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    if private and (folder := private_dir()):
+        cases += private_cases(folder, (case["id"] for case in cases))
+    return cases
+
+
+def child_env(**more: str) -> dict[str, str]:
+    """The environment for a process the runner starts, the throwaway service or the
+    seed: this one's, without the private split's folder or the evaluator's token."""
+    env = {name: value for name, value in os.environ.items() if name not in (PRIVATE, EVALUATOR_TOKEN)}
+    return {**env, **more}
 
 
 def select(cases: list[dict[str, Any]], *, split: str = "dev", ids: Iterable[str] = ()) -> list[dict[str, Any]]:
@@ -162,7 +226,7 @@ def select(cases: list[dict[str, Any]], *, split: str = "dev", ids: Iterable[str
         return [case for case in cases if split == "all" or case["split"] == split]
     by_id = {case["id"]: case for case in cases}
     if unknown := [name for name in ids if name not in by_id]:
-        raise SetupError(f"No case {', '.join(unknown)} in evals/cases.jsonl.")
+        raise SetupError(f"No case {', '.join(unknown)} in evals/cases.jsonl{' or the private split' if private_dir() else ''}.")
     return [by_id[name] for name in ids]
 
 
@@ -236,7 +300,7 @@ class Service:
         """Start on this port, and wait until it answers. False if the port was taken."""
         assert self.data
         tokens = ",".join(f"{role}:{name}:{self.tokens[role]}" for role, name in self.ROLES.items())
-        env = {**os.environ, "PORT": str(port), "HOST": "127.0.0.1", "DATA_DIR": self.data, "TRANSIT_TOKENS": tokens}
+        env = child_env(PORT=str(port), HOST="127.0.0.1", DATA_DIR=self.data, TRANSIT_TOKENS=tokens)
         for name in ("AUTH", "PUBLIC_URL", "WEBHOOK_HOSTS"):
             env.pop(name, None)
         log = Path(self.data, "service.log")
@@ -277,13 +341,12 @@ class Service:
         """Add the public sources and the published rules, and approve the live skills, as
         clients/seed.ts does for the demo. With a candidate, approve its version too, in
         this throwaway service only, so the agents under test may load it."""
-        env = {
-            **os.environ,
-            "TRANSIT_URL": self.url,
-            "TRANSIT_TOKEN_INTEGRATION": self.tokens["integration"],
-            "TRANSIT_TOKEN_PLANNER": self.tokens["planner"],
-            "SEED_GAP_MS": "0",
-        }
+        env = child_env(
+            TRANSIT_URL=self.url,
+            TRANSIT_TOKEN_INTEGRATION=self.tokens["integration"],
+            TRANSIT_TOKEN_PLANNER=self.tokens["planner"],
+            SEED_GAP_MS="0",
+        )
         command = [*NODE, "clients/seed.ts"]
         done = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
         if done.returncode:
@@ -641,6 +704,17 @@ async def _run(
         return await run_cases(first, aio, cases, run, **own)
 
 
+def private_runs(cases: list[dict[str, Any]], runs: Path) -> Path:
+    """Where the run's answers go: `runs`, unless a private case may run and `runs` is in
+    the repo. Then EVAL_PRIVATE_DIR/runs, so no private answer lands where the evolver,
+    or anyone with the repo, reads."""
+    if any(case.get("private") for case in cases) and runs.resolve().is_relative_to(ROOT.resolve()):
+        folder = private_dir()
+        assert folder is not None
+        return folder / "runs"
+    return runs
+
+
 def score(path: Path) -> None:
     """Print the run's scores, from evals/score-run.ts."""
     done = subprocess.run([*NODE, str(EVALS / "score-run.ts"), str(path)], cwd=ROOT, capture_output=True, text=True)
@@ -653,7 +727,9 @@ def main(args: list[str], *, client: AsyncClient | None = None, runs: Path = RUN
     """Run the eval cases the arguments pick, then score the answers. Returns the exit status.
 
     `client` is Gemini's async client, for tests to pass a fake. Without it, the client
-    is made from GEMINI_API_KEY. `runs` is the folder for the run file.
+    is made from GEMINI_API_KEY. `runs` is the folder for the run file; a run that may
+    hold a private case's answer goes to EVAL_PRIVATE_DIR/runs instead, if `runs` is in
+    the repo.
     """
     options = parse_args(args)
     try:
@@ -665,7 +741,8 @@ def main(args: list[str], *, client: AsyncClient | None = None, runs: Path = RUN
             except SkillError as error:
                 raise SetupError(str(error)) from None
             candidate = {"skill": name, "version": candidate_hash(folder)}
-        cases = select(load_cases(), split=options.split, ids=options.case)
+        cases = select(load_cases(private=True), split=options.split, ids=options.case)
+        runs = private_runs(cases, runs)
         real = None if client else model_client()  # no key, no service started
         settings = config()  # a bad setting, likewise
     except SetupError as error:

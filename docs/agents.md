@@ -161,16 +161,18 @@ Every agent:
 
 ### Evaluator
 
-Not an agent: a process of its own, which holds the test split and the evaluator's
-token, `TRANSIT_TOKEN_EVALUATOR` (or the demo's). Keep that token out of `agents/.env`.
+Not an agent: a process of its own, which holds the test split, the private one in
+`EVAL_PRIVATE_DIR` too ([evals.md](evals.md#the-test-split-is-public-keep-a-private-one)),
+and the evaluator's token, `TRANSIT_TOKEN_EVALUATOR` (or the demo's). Keep both out of
+`agents/.env`; the agents' commands drop them from their environment anyway.
 
 - **Job:** scores a candidate the evolver put forward. First the gate, Equation 1:
   the skill's dev cases run 3 times or more with the live skill and as often with
   the candidate (`eval --skill-dir`). It passes only if the candidate's mean dev
   score is no lower than its parent's, and it passes each refuse, flag and abstain
   case its parent passed at least as often, scored from the log of what the agents
-  did. Only then do the test cases run, as often, with both. Their answers are
-  deleted once scored, never kept where the evolver reads.
+  did. Only then do the test cases run, as often, with both. Their answers are kept
+  in `EVAL_PRIVATE_DIR/runs`, or deleted once scored, never kept where the evolver reads.
 - **Posts** the means, the safety cases lost, the test split's means and the gate's
   verdict with `POST /v1/skills/{name}/candidates/{hash}/scores`, which only its role
   may call. The service refuses a verdict the numbers don't give. When a planner

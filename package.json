@@ -22,6 +22,7 @@
     "agent:eval": "agents/.venv/bin/python agents/main.py eval",
     "agent:score": "node --disable-warning=ExperimentalWarning evals/score-run.ts",
     "agent:cases": "node --disable-warning=ExperimentalWarning evals/count.ts",
+    "eval:check-private": "node --disable-warning=ExperimentalWarning evals/check-private.ts",
     "agent:test": "agents/.venv/bin/python -m unittest discover -s agents/tests -t agents",
     "smoke": "node --disable-warning=ExperimentalWarning scripts/smoke.ts",
     "deploy": "fly deploy && npm run smoke",

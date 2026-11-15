@@ -54,7 +54,8 @@ Three levels:
    - a planner approves the diff, with the evaluator's scores beside the proposal
      in the log (`PUT /v1/skills/{name}`, planners only).
 
-   Only once the gate passes does the evaluator run the test split, and it posts
+   Only once the gate passes does the evaluator run the test split, the private
+   one too ([evals.md](evals.md#the-test-split-is-public-keep-a-private-one)), and it posts
    the scores and the gate's verdict with its own token
    (`POST /v1/skills/{name}/candidates/{hash}/scores`, the evaluator only). The
    service checks the verdict follows from the numbers. A set used to pick
@@ -83,7 +84,7 @@ its instructions, like the lead's, change by hand.
 | Skill scripts run sandboxed, with no keys, tokens or session | Enforced: on macOS by sandbox-exec; elsewhere only the environment is scrubbed |
 | Evolution edits instructions only | Enforced by the evolver (in development) |
 | Only the evaluator scores a candidate | Enforced by service roles: an agent's token, the evolver's among them, and a planner's are refused, and the service refuses a verdict the numbers don't give |
-| Test cases stay off agent machines | Not yet: the test split is public |
+| Test cases stay off agent machines | Partly: a private test split lives outside the repo (`EVAL_PRIVATE_DIR`), each case with a canary. Only the evaluator and the eval runner read it, agent and evolver processes drop it from their environment, its answers never go to `evals/runs`, skill scripts can't read it, and `npm run eval:check-private` fails if any of it is in skills, candidates or runs. The committed test split is still public, and on one machine the evaluator and the agents share a disk and a process |
 | Safety cases are scored from the log of actions | Partly: the scorer reads each case's log, so a refusal or abstention passes only if nothing was recorded or tried, and a flag only if an agent handed a question to a planner (ask_planner). Whether an answer refused rather than answered in words is still read by a small model |
 | Writes to agency systems need a planner decision | Not yet: computer use isn't logged |
 
@@ -94,7 +95,7 @@ Found by a red-team review on 2026-11-15. The "not yet" rows are the next work.
 - **Built:** the lead and specialists, 19 skills, the log and citation check,
   roles, the watched folder, Slack, computer use on two sample apps, budgets,
   planner approval of skill versions, and 205 eval cases.
-- **Being built:** the evolver and its gate, and the lead starting on new
+- **Being built:** the evolver, the evaluator and its gate, and the lead starting on new
   context without being asked. Both are on the branch
   `worktree-agent-aa381b7846cc4fab0`, with unit tests (30 pass) but no
   evaluation, and not merged. Today the lead starts when a planner asks in

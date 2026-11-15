@@ -191,6 +191,22 @@ class LoopTest(unittest.TestCase):
         (self.skills / "triage" / "SKILL.md").write_text(CANDIDATE)
         self.assertEqual(skills.skill_hash(self.skills / "triage"), self.mine)
 
+    def test_never_reads_the_private_split(self):
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        canary = "transit-agents private eval canary 7f3c9e21-4b8a"
+        private = {**case("private-1", "test", query="PRIVATE QUERY?"), "canary": canary}
+        (folder / "cases.jsonl").write_text(json.dumps(private) + "\n")
+        loads = self.enterContext(mock.patch.object(evals, "load_cases", return_value=CASES))
+        with mock.patch.dict("os.environ", {"EVAL_PRIVATE_DIR": str(folder)}):
+            self.evolve(cases=None)
+        loads.assert_called_once_with()  # the committed cases only, never private=True
+        [text] = self.prompts
+        [(_, body)] = self.service.proposed
+        for written in (text, json.dumps(body), (self.candidates / "triage" / self.mine[:12] / "lineage.json").read_text()):
+            self.assertNotIn(canary, written)
+            self.assertNotIn("PRIVATE QUERY", written)
+            self.assertNotIn(str(folder), written)
+
     def test_the_loop_has_no_way_to_approve_a_version_or_post_scores(self):
         # It reads the log and puts a candidate forward; approving is a planner's PUT,
         # and scores the evaluator's POST, which the service refuses an agent's token

@@ -98,6 +98,10 @@ def profile(script: Script) -> str:
     """The sandbox-exec profile for a script. The last rule that matches a path wins."""
     data = Path(os.environ.get("DATA_DIR") or REPO / "data")
     secret = [REPO / "data", data, REPO / "evals", REPO / ".git", REPO / "agents" / "skill-candidates", LIVE_SKILLS, script.folder.parent]
+    # The private test split, wherever it is, in the eval runner's process, the only one
+    # that has it.
+    if private := os.environ.get("EVAL_PRIVATE_DIR", "").strip():
+        secret.append(Path(private).expanduser())
     own = [*_with_links(script.folder), *(path for folder, _ in script.reads for path in _with_links(folder))]
     python = [Path(sys.prefix), Path(sys.base_prefix), Path(sys.executable).resolve().parent]
     rules = [

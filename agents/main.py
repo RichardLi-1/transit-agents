@@ -590,8 +590,23 @@ async def until_stopped(work: Awaitable[T]) -> T:
         loop.remove_signal_handler(signal.SIGTERM)
 
 
+# What only the evaluator holds: the private test split's folder, which the eval runner
+# reads too, and the evaluator's token. Every other command runs agents, or the evolver,
+# and drops them from its environment before anything else, whatever the shell or
+# agents/.env set.
+EVALUATOR_ONLY = ("EVAL_PRIVATE_DIR", "TRANSIT_TOKEN_EVALUATOR")
+
+
+def drop_evaluator_only(command: str) -> None:
+    kept = {"evaluate-candidate": EVALUATOR_ONLY, "eval": ("EVAL_PRIVATE_DIR",)}.get(command, ())
+    for name in EVALUATOR_ONLY:
+        if name not in kept:
+            os.environ.pop(name, None)
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    drop_evaluator_only(argv[0] if argv else "")
     if argv[:1] == ["eval"]:
         import evals
 

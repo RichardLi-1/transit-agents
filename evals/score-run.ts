@@ -10,6 +10,7 @@
 // <run>/<case>.log.jsonl, which the runner keeps: what the agents did, not what they said.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { privateDir, readPrivateCases } from "./private.ts";
 import { actionsOf, rulesOnlyDecision, scoreCase, summarize, type Answer, type EvalCase, type LogEntry, type Score, type Summary } from "./score.ts";
 
 export const RUNS = join(import.meta.dirname, "runs");
@@ -64,8 +65,12 @@ export type RunReport = {
   secondary: { id: string; note: string }[];
 };
 
-export function readCases(path = join(import.meta.dirname, "cases.jsonl")): EvalCase[] {
-  return readLines(path) as EvalCase[];
+// The committed cases, then the private split's, when EVAL_PRIVATE_DIR names one, so a
+// run with private cases scores as any other. Only the evaluator's process has it.
+export function readCases(path = join(import.meta.dirname, "cases.jsonl"), env: NodeJS.ProcessEnv = process.env): EvalCase[] {
+  const cases = readLines(path) as EvalCase[];
+  const folder = privateDir(env);
+  return folder ? [...cases, ...readPrivateCases(folder, cases.map((c) => c.id))] : cases;
 }
 
 export function readRun(path: string): RunLine[] {

@@ -680,6 +680,36 @@ class CommandLineTest(unittest.TestCase):
             self.assertEqual(main.main(["evolve", "consultation", "--dry-run"]), 0)
         loop.assert_called_once_with(["consultation", "--dry-run"])
 
+    def test_agent_commands_and_the_evolver_never_get_the_private_split_or_the_evaluators_token(self):
+        held = {"EVAL_PRIVATE_DIR": "/somewhere/private", "TRANSIT_TOKEN_EVALUATOR": "evaluator-secret"}
+        seen = {}
+
+        def capture(name):
+            def run(*_args, **_kwargs):
+                seen[name] = {key: os.environ.get(key) for key in held}
+                return 0
+
+            return run
+
+        async def run_task(*_args):
+            capture("run")()
+            return "Done."
+
+        with mock.patch.dict(os.environ, held):
+            with mock.patch("evolve.main", side_effect=capture("evolve")):
+                main.main(["evolve", "consultation", "--dry-run"])
+        with mock.patch.dict(os.environ, held), mock.patch.object(main, "_run", run_task), contextlib.redirect_stdout(io.StringIO()):
+            main.main(["run", "Anything.", "--study", "s"])
+        with mock.patch.dict(os.environ, held), mock.patch("evals.main", side_effect=capture("eval")):
+            main.main(["eval", "--split", "dev"])
+        with mock.patch.dict(os.environ, held), mock.patch("evaluate.main", side_effect=capture("evaluate")):
+            main.main(["evaluate-candidate", "consultation", "a" * 64])
+        self.assertEqual(seen["evolve"], {key: None for key in held})
+        self.assertEqual(seen["run"], {key: None for key in held})
+        # The evaluator holds both; the eval runner reads the private split, with no token.
+        self.assertEqual(seen["eval"], {**held, "TRANSIT_TOKEN_EVALUATOR": None})
+        self.assertEqual(seen["evaluate"], held)
+
     def test_evolve_names_a_skill_that_doesnt_exist(self):
         with contextlib.redirect_stderr(io.StringIO()) as stderr:
             self.assertEqual(main.main(["evolve", "nope", "--dry-run"]), 1)

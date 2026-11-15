@@ -176,6 +176,18 @@ class SandboxTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(allowed["not a .env"], {"read": "not a dotenv file"})
 
     @unittest.skipUnless(sandbox.sandboxed(), "sandbox-exec is macOS's")
+    async def test_on_macos_reads_nothing_of_the_private_split_wherever_it_is(self):
+        # Only the eval runner's process has EVAL_PRIVATE_DIR, and its skills' scripts
+        # can't read the folder it names, even outside the user's home.
+        private = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (private / "cases.jsonl").write_text('{"canary": "a private canary"}')
+        read = self.tools()["read"]
+        self.assertEqual(await read(path=str(private / "cases.jsonl")), {"read": '{"canary": "a private canary"}'})
+        with mock.patch.dict(os.environ, {"EVAL_PRIVATE_DIR": str(private)}):
+            read = self.tools()["read"]
+            self.assertEqual(await read(path=str(private / "cases.jsonl")), {"refused": "PermissionError"})
+
+    @unittest.skipUnless(sandbox.sandboxed(), "sandbox-exec is macOS's")
     async def test_on_macos_writes_nothing_and_reaches_no_network(self):
         tools = self.tools()
         with self.assertRaises(PermissionError):
