@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { waiting } from "../clients/skill-hash.ts";
 
 const root = join(import.meta.dirname, "..");
 const data = resolve(process.env.DATA_DIR ?? join(root, "data"));
@@ -74,6 +75,17 @@ if (head.head.seq === 0) {
       env: { ...process.env, DATA_DIR: data, TRANSIT_URL: url, REPLAY_GAP_MS: process.env.REPLAY_GAP_MS ?? "30" },
     });
     await new Promise((resolve) => replay.on("exit", resolve));
+  }
+} else {
+  // Agents load only skills whose content a planner approved. One changed since then
+  // waits until a planner reviews it and approves it again.
+  const { approved } = (await (await fetch(`${url}/v1/skills`)).json()) as { approved: Record<string, string[]> };
+  const names = waiting(approved);
+  if (names.length) {
+    console.log(
+      `Skills waiting for a planner's approval, which the agents won't use: ${names.join(", ")}.\n` +
+        `Review each, then: npm run approve-skill -- <name>. Or approve every skill on disk: npm run approve-skill -- --all`,
+    );
   }
 }
 // Replay, decide and the agents find this service, and the tokens in the same folder.

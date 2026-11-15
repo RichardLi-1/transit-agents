@@ -17,6 +17,7 @@
     "slack:demo": "node --disable-warning=ExperimentalWarning scripts/slack-demo.ts",
     "replay": "node --disable-warning=ExperimentalWarning clients/replay.ts",
     "decide": "node --disable-warning=ExperimentalWarning clients/decide.ts",
+    "approve-skill": "node --disable-warning=ExperimentalWarning clients/approve-skill.ts",
     "agent": "agents/.venv/bin/python agents/main.py",
     "agent:eval": "agents/.venv/bin/python agents/main.py eval",
     "agent:score": "node --disable-warning=ExperimentalWarning evals/score-run.ts",
