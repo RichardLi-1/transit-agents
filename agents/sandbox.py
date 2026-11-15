@@ -52,7 +52,7 @@ class Script:
     version: str  # the folder's content hash, which a planner approved
     study: str
     allowed: frozenset[str]  # the service tools their calls may make
-    reads: tuple[Path, ...] = ()  # other skills' folders their scripts load
+    reads: tuple[tuple[Path, str], ...] = ()  # other skills' folders their scripts load, and their versions
 
 
 class ScriptError(RuntimeError):
@@ -98,7 +98,7 @@ def profile(script: Script) -> str:
     """The sandbox-exec profile for a script. The last rule that matches a path wins."""
     data = Path(os.environ.get("DATA_DIR") or REPO / "data")
     secret = [REPO / "data", data, REPO / "evals", REPO / ".git", REPO / "agents" / "skill-candidates", LIVE_SKILLS, script.folder.parent]
-    own = [*_with_links(script.folder), *(path for folder in script.reads for path in _with_links(folder))]
+    own = [*_with_links(script.folder), *(path for folder, _ in script.reads for path in _with_links(folder))]
     python = [Path(sys.prefix), Path(sys.base_prefix), Path(sys.executable).resolve().parent]
     rules = [
         "(version 1)",
@@ -141,7 +141,7 @@ def command(script: Script) -> list[str]:
 def describe(script: Script) -> list[dict[str, Any]]:
     """The tools the script declares: name, description, parameters and at_once. Making
     them calls no service tool, so this waits for its process, as loading tools.py did."""
-    start = {"folder": str(script.folder), "hash": script.version, "study": script.study, "call": None}
+    start = {**_start(script), "call": None}
     try:
         done = subprocess.run(
             command(script),
@@ -160,6 +160,12 @@ def describe(script: Script) -> list[dict[str, Any]]:
     if not isinstance(message.get("tools"), list):
         raise ScriptError(f"{script.skill}'s scripts stopped without declaring their tools. The agent's terminal says why.")
     return message["tools"]
+
+
+def _start(script: Script) -> dict[str, Any]:
+    """What the script's process is told first: what to load, at which versions, for which study."""
+    uses = [{"folder": str(folder), "hash": version} for folder, version in script.reads]
+    return {"folder": str(script.folder), "hash": script.version, "study": script.study, "uses": uses}
 
 
 async def call(script: Script, session: Any, tool: str, arguments: dict[str, Any]) -> Any:
@@ -200,7 +206,7 @@ async def _run(script: Script, session: Any, asked: dict[str, Any] | None) -> di
             pass
 
     async def converse() -> dict[str, Any]:
-        await send({"folder": str(script.folder), "hash": script.version, "study": script.study, "call": asked})
+        await send({**_start(script), "call": asked})
         answering: set[asyncio.Task[None]] = set()
         try:
             while line := await stdout.readline():

@@ -17,8 +17,8 @@ from pathlib import Path
 from google.genai.client import AsyncClient
 from mcp import ClientSession
 
-from core import Budget, LocalTool, ModelError, answered, clip, config, for_planners, report, work, working_for
-from skills import Skill, load_skill, skill_tools
+from core import Budget, LocalTool, ModelError, ToolError, answered, call, clip, config, for_planners, report, work, working_for
+from skills import Approved, Skill, approved_from, offer, skill_tools
 
 # The most specialists the lead may ask for in one turn. It asks for more once their
 # answers are back, so a turn's fan-out stays small.
@@ -64,6 +64,16 @@ SCRIPT_TOOLS: dict[str, frozenset[str]] = {
     "stop-accessibility": LAYERS - {"route_shape", "study_line"} | {"points_within", "stop_accessibility", "stop_shelters"},
     "engagement-needs": frozenset({"add_engagement_need"}),
 }
+
+
+async def approvals(session: ClientSession) -> dict[str, frozenset[str]]:
+    """Each skill's approved versions, from the service. None from a service that can't say,
+    so no skill is used: what isn't known to be approved isn't."""
+    try:
+        return approved_from(await call(session, "list_approved_skills"))
+    except ToolError as error:
+        print(f"Can't read which skill versions are approved, so no skill is used: {error}", file=sys.stderr, flush=True)
+        return {}
 
 
 def script_tools(skill: Skill, session: ClientSession, study: str) -> list[LocalTool]:
@@ -127,12 +137,23 @@ def specialist_tool(
     model: str | None = None,
     skills_dir: Path | None = None,
     budget: Budget | None = None,
+    approved: Approved | None = None,
 ) -> LocalTool:
-    """The ask_specialist tool, for a lead working on this study, with the run's budget."""
+    """The ask_specialist tool, for a lead working on this study, with the run's budget and
+    the skill versions approved when it started."""
 
     async def ask_specialist(question: str, instructions: str = "", skill: str | None = None) -> str:
         return await run_specialist(
-            session, client, study, question, instructions, skill, model=model, skills_dir=skills_dir, budget=budget
+            session,
+            client,
+            study,
+            question,
+            instructions,
+            skill,
+            model=model,
+            skills_dir=skills_dir,
+            budget=budget,
+            approved=approved,
         )
 
     return LocalTool("ask_specialist", DESCRIPTION, ask_specialist, PARAMETERS, at_once=AT_ONCE)
@@ -150,16 +171,21 @@ async def run_specialist(
     skills_dir: Path | None = None,
     limit: asyncio.Semaphore | None = None,
     budget: Budget | None = None,
+    approved: Approved | None = None,
 ) -> str:
     """Ask a new specialist one question, and return its short cited summary.
 
-    With the run's budget, it starts only if a model call is left for it.
+    With the run's budget, it starts only if a model call is left for it. A skill is
+    loaded only if its folder hashes, now, to a version a planner approved: `approved`,
+    or else the service's list.
     """
     question = question.strip()
     if not question:
         raise ValueError("Give the specialist a question.")
-    # Before it starts, so an unknown or broken skill goes straight back to the lead.
-    chosen = load_skill(skill, skills_dir) if skill else None
+    # Before it starts, so an unknown, broken or unapproved skill goes straight back to the lead.
+    if skill and approved is None:
+        approved = await approvals(session)
+    chosen = offer(skill, skills_dir, approved or {}) if skill else None
     # Declaring the scripts' tools runs a process, so it doesn't hold up other specialists.
     scripts = await asyncio.to_thread(script_tools, chosen, session, study) if chosen else []
     system = system_instruction(session.instructions or "", study, chosen)

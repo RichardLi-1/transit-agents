@@ -152,6 +152,7 @@ class SpecialistTest(unittest.IsolatedAsyncioTestCase):
             "    parameters = {'type': 'object', 'properties': {'text': {'type': 'string'}}}\n"
             "    return [LocalTool('count_words', 'Count the words in a text.', count_words, parameters)]\n"
         )
+        support.approve(root)
 
         def respond(request):
             if request.turn == 0:

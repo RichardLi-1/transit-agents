@@ -27,7 +27,7 @@ import hashlib
 import re
 import shutil
 import tempfile
-from collections.abc import Collection, Iterator
+from collections.abc import Collection, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -49,8 +49,12 @@ USES: dict[str, tuple[str, ...]] = {
 }
 
 
+# Each skill's approved versions, by name, from the service (approved_from).
+Approved = Mapping[str, Collection[str]]
+
+
 class SkillError(ValueError):
-    """A skill that doesn't exist, or whose SKILL.md can't be read."""
+    """A skill that doesn't exist, whose SKILL.md can't be read, or that isn't approved."""
 
 
 @dataclass(frozen=True)
@@ -82,6 +86,54 @@ def load_skill(name: str, root: Path | None = None) -> Skill:
         names = ", ".join(skill["name"] for skill in list_skills(root)) or "none yet"
         raise SkillError(f"No skill named {name!r}. Skills: {names}.")
     return read_skill(path)
+
+
+def approved_from(answer: Any) -> dict[str, frozenset[str]]:
+    """Each skill's approved versions, from the service's GET /v1/skills (list_approved_skills)."""
+    listed = answer.get("approved") if isinstance(answer, dict) else None
+    if not isinstance(listed, dict):
+        return {}
+    return {str(name): frozenset(map(str, versions)) for name, versions in listed.items() if isinstance(versions, list)}
+
+
+def is_approved(skill: Skill, approved: Approved, root: Path | None = None, *, _seen: frozenset[str] = frozenset()) -> bool:
+    """Whether a skill's version now is one a planner approved, and the version of each
+    skill whose scripts it loads, which it would run too."""
+    if skill.name in _seen or skill.hash not in approved.get(skill.name, ()):
+        return False
+    for name in USES.get(skill.name, ()):
+        try:
+            used = load_skill(name, root or skill.folder.parent)
+        except SkillError:
+            return False
+        if not is_approved(used, approved, root, _seen=_seen | {skill.name}):
+            return False
+    return True
+
+
+def offered(root: Path | None, approved: Approved) -> list[Skill]:
+    """The skills the agents may use, by name: those whose version now a planner approved."""
+    root = root or SKILLS_DIR
+    files = sorted(root.glob("*/SKILL.md")) if root.is_dir() else []
+    return [skill for skill in map(read_skill, files) if is_approved(skill, approved, root)]
+
+
+def waiting(root: Path | None, approved: Approved) -> list[Skill]:
+    """The skills waiting for a planner to approve their version now, by name: agents can't use them."""
+    root = root or SKILLS_DIR
+    files = sorted(root.glob("*/SKILL.md")) if root.is_dir() else []
+    return [skill for skill in map(read_skill, files) if not is_approved(skill, approved, root)]
+
+
+def offer(name: str, root: Path | None, approved: Approved) -> Skill:
+    """The skill with this name, for an agent to use, only if a planner approved its version now."""
+    skill = load_skill(name, root)
+    if not is_approved(skill, approved, root):
+        raise SkillError(
+            f"Skill {name} is waiting for a planner to approve its current version ({skill.hash[:12]}), "
+            "so no agent can use it yet. Tell the planner, and answer without it."
+        )
+    return skill
 
 
 def read_skill(path: Path) -> Skill:
@@ -122,7 +174,9 @@ def skill_tools(skill: Skill, session: Any, study: str, *, allowed: Collection[s
         version=skill.hash or skill_hash(skill.folder),
         study=study,
         allowed=frozenset(allowed),
-        reads=tuple(root / name for name in USES.get(skill.name, ())),
+        # The skills its scripts load, at the versions they have now: the script's process
+        # checks each still has it before it runs.
+        reads=tuple((root / name, skill_hash(root / name)) for name in USES.get(skill.name, ())),
     )
     try:
         declared = sandbox.describe(script)

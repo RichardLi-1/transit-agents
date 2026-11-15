@@ -130,6 +130,53 @@ class SkillsTest(unittest.TestCase):
                     skills.read_skill(self.write(folder, text))
 
 
+class ApprovalTest(unittest.TestCase):
+    """Agents are offered only skills whose folder hashes, now, to a version a planner approved."""
+
+    def setUp(self):
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        for name in ("counter", "gis-analyst", "equity-analysis"):
+            (self.root / name).mkdir()
+            (self.root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: The {name} skill.\n---\nDo it.\n")
+        self.approved = {name: {skills.skill_hash(self.root / name)} for name in ("counter", "gis-analyst", "equity-analysis")}
+
+    def names(self, found):
+        return [skill.name for skill in found]
+
+    def test_offers_only_approved_versions(self):
+        self.assertEqual(self.names(skills.offered(self.root, self.approved)), ["counter", "equity-analysis", "gis-analyst"])
+        self.assertEqual(skills.offer("counter", self.root, self.approved).body, "Do it.")
+        self.assertEqual(skills.waiting(self.root, self.approved), [])
+        self.assertEqual(skills.offered(self.root, {}), [])
+
+    def test_refuses_a_skill_whose_files_changed_since_a_planner_approved_them(self):
+        (self.root / "counter" / "tools.py").write_text("def tools(session, study):\n    return []\n")
+        self.assertEqual(self.names(skills.waiting(self.root, self.approved)), ["counter"])
+        self.assertNotIn("counter", self.names(skills.offered(self.root, self.approved)))
+        with self.assertRaisesRegex(skills.SkillError, r"Skill counter is waiting for a planner to approve its current version \([0-9a-f]{12}\)"):
+            skills.offer("counter", self.root, self.approved)
+        # Approving the new version, and only that, lets agents use it again.
+        approved = {**self.approved, "counter": {skills.skill_hash(self.root / "counter")}}
+        self.assertEqual(skills.offer("counter", self.root, approved).name, "counter")
+
+    def test_a_version_approved_for_another_skill_doesnt_count(self):
+        approved = {**self.approved, "counter": self.approved["gis-analyst"]}
+        with self.assertRaises(skills.SkillError):
+            skills.offer("counter", self.root, approved)
+
+    def test_a_skill_waits_while_a_skill_whose_scripts_it_loads_waits(self):
+        self.assertIn("gis-analyst", skills.USES["equity-analysis"])
+        (self.root / "gis-analyst" / "tools.py").write_text("def tools(session, study):\n    return []\n")
+        self.assertEqual(self.names(skills.waiting(self.root, self.approved)), ["equity-analysis", "gis-analyst"])
+        with self.assertRaisesRegex(skills.SkillError, "Skill equity-analysis is waiting"):
+            skills.offer("equity-analysis", self.root, self.approved)
+
+    def test_reads_the_services_list(self):
+        answer = {"approved": {"counter": ["a" * 64, "b" * 64]}}
+        self.assertEqual(skills.approved_from(answer), {"counter": frozenset({"a" * 64, "b" * 64})})
+        self.assertEqual(skills.approved_from("not json"), {})
+
+
 # The same folder as clients/skill-hash.test.ts hashes, and the same hash: a planner
 # approving it there approves what the loader loads here.
 FILES = {

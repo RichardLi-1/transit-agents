@@ -4,7 +4,7 @@ The agents never import a skill's tools.py. sandbox.py starts this file in a new
 with an empty environment, the skill's folder as its working directory and, on macOS,
 inside sandbox-exec, then talks to it over stdin and stdout, one JSON message a line:
 
-    agent -> script   {"folder", "hash", "study", "call": {"tool", "arguments"} or null}
+    agent -> script   {"folder", "hash", "study", "uses", "call": {"tool", "arguments"} or null}
     script -> agent   {"service", "arguments", "id"}   a service tool call, which
     agent -> script   {"id", "output"} or {"id", "error"}   the agent makes, or refuses
     script -> agent   {"tools": [...]}, {"output": ...} or {"error", "kind"}   the end
@@ -154,11 +154,15 @@ def as_core() -> types.ModuleType:
 # --- The script's process ------------------------------------------------------------
 
 
-def load(folder: Path, version: str, study: str) -> list[LocalTool]:
-    """The skill's tools, from the tools.py whose bytes hash, with the rest of its folder, to `version`."""
+def load(folder: Path, version: str, study: str, uses: list[dict[str, str]] | None = None) -> list[LocalTool]:
+    """The skill's tools, from the tools.py whose bytes hash, with the rest of its folder,
+    to `version`, once each skill its scripts load still has the version it was loaded at."""
     files = folder_files(folder)
     if files_hash(files) != version:
         raise RuntimeError(f"{folder.name} changed after it was loaded, so it no longer has the version a planner approved.")
+    for used in uses or []:
+        if files_hash(folder_files(Path(used["folder"]))) != used["hash"]:
+            raise RuntimeError(f"{Path(used['folder']).name}, whose scripts {folder.name} loads, changed after it was loaded.")
     source = files.get("tools.py")
     if source is None:
         return []
@@ -199,7 +203,7 @@ async def serve(out: Any) -> None:
     start = json.loads(await reader.readline())
     listening = asyncio.create_task(agent.listen())
     try:
-        tools = load(Path(start["folder"]), start["hash"], start["study"])
+        tools = load(Path(start["folder"]), start["hash"], start["study"], start.get("uses") or [])
         asked = start.get("call")
         if asked is None:
             agent.send({"tools": [declared(tool) for tool in tools]})

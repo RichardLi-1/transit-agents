@@ -46,9 +46,10 @@ DEFAULT_MODEL = "qwen3.5:9b"
 # one, such as the public demo's, still answers. 3.8 Flash is often overloaded.
 FALLBACK_MODEL = "gemini-3.6-flash"
 
-# Code reports activity and tokens, and checks the visitors' budget, so models never see
-# these tools: a model can't know its own token counts.
-CODE_ONLY = frozenset({"report_activity", "get_budget"})
+# Code reports activity and tokens, checks the visitors' budget and reads which skill
+# versions are approved, so models never see these tools: a model can't know its own
+# token counts, and the loader, not a model, decides which skills it gets.
+CODE_ONLY = frozenset({"report_activity", "get_budget", "list_approved_skills"})
 
 # The header that has the service's own agents act for one visitor, in that visitor's
 # sandbox. "*" reads every visitor's entries from read_log, and writes nothing.

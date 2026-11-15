@@ -12,8 +12,8 @@ from google.genai.client import AsyncClient
 from mcp import ClientSession
 
 from core import Budget, LocalTool, config, work
-from skills import list_skills, load_skill
-from specialists import AT_ONCE, specialist_tool
+from skills import Approved, offer, offered, waiting
+from specialists import AT_ONCE, approvals, specialist_tool
 
 INSTRUCTIONS = """\
 You lead the first pass on study {study}. Specialists do the reading; you plan, check and answer. Planners decide; you never do.
@@ -62,21 +62,29 @@ TOOLS = frozenset(
 )
 
 
-def skills_tool(skills_dir: Path | None = None) -> LocalTool:
-    """The list_skills tool: each skill's name and description, without its instructions."""
+# Said to the lead when some skills wait for a planner's approval of their version now.
+WAITING = (
+    "Skills waiting for a planner to approve their current version, which no agent can use yet: {names}. "
+    "If a question needs one of them, answer without it, and say in one line that it waits for a planner's approval."
+)
+
+
+def skills_tool(skills_dir: Path | None, approved: Approved) -> LocalTool:
+    """The list_skills tool: each approved skill's name and description, without its instructions."""
     return LocalTool(
         "list_skills",
         "List the skills specialists can use, by name and description. Name one in ask_specialist when it fits.",
-        lambda **_: list_skills(skills_dir),  # it takes nothing, so stray arguments don't matter
+        # It takes nothing, so stray arguments don't matter.
+        lambda **_: [{"name": skill.name, "description": skill.description} for skill in offered(skills_dir, approved)],
     )
 
 
-def read_skill_tool(skills_dir: Path | None = None) -> LocalTool:
-    """The read_skill tool: one skill's instructions, for the lead to follow itself, as for a document."""
+def read_skill_tool(skills_dir: Path | None, approved: Approved) -> LocalTool:
+    """The read_skill tool: one approved skill's instructions, for the lead to follow itself, as for a document."""
     return LocalTool(
         "read_skill",
         "Read one skill's instructions to follow yourself, such as tpap-brief before create_document.",
-        lambda name="", **_: load_skill(str(name), skills_dir).body,
+        lambda name="", **_: offer(str(name), skills_dir, approved).body,
         {"type": "object", "properties": {"name": {"type": "string", "description": "The skill's name, from list_skills"}}, "required": ["name"]},
     )
 
@@ -99,14 +107,18 @@ async def run_lead(
     MAX_RUN_USD. The lead always keeps one, to answer from what it has.
     """
     settings = config()
+    # The skills it may use are those whose folders hash, now, to a version a planner
+    # approved. It's told which wait, so it can say so to the planner.
+    approved = await approvals(session)
+    held = ", ".join(skill.name for skill in waiting(skills_dir, approved))
     own = INSTRUCTIONS.format(study=study, at_once=AT_ONCE)
-    instructions = "\n\n".join(part for part in (session.instructions or "", own) if part)
+    instructions = "\n\n".join(part for part in (session.instructions or "", own, held and WAITING.format(names=held)) if part)
     budget = Budget(max_run_calls or settings.max_run_calls, settings.max_run_usd)
     budget.take()  # the lead's first call
     local = [
-        specialist_tool(session, client, study, model=specialist_model, skills_dir=skills_dir, budget=budget),
-        skills_tool(skills_dir),
-        read_skill_tool(skills_dir),
+        specialist_tool(session, client, study, model=specialist_model, skills_dir=skills_dir, budget=budget, approved=approved),
+        skills_tool(skills_dir, approved),
+        read_skill_tool(skills_dir, approved),
     ]
     return await work(
         session,

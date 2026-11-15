@@ -21,6 +21,7 @@ from typing import Any
 from google.genai import errors, types
 
 import core
+import skills
 
 ROOT = Path(__file__).resolve().parents[2]
 SKILLS = Path(__file__).parent / "skills"
@@ -102,6 +103,10 @@ class Service:
         if fresh:
             source = {"id": SOURCE, "title": "Test plan", "folder": "Plans", "pages": PAGES}
             api("POST", "/v1/context", source, token=INTEGRATION, url=self.url)
+            # As the demo's seed does: a planner approves the skills on disk, and the
+            # tests' own, so agents may load them.
+            for root in (skills.SKILLS_DIR, SKILLS):
+                approve(root, url=self.url)
 
     def stop(self, keep_data: bool = False) -> None:
         """Stop it, and delete its data unless asked to keep it for another start."""
@@ -148,6 +153,12 @@ def api(
             return json.loads(response.read() or b"null")
     except urllib.error.HTTPError as error:
         raise AssertionError(f"{method} {path}: {error.code} {error.read().decode()}") from None
+
+
+def approve(root: Path, url: str | None = None) -> None:
+    """Approve, as a planner, the version each skill in a skills folder has now."""
+    for path in sorted(root.glob("*/SKILL.md")):
+        api("PUT", f"/v1/skills/{path.parent.name}", {"version": skills.skill_hash(path.parent)}, url=url)
 
 
 def guest(url: str | None = None) -> tuple[str, str]:

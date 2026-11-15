@@ -136,6 +136,31 @@ class LeadTest(unittest.IsolatedAsyncioTestCase):
         lead_context = str(fake.requests[1].contents) + fake.requests[1].system
         self.assertNotIn("Read the cited page with read_page.", lead_context)
 
+    async def test_offers_only_approved_skills_and_says_which_wait(self):
+        study = support.open_study("lead-waiting")
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        for name in ("approved-one", "changed-one"):
+            (root / name).mkdir()
+            (root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: The {name} skill.\n---\nAnswer it.\n")
+        support.approve(root)
+        (root / "changed-one" / "SKILL.md").write_text("---\nname: changed-one\ndescription: Changed.\n---\nAnswer it, but differently.\n")
+        lead_turns = [
+            reply(("list_skills", {}), ("read_skill", {"name": "changed-one"})),
+            reply(ask("Who rides it?", skill="changed-one")),
+            reply(text="Done."),
+        ]
+        fake = FakeGemini(lambda request: lead_turns[request.turn] if request.model == "lead-model" else reply(text="Riders."))
+        async with support.session() as session:
+            await lead.run_lead(session, fake, study, "Who rides it?", skills_dir=root)
+
+        self.assertIn("Skills waiting for a planner to approve their current version, which no agent can use yet: changed-one.", fake.requests[0].system)
+        listed, read = fake.requests[1].results
+        self.assertEqual(listed, ("list_skills", {"output": [{"name": "approved-one", "description": "The approved-one skill."}]}))
+        self.assertRegex(read[1]["error"], "^read_skill: Skill changed-one is waiting for a planner to approve its current version")
+        [(_, asked)] = fake.requests[2].results
+        self.assertRegex(asked["error"], "Skill changed-one is waiting for a planner")
+        self.assertEqual(support.activities(study, "subagent.started"), [])
+
     async def test_the_leads_last_call_starts_no_specialist(self):
         self.enterContext(mock.patch.dict(os.environ, {"MAX_MODEL_CALLS": "2"}))
         study = support.open_study("lead-last")
@@ -205,6 +230,7 @@ class LeadTest(unittest.IsolatedAsyncioTestCase):
         for name in ("gtfs-analyst", "engagement-needs"):
             (root / name).mkdir()
             (root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: The {name} skill.\n---\nAnswer from the sources.\n")
+        support.approve(root)
         lead_turns = [
             reply(("list_skills", {})),
             reply(
