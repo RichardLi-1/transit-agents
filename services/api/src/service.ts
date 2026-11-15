@@ -50,6 +50,7 @@ import type {
   NewMedia as NewMediaSchema,
   NewNeed as NewNeedSchema,
   NewStudy as NewStudySchema,
+  SkillCandidate as SkillCandidateSchema,
   AreaRequest as AreaRequestSchema,
   BufferRequest as BufferRequestSchema,
   OverlayRequest as OverlayRequestSchema,
@@ -728,6 +729,16 @@ export class Service {
     if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new ApiError(400, "invalid_name", "Use lowercase letters, numbers and dashes");
     this.commit({ actor, type: "skill.registered", data: { name, ...input } });
     return { name, versions: [...(this.state.skills.get(name) ?? [])] };
+  }
+
+  // An agent puts a skill version forward, once it has passed its gate. It approves
+  // nothing: only a planner's registerSkill does, so the version waits for one.
+  proposeSkill(actor: string, name: string, input: z.output<typeof SkillCandidateSchema>) {
+    if (this.audience) throw sharedOnly("Skills are proposed");
+    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new ApiError(400, "invalid_name", "Use lowercase letters, numbers and dashes");
+    if (input.version === input.parent) throw new ApiError(422, "same_version", "A candidate must differ from its parent");
+    const entry = this.commit({ actor, type: "skill.proposed", data: { name, ...input } });
+    return { name, ...input, seq: entry.seq, approved: this.state.skills.get(name)?.has(input.version) ?? false };
   }
 
   // Content is removed from the shared record or, given their audience, from one

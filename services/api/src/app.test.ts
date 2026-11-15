@@ -124,6 +124,27 @@ describe("roles", () => {
     assert.equal((await call("POST", "/v1/studies/lawrence/figures/f/accept", "agent-token")).status, 403);
   });
 
+  it("lets an agent put a skill version forward, which approves nothing until a planner does", async () => {
+    const { call, service } = setup();
+    const candidate = { version: "b2c3", parent: "a1b2", summary: "Hands over split consultation", dev: { candidate: { passed: 4, total: 5 }, parent: { passed: 3, total: 5 } } };
+    const proposed = await call("POST", "/v1/skills/consultation/candidates", "agent-token", candidate);
+    assert.equal(proposed.status, 201);
+    assert.equal((await proposed.json()).approved, false);
+    const entry = service.log.since(0, 1000).at(-1);
+    assert.equal(entry?.type, "skill.proposed");
+    assert.equal(entry?.actor, "agent:lead");
+    assert.deepEqual(entry?.data, { name: "consultation", ...candidate });
+    assert.equal(service.state.skills.get("consultation")?.has("b2c3"), undefined);
+    // Proposing again is no way round: only a planner's PUT approves it.
+    assert.equal((await call("PUT", "/v1/skills/consultation", "agent-token", { version: "b2c3" })).status, 403);
+    assert.equal((await call("PUT", "/v1/skills/consultation", "planner-token", { version: "b2c3" })).status, 201);
+    assert.equal(service.state.skills.get("consultation")?.has("b2c3"), true);
+    // Planners and integrations approve or add; they don't put a version forward here.
+    assert.equal((await call("POST", "/v1/skills/consultation/candidates", "planner-token", candidate)).status, 403);
+    assert.equal((await call("POST", "/v1/skills/consultation/candidates", "integration-token", candidate)).status, 403);
+    assert.equal((await call("POST", "/v1/skills/consultation/candidates", "agent-token", { ...candidate, version: "a1b2" })).status, 422);
+  });
+
   it("names the open planner after PLANNER_NAME, so the presenter's decisions carry their name", async () => {
     const { call, service } = setup({ access: "open", openName: "Richard Li" });
     assert.deepEqual(await (await call("GET", "/v1/me")).json(), { role: "planner", name: "Richard Li" });

@@ -101,6 +101,7 @@ Full schema at `GET /openapi.json`.
 - Add a finding, such as consultation: `POST /v1/studies/{id}/findings`
 - Rate how a finding reads: `PUT /v1/studies/{id}/findings/{finding}/tone`
 - Approve a skill version: `PUT /v1/skills/{name}`
+- Put a skill version forward for a planner to approve, once it has passed its gate (agents only): `POST /v1/skills/{name}/candidates`. It approves nothing
 - Accept a skill's result: `POST /v1/studies/{id}/figures/{figure}/accept`
 - Set or change a rule or assumption: `PUT /v1/assumptions/{key}`
 - Try a change without recording it: `POST /v1/studies/{id}/preview`

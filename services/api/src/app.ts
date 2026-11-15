@@ -45,6 +45,7 @@ import {
   NewNeed,
   NewSkill,
   NewStudy,
+  SkillCandidate,
   NewSubscription,
   AUDIENCE,
   ON_BEHALF_OF,
@@ -1154,6 +1155,14 @@ export function createApp(options: AppOptions) {
       roles: planners,
       body: NewSkill,
       handler: async (c) => c.json(view(c).registerSkill(actorName(c), c.req.param("name") as string, await bodyOf(c, NewSkill)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/skills/:name/candidates",
+      summary: "Put a skill version forward for a planner's approval, once it has passed its gate. It approves nothing. Agents only",
+      roles: agents,
+      body: SkillCandidate,
+      handler: async (c) => c.json(view(c).proposeSkill(actorName(c), c.req.param("name") as string, await bodyOf(c, SkillCandidate)), 201),
     },
     {
       method: "post",

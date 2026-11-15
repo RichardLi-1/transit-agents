@@ -770,6 +770,22 @@ export const NewSkill = z.object({
 });
 export type NewSkill = z.input<typeof NewSkill>;
 
+// Cases a skill passed, of those scored, on one split.
+const Tally = z.object({ passed: z.number().int().nonnegative(), total: z.number().int().nonnegative() });
+
+// A skill version an agent puts forward once it has passed its gate (agents/evolve.py):
+// on the skill's dev cases, as good as its parent and losing no refusal or hand-over.
+// version and parent are hashes of their SKILL.md. test is reported, never used to
+// choose. Only a planner approves a version, with NewSkill.
+export const SkillCandidate = z.object({
+  version: z.string().min(1).max(50),
+  parent: z.string().min(1).max(50),
+  summary: z.string().max(400).default(""),
+  dev: z.object({ candidate: Tally, parent: Tally }),
+  test: z.object({ candidate: Tally, parent: Tally }).optional(),
+});
+export type SkillCandidate = z.input<typeof SkillCandidate>;
+
 // With an audience, the entry is in that visitor's sandbox.
 export const ContentRemoval = z.object({ reason: z.string().min(3).max(400), audience: z.string().regex(AUDIENCE).optional() });
 
