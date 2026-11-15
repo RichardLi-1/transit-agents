@@ -136,14 +136,14 @@ class SkillsTest(unittest.TestCase):
 
 
 class ApprovalTest(unittest.TestCase):
-    """Agents are offered only skills whose folder hashes, now, to a version a planner approved."""
+    """Agents are offered only skills whose folder hashes, now, to the version a planner approved last."""
 
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         for name in ("counter", "gis-analyst", "equity-analysis"):
             (self.root / name).mkdir()
             (self.root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: The {name} skill.\n---\nDo it.\n")
-        self.approved = {name: {skills.skill_hash(self.root / name)} for name in ("counter", "gis-analyst", "equity-analysis")}
+        self.approved = {name: skills.skill_hash(self.root / name) for name in ("counter", "gis-analyst", "equity-analysis")}
 
     def names(self, found):
         return [skill.name for skill in found]
@@ -161,8 +161,24 @@ class ApprovalTest(unittest.TestCase):
         with self.assertRaisesRegex(skills.SkillError, r"Skill counter is waiting for a planner to approve its current version \([0-9a-f]{12}\)"):
             skills.offer("counter", self.root, self.approved)
         # Approving the new version, and only that, lets agents use it again.
-        approved = {**self.approved, "counter": {skills.skill_hash(self.root / "counter")}}
+        approved = {**self.approved, "counter": skills.skill_hash(self.root / "counter")}
         self.assertEqual(skills.offer("counter", self.root, approved).name, "counter")
+
+    def test_only_the_current_version_loads_not_one_approved_before_it(self):
+        # A planner approved the first version, then the second, which replaced it. Files
+        # put back to the first, without approving it again, don't load.
+        first = self.approved["counter"]
+        (self.root / "counter" / "tools.py").write_text("def tools(session, study):\n    return []\n")
+        approved = {**self.approved, "counter": skills.skill_hash(self.root / "counter")}
+        (self.root / "counter" / "tools.py").unlink()
+        self.assertEqual(skills.skill_hash(self.root / "counter"), first)
+        with self.assertRaisesRegex(skills.SkillError, "Skill counter is waiting"):
+            skills.offer("counter", self.root, approved)
+        # Rolling back is approving the first version's hash again.
+        self.assertEqual(skills.offer("counter", self.root, {**approved, "counter": first}).name, "counter")
+        # A revoked skill has no current version, so it doesn't load at all.
+        revoked = {name: version for name, version in self.approved.items() if name != "counter"}
+        self.assertEqual(self.names(skills.waiting(self.root, revoked)), ["counter"])
 
     def test_a_version_approved_for_another_skill_doesnt_count(self):
         approved = {**self.approved, "counter": self.approved["gis-analyst"]}
@@ -176,10 +192,11 @@ class ApprovalTest(unittest.TestCase):
         with self.assertRaisesRegex(skills.SkillError, "Skill equity-analysis is waiting"):
             skills.offer("equity-analysis", self.root, self.approved)
 
-    def test_reads_the_services_list(self):
-        answer = {"approved": {"counter": ["a" * 64, "b" * 64]}}
-        self.assertEqual(skills.approved_from(answer), {"counter": frozenset({"a" * 64, "b" * 64})})
+    def test_reads_the_services_current_versions(self):
+        self.assertEqual(skills.approved_from({"current": {"counter": "a" * 64}}), {"counter": "a" * 64})
         self.assertEqual(skills.approved_from("not json"), {})
+        # A list of every hash ever approved, as the service gave before, approves nothing.
+        self.assertEqual(skills.approved_from({"approved": {"counter": ["a" * 64, "b" * 64]}}), {})
 
 
 # The same folder as clients/skill-hash.test.ts hashes, and the same hash: a planner

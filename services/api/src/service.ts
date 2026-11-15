@@ -115,6 +115,11 @@ const notFound = (what: string, id: string) => new ApiError(404, "not_found", `N
 
 const sharedOnly = (what: string) => new ApiError(403, "shared_only", `${what} only in the shared record, not in a visitor's sandbox`);
 
+// A skill's name is its folder's: lowercase letters, numbers and dashes.
+function checkSkillName(name: string) {
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new ApiError(400, "invalid_name", "Use lowercase letters, numbers and dashes");
+}
+
 type Change = { id: string; from: number; to: number };
 type CheckChange = { id: string; from: string; to: string };
 
@@ -454,12 +459,12 @@ export class Service {
     if (basis.kind === "computed") {
       if (input.value === undefined) throw new ApiError(422, "missing_value", "A computed figure needs a value");
       // The version is the skill's content hash, which the agent's loader computed
-      // from the files it ran. Only one a planner approved for this skill counts.
-      if (!this.state.skills.get(basis.skill)?.has(basis.version)) {
+      // from the files it ran. Only the skill's current approved version counts.
+      if (this.state.skills.get(basis.skill) !== basis.version) {
         throw new ApiError(
           422,
           "unregistered_skill",
-          `Skill "${basis.skill}" version ${basis.version} has not been approved. A planner approves a skill's content hash with PUT /v1/skills/${basis.skill}`,
+          `Skill "${basis.skill}" version ${basis.version} has not been approved: it isn't the skill's current version. A planner approves a skill's content hash with PUT /v1/skills/${basis.skill}`,
         );
       }
       for (const dependency of basis.inputs) this.requireInput(study, dependency);
@@ -730,27 +735,45 @@ export class Service {
 
   // --- Skills and removal ---------------------------------------------------
 
-  // Each skill's approved content hashes. Agents load a skill only while its folder
-  // hashes to one of these.
-  approvedSkills(): { approved: Record<string, string[]> } {
-    return { approved: Object.fromEntries([...this.state.skills].map(([name, versions]) => [name, [...versions]])) };
+  // Each skill's current approved content hash. Agents load a skill only while its
+  // folder hashes to it.
+  approvedSkills(): { current: Record<string, string> } {
+    return { current: Object.fromEntries(this.state.skills) };
   }
 
+  // A planner approves a version: it becomes the skill's current one, replacing the
+  // one before, which no agent loads any more. Rolling back is approving the parent's
+  // hash again.
   registerSkill(actor: string, name: string, input: { version: string; description: string }) {
     if (this.audience) throw sharedOnly("Skills are approved");
-    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new ApiError(400, "invalid_name", "Use lowercase letters, numbers and dashes");
-    this.commit({ actor, type: "skill.registered", data: { name, ...input } });
-    return { name, versions: [...(this.state.skills.get(name) ?? [])] };
+    checkSkillName(name);
+    const previous = this.state.skills.get(name) ?? null;
+    this.commit({ actor, type: "skill.registered", data: { name, ...input, previous } });
+    return { name, version: input.version, previous };
+  }
+
+  // A planner withdraws a skill's current version. No agent loads the skill, and no
+  // computed figure may name it, until a planner approves a version again.
+  revokeSkill(actor: string, name: string, input: { reason: string; version?: string }) {
+    if (this.audience) throw sharedOnly("Skills are revoked");
+    checkSkillName(name);
+    const current = this.state.skills.get(name);
+    if (!current) throw new ApiError(404, "not_found", `Skill "${name}" has no approved version to revoke`);
+    if (input.version && input.version !== current) {
+      throw new ApiError(409, "not_current", `Skill "${name}"'s current version is ${current}, not ${input.version}`);
+    }
+    const entry = this.commit({ actor, type: "skill.revoked", data: { name, version: current, reason: input.reason } });
+    return { name, revoked: current, seq: entry.seq };
   }
 
   // An agent puts a skill version forward, once it has passed its gate. It approves
   // nothing: only a planner's registerSkill does, so the version waits for one.
   proposeSkill(actor: string, name: string, input: z.output<typeof SkillCandidateSchema>) {
     if (this.audience) throw sharedOnly("Skills are proposed");
-    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new ApiError(400, "invalid_name", "Use lowercase letters, numbers and dashes");
+    checkSkillName(name);
     if (input.version === input.parent) throw new ApiError(422, "same_version", "A candidate must differ from its parent");
     const entry = this.commit({ actor, type: "skill.proposed", data: { name, ...input } });
-    return { name, ...input, seq: entry.seq, approved: this.state.skills.get(name)?.has(input.version) ?? false };
+    return { name, ...input, seq: entry.seq, approved: this.state.skills.get(name) === input.version };
   }
 
   // Content is removed from the shared record or, given their audience, from one

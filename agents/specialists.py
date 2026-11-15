@@ -66,9 +66,9 @@ SCRIPT_TOOLS: dict[str, frozenset[str]] = {
 }
 
 
-async def approvals(session: ClientSession) -> dict[str, frozenset[str]]:
-    """Each skill's approved versions, from the service. None from a service that can't say,
-    so no skill is used: what isn't known to be approved isn't."""
+async def approvals(session: ClientSession) -> dict[str, str]:
+    """Each skill's current approved version, from the service. None from a service that
+    can't say, so no skill is used: what isn't known to be approved isn't."""
     try:
         return approved_from(await call(session, "list_approved_skills"))
     except ToolError as error:

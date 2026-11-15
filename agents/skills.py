@@ -18,8 +18,9 @@ scripts compute, and the model reads their results. They never run in the agent'
 process: each call runs in a sandboxed process of its own (sandbox.py).
 
 A skill's version is the SHA-256 of its folder, every file's path and bytes
-(skill_runner.files_hash), computed as it is loaded. A planner approves a version, and
-the agents offer only skills whose version now is approved.
+(skill_runner.files_hash), computed as it is loaded. A planner approves a version as the
+skill's one current version, replacing the one before, and the agents offer only skills
+whose version now is their current one.
 """
 
 import contextlib
@@ -48,8 +49,8 @@ USES: dict[str, tuple[str, ...]] = {
 }
 
 
-# Each skill's approved versions, by name, from the service (approved_from).
-Approved = Mapping[str, Collection[str]]
+# Each skill's current approved version, by name, from the service (approved_from).
+Approved = Mapping[str, str]
 
 
 class SkillError(ValueError):
@@ -87,18 +88,20 @@ def load_skill(name: str, root: Path | None = None) -> Skill:
     return read_skill(path)
 
 
-def approved_from(answer: Any) -> dict[str, frozenset[str]]:
-    """Each skill's approved versions, from the service's GET /v1/skills (list_approved_skills)."""
-    listed = answer.get("approved") if isinstance(answer, dict) else None
-    if not isinstance(listed, dict):
+def approved_from(answer: Any) -> dict[str, str]:
+    """Each skill's current approved version, from the service's GET /v1/skills
+    (list_approved_skills). Nothing else counts: not an older approval, nor an answer in
+    another shape, which approves nothing."""
+    current = answer.get("current") if isinstance(answer, dict) else None
+    if not isinstance(current, dict):
         return {}
-    return {str(name): frozenset(map(str, versions)) for name, versions in listed.items() if isinstance(versions, list)}
+    return {str(name): version for name, version in current.items() if isinstance(version, str)}
 
 
 def is_approved(skill: Skill, approved: Approved, root: Path | None = None, *, _seen: frozenset[str] = frozenset()) -> bool:
-    """Whether a skill's version now is one a planner approved, and the version of each
+    """Whether a skill's version now is its current approved one, and the version of each
     skill whose scripts it loads, which it would run too."""
-    if skill.name in _seen or skill.hash not in approved.get(skill.name, ()):
+    if skill.name in _seen or not skill.hash or skill.hash != approved.get(skill.name):
         return False
     for name in USES.get(skill.name, ()):
         try:

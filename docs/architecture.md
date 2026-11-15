@@ -55,11 +55,12 @@ Three levels:
    through the same gate, for every skill.
 
 A skill's version is the SHA-256 of its folder: every file's path and bytes.
-Agents load only skill versions whose content hash a planner approved
-(`npm run approve-skill -- <name>`). A candidate carries the hash its folder will
-have once its SKILL.md is copied in, so approving it approves exactly that
-content. Rolling back means restoring the parent's files, whose hash stays
-approved. The evolver is a skill too, but the gate can judge it only once it has
+Each skill has one current version, the content hash a planner approved last
+(`npm run approve-skill -- <name>`), and agents load only that. Approving a new
+hash replaces the old one, and a planner can revoke it. A candidate carries the
+hash its folder will have once its SKILL.md is copied in, so approving it approves
+exactly that content. Rolling back is restoring the parent's files and approving
+the parent's hash again. The evolver is a skill too, but the gate can judge it only once it has
 cases of its own, scored by how its candidates do on the test split. Until then
 its instructions, like the lead's, change by hand.
 
@@ -69,8 +70,8 @@ its instructions, like the lead's, change by hand.
 |---|---|
 | Only planners decide, set rules and approve versions | Enforced by service roles |
 | A cited figure's quote must be on the cited page | Enforced by the service |
-| A computed figure names an approved skill version | Enforced: the agent names the hash it loaded, and the service checks it |
-| Agents load only approved content hashes | Enforced by the loader |
+| A computed figure names an approved skill version | Enforced: the agent names the hash it loaded, and the service checks it is the skill's current one |
+| Agents load only approved content hashes | Enforced by the loader: only each skill's current hash, so a replaced or revoked one no longer loads |
 | Skill scripts run sandboxed, with no keys, tokens or session | Enforced: on macOS by sandbox-exec; elsewhere only the environment is scrubbed |
 | Evolution edits instructions only | Enforced by the evolver (in development) |
 | Test cases stay off agent machines | Not yet: the test split is public |

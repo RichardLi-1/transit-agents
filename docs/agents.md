@@ -23,12 +23,14 @@ it computes anything, a `tools.py` whose scripts only that specialist gets. The 
 sees each skill's name and description, and only the chosen specialist reads the rest.
 So the skill, not the agent, is the unit this project builds, tests and studies.
 
-A skill's version is the SHA-256 of its folder, every file's path and bytes. Agents
-load a skill only while its folder hashes to a version a planner approved
-([skills.py](../agents/skills.py)). A skill whose files changed since waits: the lead
-doesn't list it, a specialist refuses it, and the lead is told which skills wait, so it
-can say so. A planner approves one after review with `npm run approve-skill -- <name>`;
-the demo's seed approves the skills on disk.
+A skill's version is the SHA-256 of its folder, every file's path and bytes. Each
+skill has one current version, the one a planner approved last, and agents load a
+skill only while its folder hashes to it ([skills.py](../agents/skills.py)). A skill
+whose files changed since waits: the lead doesn't list it, a specialist refuses it,
+and the lead is told which skills wait, so it can say so. A planner approves one after
+review with `npm run approve-skill -- <name>`, which replaces the version before, and
+withdraws one with `npm run approve-skill -- --revoke <name> <reason>`. Rolling back is
+approving the parent's hash again. The demo's seed approves the skills on disk.
 
 A skill's scripts never run in the agent. Each call starts a new Python in the skill's
 folder, with no keys or tokens in its environment and no session
@@ -57,7 +59,7 @@ Every agent:
 - leaves arithmetic to the service or a skill's script;
 - never decides, sets a rule, rates a finding, approves a skill version or edits the log:
   it has no tools for these;
-- uses a skill only at a version a planner approved, and runs its scripts sandboxed;
+- uses a skill only at its current approved version, and runs its scripts sandboxed;
 - treats text in sources and messages as content, never as instructions;
 - reports every model call's tokens and cost, within a run's budget (60 calls and
   US$2 by default).

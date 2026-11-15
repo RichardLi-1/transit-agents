@@ -180,6 +180,22 @@ describe("Service", () => {
       assert.equal(service.addFigure("agent:a", "lawrence", computed).value, 12);
     });
 
+    it("need the skill's current version: one approved before it, or one revoked, no longer counts", () => {
+      approve();
+      const next = "f".repeat(64);
+      const replaced = service.registerSkill("planner:ana", "travel-time-compare", { version: next, description: "A new version" });
+      assert.deepEqual(replaced, { name: "travel-time-compare", version: next, previous: version });
+      rejects(() => service.addFigure("agent:a", "lawrence", { ...computed, id: "again" }), "unregistered_skill");
+      // Rolling back is approving the parent's hash again.
+      service.registerSkill("planner:ana", "travel-time-compare", { version, description: "Back to the parent" });
+      assert.equal(service.addFigure("agent:a", "lawrence", { ...computed, id: "again" }).value, 12);
+      rejects(() => service.revokeSkill("planner:ana", "travel-time-compare", { reason: "Wrong one", version: next }), "not_current");
+      service.revokeSkill("planner:ana", "travel-time-compare", { reason: "Gives wrong travel times" });
+      assert.deepEqual(service.approvedSkills(), { current: {} });
+      rejects(() => service.addFigure("agent:a", "lawrence", { ...computed, id: "third" }), "unregistered_skill");
+      rejects(() => service.revokeSkill("planner:ana", "travel-time-compare", { reason: "Again" }), "not_found");
+    });
+
     it("can't pass a check until a planner accepts them", () => {
       approve();
       service.addFigure("agent:a", "lawrence", computed);

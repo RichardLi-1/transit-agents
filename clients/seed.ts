@@ -1,6 +1,7 @@
 // Loads the public source documents, as an agency system would, and the published
 // rules and study assumptions, as a planner would. Then the planner approves the
-// skills on disk, by their content hashes: agents load only approved ones.
+// skills on disk, by their content hashes, each as its skill's current version:
+// agents load only that one.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ApiClient } from "./api.ts";
@@ -24,7 +25,8 @@ for (const { key, ...rule } of [...RULES, ...STUDIES.flatMap((s) => s.assumption
   console.log("assumption", key);
 }
 
-// A skill changed after this waits for a planner again: npm run approve-skill -- <name>.
+// Each approval replaces the skill's version before, if any. A skill changed after this
+// waits for a planner again: npm run approve-skill -- <name>.
 for (const { name, hash } of liveSkills()) {
   await planner.put(`/v1/skills/${name}`, { version: hash, description: "Approved as the demo was seeded" });
   console.log("skill", name, hash.slice(0, 12));

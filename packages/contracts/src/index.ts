@@ -769,13 +769,23 @@ export type LogEntry = {
   audience: string | null;
 };
 
-// A skill version a planner approves: its content hash. Agents load only approved
-// hashes, and computed figures must name one.
+// A skill version a planner approves: its content hash. It becomes the skill's one
+// current version, replacing the one before. Agents load only the current hash, and
+// computed figures must name it. Rolling back is approving the parent's hash again.
 export const NewSkill = z.object({
   version: SkillHash,
   description: z.string().max(400).default(""),
 });
 export type NewSkill = z.input<typeof NewSkill>;
+
+// A planner withdraws a skill's current version, so no agent loads it and no computed
+// figure may name it, until a planner approves one again. With a version, only if it
+// is still the current one.
+export const SkillRevocation = z.object({
+  reason: z.string().trim().min(3).max(400),
+  version: SkillHash.optional(),
+});
+export type SkillRevocation = z.input<typeof SkillRevocation>;
 
 // Cases a skill passed, of those scored, on one split.
 const Tally = z.object({ passed: z.number().int().nonnegative(), total: z.number().int().nonnegative() });

@@ -65,13 +65,13 @@ describe("skill hash", () => {
     assert.equal(skillHash(linked), HASH);
   });
 
-  it("lists the live skills, and those whose hash no planner approved", () => {
+  it("lists the live skills, and those whose hash isn't their current approved version", () => {
     write("SKILL.md", "---\nname: other\ndescription: Other.\n---\nOther.\n", join(root, "other"));
     mkdirSync(join(root, "no-skill-md"));
     const live = liveSkills(root);
     assert.deepEqual(live.map(({ name }) => name), ["other", "tally"]);
     assert.equal(live[1]?.hash, HASH);
-    assert.deepEqual(waiting({ tally: [HASH] }, root), ["other"]);
-    assert.deepEqual(waiting({ tally: ["0".repeat(64)], other: [live[0]?.hash as string] }, root), ["tally"]);
+    assert.deepEqual(waiting({ tally: HASH }, root), ["other"]);
+    assert.deepEqual(waiting({ tally: "0".repeat(64), other: live[0]?.hash as string }, root), ["tally"]);
   });
 });

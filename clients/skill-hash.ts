@@ -48,9 +48,10 @@ export function liveSkills(root = SKILLS_DIR): { name: string; hash: string; fil
     .map((name) => ({ name, hash: skillHash(join(root, name)), files: skillFiles(join(root, name)) }));
 }
 
-// The live skills whose hash now isn't one a planner approved: agents won't load them.
-export function waiting(approved: Record<string, string[]>, root = SKILLS_DIR): string[] {
+// The live skills whose hash now isn't their current approved version, from GET
+// /v1/skills: agents won't load them.
+export function waiting(current: Record<string, string>, root = SKILLS_DIR): string[] {
   return liveSkills(root)
-    .filter(({ name, hash }) => !approved[name]?.includes(hash))
+    .filter(({ name, hash }) => current[name] !== hash)
     .map(({ name }) => name);
 }

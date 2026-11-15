@@ -200,6 +200,10 @@ class OnTheServiceTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(core.ToolError, f"version {version} has not been approved"):
             await self.tool("record_on_time", **arguments)
 
+        # Approving the copy replaces the live skill's version on the shared test service,
+        # so the live one is approved again afterwards, as a planner rolls back.
+        live = skills.skill_hash(skills.SKILLS_DIR / "trial-monitor")
+        self.addCleanup(support.api, "PUT", "/v1/skills/trial-monitor", {"version": live})
         support.api("PUT", "/v1/skills/trial-monitor", {"version": version})
         figure = await self.tool("record_on_time", **arguments)
         self.assertEqual((figure["value"], figure["unit"]), (90, "%"))  # 27 of 30, as trial_on_time counts

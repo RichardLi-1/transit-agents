@@ -31,7 +31,7 @@ const FIGURE = {
   value: 1680,
   basis: { kind: "cited", citation: { contextId: "plan", page: 1, quote: "ridership rose by 1,680 customers" } },
 };
-const PLANNER_ONLY = ["accept_figure", "approve_skill", "rate_finding", "record_decision", "remove_content", "request_engagement_media", "set_rule"];
+const PLANNER_ONLY = ["accept_figure", "approve_skill", "rate_finding", "record_decision", "remove_content", "request_engagement_media", "revoke_skill", "set_rule"];
 const INITIALIZE = {
   jsonrpc: "2.0",
   id: 1,
@@ -137,11 +137,11 @@ describe("mcp", () => {
     const [planner, agent, integration, viewer] = await Promise.all(
       ["planner-token", "agent-token", "integration-token", "viewer-token"].map(names),
     );
-    // 53 and 44 with the safety and active transportation tools and list_approved_skills;
-    // the equity, jobs and stop accessibility skills each add their GIS tools for agents
-    // and planners too.
+    // 54 and 44 with the safety and active transportation tools, list_approved_skills
+    // and revoke_skill; the equity, jobs and stop accessibility skills each add their
+    // GIS tools for agents and planners too.
     const skills = Object.keys(GIS_SKILL_TOOLS).length;
-    assert.equal(planner?.length, 53 + skills);
+    assert.equal(planner?.length, 54 + skills);
     assert.equal(agent?.length, 44 + skills);
     // Everyone may read which skill versions are approved; only a planner approves one.
     for (const names of [planner, agent, integration, viewer]) assert.ok(names?.includes("list_approved_skills"));

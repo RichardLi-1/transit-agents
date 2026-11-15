@@ -65,7 +65,9 @@ export type State = {
   contexts: Map<string, Context>;
   studies: Map<string, Study>;
   assumptions: Map<string, Assumption>;
-  skills: Map<string, Set<string>>;
+  // Each skill's one current approved version, its content hash. A new approval
+  // replaces it; a revocation removes it.
+  skills: Map<string, string>;
   usage: Usage;
   usageByStudy: Map<string, Usage>;
   // Every file a log entry names, by its sha256, and a need that names it. Only these
@@ -440,9 +442,17 @@ export function apply(state: State, entry: Entry): void {
       return;
     }
 
+    // The latest approval is the skill's current version. A log from before there was
+    // one current version, with several approvals of a skill, folds to its latest.
     case "skill.registered": {
       const { name, version } = data as unknown as { name: string; version: string };
-      state.skills.set(name, new Set([...(state.skills.get(name) ?? []), version]));
+      state.skills.set(name, version);
+      return;
+    }
+
+    case "skill.revoked": {
+      const { name, version } = data as unknown as { name: string; version: string };
+      if (state.skills.get(name) === version) state.skills.delete(name);
       return;
     }
 

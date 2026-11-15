@@ -77,10 +77,10 @@ if (head.head.seq === 0) {
     await new Promise((resolve) => replay.on("exit", resolve));
   }
 } else {
-  // Agents load only skills whose content a planner approved. One changed since then
-  // waits until a planner reviews it and approves it again.
-  const { approved } = (await (await fetch(`${url}/v1/skills`)).json()) as { approved: Record<string, string[]> };
-  const names = waiting(approved);
+  // Agents load only a skill's current approved version. One changed since then waits
+  // until a planner reviews it and approves it again.
+  const { current } = (await (await fetch(`${url}/v1/skills`)).json()) as { current: Record<string, string> };
+  const names = waiting(current ?? {});
   if (names.length) {
     console.log(
       `Skills waiting for a planner's approval, which the agents won't use: ${names.join(", ")}.\n` +

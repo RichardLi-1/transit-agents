@@ -62,7 +62,7 @@ BUDGET_SPENT = "Visitors have used today's agent budget. Sign in, or come back t
 
 # Tools the service lists only for planners. An agent's token never has them.
 PLANNER_ONLY = frozenset(
-    {"record_decision", "set_rule", "approve_skill", "accept_figure", "rate_finding", "remove_content"}
+    {"record_decision", "set_rule", "approve_skill", "revoke_skill", "accept_figure", "rate_finding", "remove_content"}
 )
 
 # The service's tools that write to a study, with the argument naming it. A run writes

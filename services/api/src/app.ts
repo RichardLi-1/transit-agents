@@ -46,6 +46,7 @@ import {
   NewSkill,
   NewStudy,
   SkillCandidate,
+  SkillRevocation,
   NewSubscription,
   AUDIENCE,
   ON_BEHALF_OF,
@@ -1151,17 +1152,26 @@ export function createApp(options: AppOptions) {
     {
       method: "get",
       path: "/v1/skills",
-      summary: "Each skill's approved versions: the SHA-256 content hashes of its folder a planner approved. Agents load only these",
+      summary: "Each skill's current approved version: the SHA-256 content hash of its folder a planner approved last. Agents load only these",
       roles: anyone,
       handler: (c) => c.json(view(c).approvedSkills()),
     },
     {
       method: "put",
       path: "/v1/skills/:name",
-      summary: "Approve a skill version, its folder's SHA-256 content hash, so agents may load it and its results can enter studies. Planners only",
+      summary:
+        "Approve a skill version, its folder's SHA-256 content hash, as the skill's current one, replacing the one before, so agents may load it and its results can enter studies. Rolling back is approving the parent's hash again. Planners only",
       roles: planners,
       body: NewSkill,
       handler: async (c) => c.json(view(c).registerSkill(actorName(c), c.req.param("name") as string, await bodyOf(c, NewSkill)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/skills/:name/revoke",
+      summary: "Withdraw a skill's current version, with a reason, so no agent loads it until a planner approves one again. Planners only",
+      roles: planners,
+      body: SkillRevocation,
+      handler: async (c) => c.json(view(c).revokeSkill(actorName(c), c.req.param("name") as string, await bodyOf(c, SkillRevocation)), 201),
     },
     {
       method: "post",

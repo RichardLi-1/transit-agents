@@ -149,3 +149,24 @@ describe("engagement needs in the fold", () => {
     assert.equal(gone.media.get(SHA), undefined);
   });
 });
+
+describe("skill versions", () => {
+  const HASH_A = "a".repeat(64);
+  const HASH_B = "b".repeat(64);
+  const approve = (version: string): [string, string, unknown] => ["planner:ana", "skill.registered", { name: "r5", version, description: "" }];
+
+  it("keep one current version a skill, the latest approved, as a log from before there was one folds to", () => {
+    // Phase 1 kept every approved hash. Its log, with several approvals of a skill,
+    // folds to the latest of them, and the earlier ones no longer count.
+    assert.equal(fold([approve(HASH_A), approve(HASH_B)]).skills.get("r5"), HASH_B);
+    // Rolling back is approving the parent's hash again.
+    assert.equal(fold([approve(HASH_A), approve(HASH_B), approve(HASH_A)]).skills.get("r5"), HASH_A);
+  });
+
+  it("have none once revoked, and a revocation of a version no longer current changes nothing", () => {
+    const revoke = (version: string): [string, string, unknown] => ["planner:ana", "skill.revoked", { name: "r5", version, reason: "Wrong" }];
+    assert.equal(fold([approve(HASH_A), revoke(HASH_A)]).skills.has("r5"), false);
+    assert.equal(fold([approve(HASH_A), approve(HASH_B), revoke(HASH_A)]).skills.get("r5"), HASH_B);
+    assert.equal(fold([approve(HASH_A), revoke(HASH_A), approve(HASH_A)]).skills.get("r5"), HASH_A);
+  });
+});
