@@ -1045,7 +1045,9 @@ export function createApp(options: AppOptions) {
         if (budget && audience && activity.kind === "usage" && c.get("actor").role === "agent") {
           return c.json({ seq: entry.seq, budgetLeftUsd: budget.left(audience) }, 201);
         }
-        return c.json({ seq: entry.seq }, 201);
+        // A computer-use write names the planner's decision it used.
+        const decision = (entry.data as { decision?: number }).decision;
+        return c.json({ seq: entry.seq, ...(decision !== undefined ? { decision } : {}) }, 201);
       },
     },
     {

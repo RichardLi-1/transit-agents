@@ -61,6 +61,9 @@ export type Study = {
   layers: Map<string, StoredLayer>;
   // Questions agents handed to a planner, by id.
   questions: Map<string, { kind: string; question: string; askedBy: string; seq: number }>;
+  // Writes to agency systems planners' decisions authorise, by the decision's log
+  // position: the app and its write, and the computer-use entry that used it, once one has.
+  authorizations: Map<number, { app: string; action: string; usedBy?: number }>;
 };
 
 export type Candidate = { parent: string; seq: number; evaluation?: { seq: number; by: string; scores: Record<string, unknown> } };
@@ -262,6 +265,10 @@ export function analysisOf(checks: CheckView[], findings: Pick<FindingView, "ton
   return "mixed";
 }
 
+// The outcomes that can authorise a write to an agency system: going ahead with the
+// change, as it is or amended. A rejection or a deferral never does.
+export const AUTHORISING: ReadonlySet<Decision["outcome"]> = new Set(["adopt", "amend"]);
+
 // A decision is an override when it goes against a clear analysis.
 export function isOverride(analysis: Analysis, outcome: Decision["outcome"]): boolean {
   if (analysis === "pass") return outcome !== "adopt";
@@ -391,6 +398,7 @@ export function apply(state: State, entry: Entry): void {
         needs: new Map(),
         layers: new Map(),
         questions: new Map(),
+        authorizations: new Map(),
       });
       return;
     }
@@ -510,13 +518,16 @@ export function apply(state: State, entry: Entry): void {
       return;
     }
 
-    case "decision.recorded":
-      get(state.studies, entry.studyId).decisions.push({
-        ...(data as unknown as Decision),
-        recordedBy: entry.actor,
-        recordedAt: entry.at,
-      });
+    case "decision.recorded": {
+      const study = get(state.studies, entry.studyId);
+      const decision = data as unknown as Decision;
+      study.decisions.push({ ...decision, recordedBy: entry.actor, recordedAt: entry.at });
+      // A planner's adopt or amend may authorise one write to an agency system.
+      if (decision.authorizes && entry.actor.startsWith("planner:") && AUTHORISING.has(decision.outcome)) {
+        study.authorizations.set(entry.seq, { app: decision.authorizes.app, action: decision.authorizes.action });
+      }
       return;
+    }
 
     case "need.added": {
       const need = data as unknown as Omit<Need, "addedBy" | "addedAt" | "media">;
@@ -620,9 +631,14 @@ export function apply(state: State, entry: Entry): void {
       return;
     }
 
-    case "activity":
+    case "activity": {
       countUsage(state, entry);
+      // A computer-use write the service took names the decision it used up.
+      const step = data as { kind?: string; decision?: number };
+      const used = step.kind === "computer.action" && step.decision !== undefined ? state.studies.get(entry.studyId as string)?.authorizations.get(step.decision) : undefined;
+      if (used) used.usedBy = entry.seq;
       return;
+    }
 
     default:
       // Unknown entry types are history, not errors: older servers ignore newer events.

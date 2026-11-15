@@ -592,11 +592,19 @@ export type NewStudy = z.input<typeof NewStudy>;
 export const Outcome = z.enum(["adopt", "reject", "defer", "amend"]);
 export type Outcome = z.infer<typeof Outcome>;
 
+// A write to an agency system that a planner's decision allows agents to make once:
+// the app, as computer use names it, and the write, as the app's manifest names it,
+// such as { app: "scheduler", action: "save" }. Only an adopt or amend decision
+// authorises one.
+export const Authorization = z.object({ app: slug, action: slug });
+export type Authorization = z.infer<typeof Authorization>;
+
 export const NewDecision = z.object({
   outcome: Outcome,
   reason: z.string().min(3).max(1000),
   decidedBy: z.string().min(1).max(120),
   citation: Citation.optional(),
+  authorizes: Authorization.optional(),
 });
 export type NewDecision = z.input<typeof NewDecision>;
 
@@ -612,6 +620,7 @@ export type Decision = {
   analysis: Analysis;
   override: boolean;
   citation?: Citation;
+  authorizes?: Authorization;
 };
 
 export type FigureView = Figure & { stale: boolean };
@@ -692,6 +701,24 @@ export const Activity = z.discriminatedUnion("kind", [
   // whole page, and never a secret.
   z.object({ kind: z.literal("tool.called"), id: slug, name: z.string().min(1).max(100), subagentId: slug.optional(), summary: z.string().max(300).optional() }),
   z.object({ kind: z.literal("tool.finished"), id: slug, ok: z.boolean(), ms: z.number().int().nonnegative().optional(), summary: z.string().max(300).optional() }),
+  // One step of computer use in an app, logged before it is done: what the agent looked
+  // at, by the screenshot's SHA-256, never the image, and what it clicked, typed or
+  // pressed, in a line. write names the app's write it is, by the app's manifest. The
+  // service records a write only with a planner's decision that authorises it and no
+  // write used yet, and names that decision in the entry. outcome "blocked" says the
+  // agent's harness stopped the step before it was done; "unauthorised" says the app
+  // changed anyway, found after the step.
+  z.object({
+    kind: z.literal("computer.action"),
+    app: slug,
+    step: z.number().int().nonnegative(),
+    action: z.string().min(1).max(40),
+    summary: z.string().min(1).max(300),
+    screenshot: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+    write: slug.optional(),
+    outcome: z.enum(["blocked", "unauthorised"]).optional(),
+    subagentId: slug.optional(),
+  }),
 ]);
 export type Activity = z.infer<typeof Activity>;
 

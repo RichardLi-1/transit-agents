@@ -283,6 +283,51 @@ describe("roles", () => {
     assert.equal(service.viewStudy("lawrence").decision, undefined);
   });
 
+  it("records a computer-use write only with a planner's decision that authorises it, once", async () => {
+    const { call, service } = setup();
+    await call("POST", "/v1/studies", "agent-token", STUDY);
+    const activity = "/v1/studies/lawrence/activity";
+    const decisions = "/v1/studies/lawrence/decisions";
+    const step = { kind: "computer.action", app: "scheduler", step: 5, action: "hotkey", summary: "Control+s: Save", screenshot: "c".repeat(64), write: "save" };
+    const logged = () => service.log.since(0, 1000).length;
+
+    // No decision: refused, and nothing is logged. The harness logs the step it blocked.
+    const before = logged();
+    const refused = await call("POST", activity, "agent-token", step);
+    assert.equal(refused.status, 403);
+    assert.equal(((await refused.json()) as { error: { code: string } }).error.code, "needs_decision");
+    assert.equal(logged(), before);
+    assert.equal((await call("POST", activity, "agent-token", { ...step, outcome: "blocked" })).status, 201);
+
+    // An agent can't record the decision. A rejection authorises nothing, and nor do a
+    // decision for another app's save or one that authorises no write.
+    const authorizing = { ...DECISION, authorizes: { app: "scheduler", action: "save" } };
+    assert.equal((await call("POST", decisions, "agent-token", authorizing)).status, 403);
+    assert.equal((await call("POST", decisions, "planner-token", { ...authorizing, outcome: "reject" })).status, 422);
+    assert.equal((await call("POST", decisions, "planner-token", { ...DECISION, authorizes: { app: "microsim", action: "save" } })).status, 201);
+    assert.equal((await call("POST", decisions, "planner-token", DECISION)).status, 201);
+    assert.equal((await call("POST", activity, "agent-token", step)).status, 403);
+
+    // A planner's adopt authorises one save, and the write's entry names it.
+    const decided = await call("POST", decisions, "planner-token", authorizing);
+    assert.equal(decided.status, 201);
+    assert.deepEqual(((await decided.json()) as { authorizes: unknown }).authorizes, authorizing.authorizes);
+    const seq = service.log.since(0, 1000).at(-1)?.seq;
+    // Not in a visitor's sandbox: only the shared record writes to an agency system.
+    assert.throws(() => service.viewFor(`guest:${"v".repeat(22)}`).recordActivity("agent:lead", "lawrence", step as never), /shared record/);
+    const done = await call("POST", activity, "agent-token", step);
+    assert.equal(done.status, 201);
+    assert.equal(((await done.json()) as { decision: number }).decision, seq);
+    assert.equal((service.log.since(0, 1000).at(-1)?.data as { decision?: number }).decision, seq);
+
+    // Used: the next save needs another decision, and an agent can't name one itself.
+    assert.equal((await call("POST", activity, "agent-token", step)).status, 403);
+    assert.equal((await call("POST", activity, "agent-token", { ...step, decision: seq })).status, 403);
+    // Reads need none.
+    const { write: _write, ...read } = step;
+    assert.equal((await call("POST", activity, "agent-token", { ...read, action: "click", summary: "Clicked 605 Elm" })).status, 201);
+  });
+
   it("names the open planner after PLANNER_NAME, so the presenter's decisions carry their name", async () => {
     const { call, service } = setup({ access: "open", openName: "Richard Li" });
     assert.deepEqual(await (await call("GET", "/v1/me")).json(), { role: "planner", name: "Richard Li" });

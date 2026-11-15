@@ -75,6 +75,7 @@ import {
   addSpend,
   analysisOf,
   apply,
+  AUTHORISING,
   assumptionValues,
   checksFor,
   countUsage,
@@ -736,6 +737,10 @@ export class Service {
   recordDecision(actor: string, studyId: string, input: z.output<typeof NewDecisionSchema>): Decision {
     const view = this.viewStudy(studyId);
     if (input.citation) this.verifyCitation(input.citation);
+    // Going ahead authorises a write; deciding not to, or not yet, can't.
+    if (input.authorizes && !AUTHORISING.has(input.outcome)) {
+      throw new ApiError(422, "bad_authorization", `A decision to ${input.outcome} authorises no write: only adopt or amend does`);
+    }
     const data = {
       outcome: input.outcome,
       reason: input.reason,
@@ -743,6 +748,7 @@ export class Service {
       analysis: view.analysis,
       override: isOverride(view.analysis, input.outcome),
       ...(input.citation ? { citation: input.citation } : {}),
+      ...(input.authorizes ? { authorizes: input.authorizes } : {}),
     };
     this.commit({ actor, type: "decision.recorded", studyId, data });
     return this.study(studyId).decisions.at(-1) as Decision;
@@ -1351,11 +1357,31 @@ export class Service {
 
   // An Escalation comes only from a planner's ping, never from POST .../activity.
   recordActivity(actor: string, studyId: string, activity: Activity | Escalation): Entry {
-    this.study(studyId);
+    const study = this.study(studyId);
     if (activity.kind === "reading" && !this.state.contexts.has(activity.contextId)) {
       throw new ApiError(422, "unknown_source", `No context "${activity.contextId}"`);
     }
+    if (activity.kind === "computer.action" && activity.write && !activity.outcome) {
+      return this.commit({ actor, type: "activity", studyId, data: { ...activity, decision: this.authorization(study, activity.app, activity.write) } });
+    }
     return this.commit({ actor, type: "activity", studyId, data: activity });
+  }
+
+  // The log position of a planner's decision in the study that authorises this write
+  // in this app and hasn't been used by another: the oldest such. Each authorises one
+  // write. Only the shared record holds planners' decisions, so a visitor's sandbox
+  // never writes to an agency system.
+  private authorization(study: Study, app: string, action: string): number {
+    if (this.audience) throw sharedOnly("Writes to agency systems are made");
+    for (const [seq, authorization] of study.authorizations) {
+      if (authorization.app === app && authorization.action === action && authorization.usedBy === undefined) return seq;
+    }
+    throw new ApiError(
+      403,
+      "needs_decision",
+      `No planner's decision in study ${study.id} authorises ${action} in ${app}, or each one that did was used. ` +
+        `A planner records one with POST /v1/studies/${study.id}/decisions and authorizes: { app: "${app}", action: "${action}" }`,
+    );
   }
 
   // --- Reads ---------------------------------------------------------------
