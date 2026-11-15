@@ -23,8 +23,11 @@ instructions, the eval set tests it beside the live one, and a planner decides.
    call, and only a person copies its SKILL.md into agents/skills/. --dry-run writes
    nothing to the service.
 
-A version is the start of its SKILL.md's SHA-256 (skills.version). Settings: EVOLVE_MODEL
-(default qwen3.5:9b, on this machine, as the other agents), and those of the eval runner.
+A version is the SHA-256 of the skill's folder (skills.skill_hash). A candidate's is the
+live folder's with the candidate's SKILL.md in its place (skills.with_instructions), so
+a planner who approves it approves exactly that content, and the agents load it once
+its SKILL.md is copied in. Settings: EVOLVE_MODEL (default qwen3.5:9b, on this machine,
+as the other agents), and those of the eval runner.
 """
 
 import argparse
@@ -57,7 +60,7 @@ from core import (
     model_client,
     tokens_and_cost,
 )
-from skills import SKILLS_DIR, SkillError, _split, load_skill, version
+from skills import SKILLS_DIR, SkillError, _split, load_skill, short, with_instructions
 
 ROOT = Path(__file__).resolve().parent.parent
 CANDIDATES = Path(__file__).parent / "skill-candidates"  # runtime output, which git ignores
@@ -414,7 +417,7 @@ def evolve(
         raise SetupError("A run that may put a candidate forward needs the service. Use --dry-run to try without it.")
     cases = evals.load_cases() if cases is None else cases
     parent_text = (live.folder / "SKILL.md").read_text(encoding="utf-8")
-    parent = version(parent_text)
+    parent = live.hash
 
     failures, scored = dev_failures(skill, cases, runs, score)
     fixes: list[dict[str, Any]] = []
@@ -428,7 +431,7 @@ def evolve(
                 raise
             say(f"{error} Going on without planners' corrections, as this is a dry run.")
     say(
-        f"{skill} {parent}: {_plural(len(failures), 'dev case')} of {scored} with answers failed in the newest runs; "
+        f"{skill} {short(parent)}: {_plural(len(failures), 'dev case')} of {scored} with answers failed in the newest runs; "
         f"{_plural(len(fixes), 'correction')} in the log."
     )
     if not failures and not fixes:
@@ -437,18 +440,18 @@ def evolve(
 
     reply, usage = asyncio.run(proposer(prompt(parent_text, failures, fixes)))
     text = parse_candidate(reply, skill)
-    mine = version(text)
+    mine = with_instructions(live.folder, text)
     if mine == parent:
         raise EvolveError("The proposer gave back the live SKILL.md unchanged.")
 
-    folder = candidates / skill / mine
+    folder = candidates / skill / short(mine)
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "SKILL.md").write_text(text, encoding="utf-8")
     diff = difflib.unified_diff(
         parent_text.splitlines(keepends=True),
         text.splitlines(keepends=True),
-        fromfile=f"agents/skills/{skill}/SKILL.md ({parent})",
-        tofile=f"candidate ({mine})",
+        fromfile=f"agents/skills/{skill}/SKILL.md ({short(parent)})",
+        tofile=f"candidate ({short(mine)})",
     )
     (folder / "changes.diff").write_text("".join(diff), encoding="utf-8")
     lineage: dict[str, Any] = {
@@ -461,7 +464,7 @@ def evolve(
     }
     _save(folder, lineage)
     shown = folder.relative_to(ROOT) if folder.is_relative_to(ROOT) else folder
-    say(f"Candidate {mine} is in {shown}: SKILL.md, changes.diff and lineage.json.")
+    say(f"Candidate {short(mine)} is in {shown}: SKILL.md, changes.diff and lineage.json.")
 
     dev = dev_cases(cases, skill)
     ids = sorted(dev)
@@ -503,8 +506,8 @@ def evolve(
     lineage["submitted"] = {"seq": answer.get("seq"), "at": datetime.now(UTC).isoformat(timespec="seconds")}
     _save(folder, lineage)
     say(
-        f"Put forward for a planner to approve. A planner approves it with PUT /v1/skills/{skill} "
-        f'{{"version": "{mine}"}}, then copies its SKILL.md into agents/skills/{skill}/.'
+        f"Put forward for a planner to approve. A planner reviews it, copies its SKILL.md into agents/skills/{skill}/ "
+        f"and approves exactly that content: npm run approve-skill -- {skill} {mine}"
     )
     return folder
 

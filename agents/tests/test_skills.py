@@ -97,8 +97,13 @@ class SkillsTest(unittest.TestCase):
             self.assertEqual(asyncio.run(tool.function()), str(live.parent.resolve()))
         self.assertFalse(made.exists())
         self.assertEqual(live.read_text(), "---\nname: counter\ndescription: Count words.\n---\nCall count_words.\n")
-        self.assertEqual(skills.version(text), skills.version(text))
-        self.assertNotEqual(skills.version(text), skills.version(live.read_text()))
+        # The candidate's version is the live folder's, with its instructions: what the
+        # folder of links hashed to, and what the live folder will hash to once a person
+        # copies the SKILL.md in.
+        self.assertEqual(skills.candidate_hash(folder, self.root), skill.hash)
+        self.assertNotEqual(skill.hash, skills.skill_hash(live.parent))
+        live.write_text(text)
+        self.assertEqual(skills.skill_hash(live.parent), skill.hash)
 
     def test_a_candidate_must_name_a_live_skill(self):
         self.write("counter", "---\nname: counter\ndescription: Count words.\n---\nCall count_words.\n")

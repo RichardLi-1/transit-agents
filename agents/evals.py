@@ -67,7 +67,7 @@ from core import (
 )
 from citations import citations
 from lead import run_lead
-from skills import SkillError, candidate_name, version, with_candidate
+from skills import SkillError, candidate_hash, candidate_name, short, with_candidate
 
 ROOT = Path(__file__).resolve().parent.parent
 EVALS = ROOT / "evals"
@@ -271,8 +271,10 @@ class Service:
             shutil.rmtree(self.data, ignore_errors=True)
             self.data = None
 
-    def seed(self) -> None:
-        """Add the public sources and the published rules, as clients/seed.ts does for the demo."""
+    def seed(self, candidate: dict[str, str] | None = None) -> None:
+        """Add the public sources and the published rules, and approve the live skills, as
+        clients/seed.ts does for the demo. With a candidate, approve its version too, in
+        this throwaway service only, so the agents under test may load it."""
         env = {
             **os.environ,
             "TRANSIT_URL": self.url,
@@ -284,6 +286,9 @@ class Service:
         done = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
         if done.returncode:
             raise SetupError(f"Seeding the eval service failed:\n{(done.stderr or done.stdout)[-2000:]}")
+        if candidate:
+            body = {"version": candidate["version"], "description": "A candidate under evaluation, in a throwaway service"}
+            self.api("PUT", f"/v1/skills/{candidate['skill']}", body)
 
     def add_source(self, name: str, text: str) -> dict[str, Any]:
         """Add a source as an agency system would, so agents can cite it: one page, named `name`."""
@@ -385,12 +390,12 @@ def add_measured(service: Service, case: dict[str, Any]) -> None:
         db.executemany("INSERT INTO departures VALUES (?, ?, ?, ?, ?, ?, ?)", departures(name))
 
 
-def seeded() -> Service:
-    """A new throwaway service, seeded with the public sources."""
+def seeded(candidate: dict[str, str] | None = None) -> Service:
+    """A new throwaway service, seeded with the public sources, and any candidate approved."""
     service = Service()
     service.start()
     try:
-        service.seed()
+        service.seed(candidate)
     except BaseException:
         service.stop()
         raise
@@ -567,7 +572,7 @@ async def run_cases(
     for n, case in enumerate(cases):
         print(f"{case['id']}: {clip(case['query'], 100)}", flush=True)
         # Started here, not in a thread, so a kill can't leave one running.
-        service = first if n == 0 else seeded()
+        service = first if n == 0 else seeded(candidate)
         study = f"study-{n + 1}"  # nothing that names the case, or what it tests
         try:
             sources = add_inputs(service, case)
@@ -655,7 +660,7 @@ def main(args: list[str], *, client: AsyncClient | None = None, runs: Path = RUN
                 name = candidate_name(folder)
             except SkillError as error:
                 raise SetupError(str(error)) from None
-            candidate = {"skill": name, "version": version((folder / "SKILL.md").read_text(encoding="utf-8"))}
+            candidate = {"skill": name, "version": candidate_hash(folder)}
         cases = select(load_cases(), split=options.split, ids=options.case)
         real = None if client else model_client()  # no key, no service started
         settings = config()  # a bad setting, likewise
@@ -673,13 +678,13 @@ def main(args: list[str], *, client: AsyncClient | None = None, runs: Path = RUN
             with_candidate(Path(options.skill_dir)) if candidate else contextlib.nullcontext() as skills_dir,
             Service() as first,
         ):
-            first.seed()
+            first.seed(candidate)
             chosen = choose(first, cases, options.limit)
             if not chosen:
                 print("No cases to run.", file=sys.stderr)
                 return 1
             if candidate:
-                print(f"With {candidate['skill']}'s candidate {candidate['version']} in place of its live instructions.", flush=True)
+                print(f"With {candidate['skill']}'s candidate {short(candidate['version'])} in place of its live instructions.", flush=True)
             if not asyncio.run(_run(first, chosen, run, client, real, not options.no_skills, skills_dir, candidate)):
                 status = 1
     except SetupError as error:

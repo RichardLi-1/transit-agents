@@ -23,7 +23,6 @@ the agents offer only skills whose version now is approved.
 """
 
 import contextlib
-import hashlib
 import re
 import shutil
 import tempfile
@@ -185,9 +184,25 @@ def skill_tools(skill: Skill, session: Any, study: str, *, allowed: Collection[s
     return sandbox.tools(script, session, declared)
 
 
-def version(text: str) -> str:
-    """A SKILL.md's version: the start of its text's SHA-256, so a version names exactly one text."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+def with_instructions(folder: Path, text: str) -> str:
+    """The version the skill in `folder` would have with `text` as its SKILL.md: what a
+    planner approves for a candidate, whose instructions alone change."""
+    files = folder_files(folder)
+    files["SKILL.md"] = text.encode("utf-8")
+    return files_hash(files)
+
+
+def candidate_hash(folder: Path, root: Path | None = None) -> str:
+    """The version a candidate's folder, holding only a SKILL.md, would give the live skill
+    it would replace: the live folder's files, with the candidate's instructions."""
+    root = root or SKILLS_DIR
+    name = candidate_name(folder, root)
+    return with_instructions(root / name, (folder / "SKILL.md").read_text(encoding="utf-8"))
+
+
+def short(version: str) -> str:
+    """A version as people read it: the start of its hash."""
+    return version[:12]
 
 
 def candidate_name(folder: Path, root: Path | None = None) -> str:

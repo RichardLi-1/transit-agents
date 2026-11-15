@@ -12,7 +12,7 @@ from pathlib import Path
 
 import evals
 import evolve
-from skills import version
+import skills
 
 LIVE = "---\nname: triage\ndescription: Sort a request.\n---\nSort the request.\nNever decide.\n"
 CANDIDATE = "---\nname: triage\ndescription: Sort a request.\n---\nSort the request, and cite each page.\nNever decide.\n"
@@ -56,6 +56,11 @@ class FakeService:
         return {"seq": 99}
 
 
+def version(folder, text=None):
+    """The version of the skill in `folder`, or, with `text`, of that skill with `text` as its SKILL.md."""
+    return skills.skill_hash(folder) if text is None else skills.with_instructions(folder, text)
+
+
 class LoopTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
@@ -63,6 +68,8 @@ class LoopTest(unittest.TestCase):
         (self.skills / "triage").mkdir(parents=True)
         (self.skills / "triage" / "SKILL.md").write_text(LIVE)
         (self.skills / "triage" / "tools.py").write_text("def tools(session, study):\n    return []\n")
+        self.parent = version(self.skills / "triage")
+        self.mine = version(self.skills / "triage", CANDIDATE)
         self.candidates = self.root / "candidates"
         self.runs = self.root / "runs"
         self.runs.mkdir()
@@ -119,7 +126,7 @@ class LoopTest(unittest.TestCase):
 
     def test_writes_the_candidate_beside_the_live_skill_never_over_it(self):
         folder = self.evolve()
-        self.assertEqual(folder, self.candidates / "triage" / version(CANDIDATE))
+        self.assertEqual(folder, self.candidates / "triage" / self.mine[:12])
         self.assertEqual((folder / "SKILL.md").read_text(), CANDIDATE)
         self.assertEqual((self.skills / "triage" / "SKILL.md").read_text(), LIVE)
         self.assertEqual(sorted(path.name for path in (self.skills / "triage").iterdir()), ["SKILL.md", "tools.py"])
@@ -148,7 +155,7 @@ class LoopTest(unittest.TestCase):
         self.assertTrue(tests)
         self.assertLess(self.events.index("proposed"), min(tests))
         self.assertEqual(self.events.count("proposed"), 1)
-        lineage = json.loads((self.candidates / "triage" / version(CANDIDATE) / "lineage.json").read_text())
+        lineage = json.loads((self.candidates / "triage" / self.mine[:12] / "lineage.json").read_text())
         self.assertNotIn("test-1", json.dumps(lineage["signals"]))
         self.assertEqual(lineage["test"], {"candidate": {"passed": 0, "total": 1}, "parent": {"passed": 1, "total": 1}})
 
@@ -176,15 +183,15 @@ class LoopTest(unittest.TestCase):
         folder = self.evolve()
         lineage = json.loads((folder / "lineage.json").read_text())
         self.assertEqual(lineage["skill"], "triage")
-        self.assertEqual(lineage["parent"], version(LIVE))
-        self.assertEqual(lineage["version"], version(CANDIDATE))
+        self.assertEqual(lineage["parent"], self.parent)
+        self.assertEqual(lineage["version"], self.mine)
         self.assertEqual(lineage["proposer"]["model"], "fake-model")
         self.assertEqual([failure["id"] for failure in lineage["signals"]["failures"]], ["dev-1"])
         self.assertEqual(lineage["signals"]["corrections"], [{"kind": "override", "study": "s", "outcome": "adopt", "reason": "Council asked"}])
         self.assertEqual((lineage["gate"]["passed"], lineage["gate"]["candidate"], lineage["gate"]["parent"]), (True, 3, 2))
         self.assertEqual(lineage["submitted"]["seq"], 99)
         diff = (folder / "changes.diff").read_text()
-        self.assertIn(f"--- agents/skills/triage/SKILL.md ({version(LIVE)})", diff)
+        self.assertIn(f"--- agents/skills/triage/SKILL.md ({self.parent[:12]})", diff)
         self.assertIn("-Sort the request.\n", diff)
         self.assertIn("+Sort the request, and cite each page.\n", diff)
 
@@ -192,11 +199,16 @@ class LoopTest(unittest.TestCase):
         self.evolve()
         [(skill, body)] = self.service.proposed
         self.assertEqual(skill, "triage")
-        self.assertEqual(body["version"], version(CANDIDATE))
-        self.assertEqual(body["parent"], version(LIVE))
+        # Content hashes of the whole folder, scripts and all: approving the candidate's
+        # approves exactly the live folder with its SKILL.md.
+        self.assertEqual(body["version"], self.mine)
+        self.assertEqual(body["parent"], self.parent)
+        self.assertRegex(body["version"], r"^[0-9a-f]{64}$")
         self.assertEqual(body["dev"], {"candidate": {"passed": 3, "total": 3}, "parent": {"passed": 2, "total": 3}})
         self.assertEqual(body["test"]["candidate"], {"passed": 0, "total": 1})
-        self.assertIn(f'PUT /v1/skills/triage {{"version": "{version(CANDIDATE)}"}}', self.said())
+        self.assertIn(f"npm run approve-skill -- triage {self.mine}", self.said())
+        (self.skills / "triage" / "SKILL.md").write_text(CANDIDATE)
+        self.assertEqual(skills.skill_hash(self.skills / "triage"), self.mine)
 
     def test_the_loop_has_no_way_to_approve_a_version(self):
         # It reads the log and puts a candidate forward; approving is a planner's PUT,
@@ -227,7 +239,7 @@ class LoopTest(unittest.TestCase):
                 score=self.score,
             )
         self.assertEqual(status, 0, err.getvalue())
-        self.assertTrue((self.candidates / "triage" / version(CANDIDATE) / "SKILL.md").exists())
+        self.assertTrue((self.candidates / "triage" / self.mine[:12] / "SKILL.md").exists())
 
     def test_a_real_run_needs_the_service(self):
         with self.assertRaisesRegex(evolve.SetupError, "needs the service"):

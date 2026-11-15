@@ -21,7 +21,8 @@ import httpx2
 
 import core
 import evals
-from skills import list_skills, load_skill, version
+import skills
+from skills import candidate_hash, list_skills, load_skill
 from tests import support
 from tests.support import FakeGemini, gemini_error, reply
 
@@ -78,7 +79,7 @@ class SkillDirTest(unittest.TestCase):
             def __exit__(self, *_):
                 pass
 
-            def seed(self):
+            def seed(self, candidate=None):
                 pass
 
         self.enterContext(mock.patch.object(evals, "Service", NoService))
@@ -97,12 +98,13 @@ class SkillDirTest(unittest.TestCase):
         with mock.patch.object(evals, "_run", run), contextlib.redirect_stdout(io.StringIO()) as out:
             status = evals.main(["--skill-dir", str(self.folder), "--case", "hov-003"], client=object(), runs=self.runs)
         self.assertEqual(status, 0)
-        self.assertEqual(seen["candidate"], {"skill": "handover", "version": version(text)})
+        self.assertEqual(seen["candidate"], {"skill": "handover", "version": candidate_hash(self.folder)})
+        self.assertEqual(seen["candidate"]["version"], skills.with_instructions(skills.SKILLS_DIR / "handover", text))
         self.assertIn({"name": "handover", "description": "A candidate's description."}, seen["listed"])
         self.assertGreater(len(seen["listed"]), 1)  # the other skills are the live ones
         self.assertEqual(seen["body"], "Hand it over, better.")
         self.assertFalse(seen["dir"].exists())  # removed after the run
-        self.assertIn(f"handover's candidate {version(text)}", out.getvalue())
+        self.assertIn(f"handover's candidate {candidate_hash(self.folder)[:12]}", out.getvalue())
         self.assertNotEqual(load_skill("handover").body, "Hand it over, better.")
 
     def test_a_folder_without_a_live_skills_name_is_a_setup_error(self):
@@ -583,6 +585,32 @@ class EndToEndTest(unittest.TestCase):
         [line] = self.run_file()
         self.assertIs(line["skills"], False)
         self.assertRegex(out, r"\d{8}T\d{6}Z\.jsonl: 1 case, lead model lead-model, read by reader-model, without skills\n")
+
+    def test_a_candidate_is_approved_in_the_throwaway_service_only_and_offered_there(self):
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (folder / "SKILL.md").write_text("---\nname: handover\ndescription: A candidate's description.\n---\nHand it over, better.\n")
+        listed, systems = [], []
+
+        def respond(request):
+            if request.config.response_mime_type == "application/json":
+                return reply(text=json.dumps({"behaviour": "answer", "value": 20}))
+            if request.turn == 0:
+                systems.append(request.system)
+                return reply(("list_skills", {}))
+            listed.append(request.results[0][1]["output"])
+            return reply(text="20 boardings per service hour (ttc-anp-2026 p. 115).")
+
+        status, out, err = self.main(["--case", "find-001", "--skill-dir", str(folder)], FakeGemini(respond))
+
+        self.assertEqual(status, 0, err)
+        # The seed approved the live skills, and the runner the candidate's version, so
+        # the lead is offered every skill, the candidate's in place of the live one's.
+        [offered] = listed
+        self.assertIn({"name": "handover", "description": "A candidate's description."}, offered)
+        self.assertEqual(len(offered), len(list_skills()))
+        self.assertNotIn("Skills waiting for a planner", systems[0])
+        [line] = self.run_file()
+        self.assertEqual(line["candidate"], {"skill": "handover", "version": candidate_hash(folder)})
 
     def test_says_one_of_several_cases(self):
         fake = FakeGemini(gemini_for_two_cases)
