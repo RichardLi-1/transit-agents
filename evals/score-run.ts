@@ -5,9 +5,12 @@
 //
 // --json prints each case's result as JSON instead, for code to read, such as the
 // skill-evolution loop's gate (agents/evolve.py), so it scores as this does.
+//
+// Safety cases are scored from each case's log beside the run file,
+// <run>/<case>.log.jsonl, which the runner keeps: what the agents did, not what they said.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { rulesOnlyDecision, scoreCase, summarize, type Answer, type EvalCase, type Score, type Summary } from "./score.ts";
+import { actionsOf, rulesOnlyDecision, scoreCase, summarize, type Answer, type EvalCase, type LogEntry, type Score, type Summary } from "./score.ts";
 
 export const RUNS = join(import.meta.dirname, "runs");
 
@@ -57,6 +60,8 @@ export type RunReport = {
   withoutSkills: boolean;
   // Each answer's length in words, before "Not known yet:", to keep answers brief.
   words: number[];
+  // Where an answer's wording disagrees with its log. Reported, never scored.
+  secondary: { id: string; note: string }[];
 };
 
 export function readCases(path = join(import.meta.dirname, "cases.jsonl")): EvalCase[] {
@@ -84,6 +89,19 @@ function readLines(path: string): unknown[] {
     });
 }
 
+// Each case's log, by case id, from the folder beside a run file: <run>/<case>.log.jsonl.
+// A case whose log is missing has none here, so its safety can't be scored.
+export function readLogs(runPath: string): Map<string, LogEntry[]> {
+  const folder = runPath.replace(/\.jsonl$/, "");
+  const logs = new Map<string, LogEntry[]>();
+  if (!existsSync(folder)) return logs;
+  for (const name of readdirSync(folder)) {
+    const match = /^(.+)\.log\.jsonl$/.exec(name);
+    if (match?.[1]) logs.set(match[1], readLines(join(folder, name)) as LogEntry[]);
+  }
+  return logs;
+}
+
 // The newest run in a folder, by its name: the UTC time it started, such as
 // 20261107T224512Z.jsonl. Undefined if there's none.
 export function latestRun(folder = RUNS): string | undefined {
@@ -101,7 +119,7 @@ function failed(c: EvalCase, error: string): Score {
   return { id: c.id, passed: false, failures: [`error: ${error}`], citationRecall: cites, citationPrecision: cites, handedOver: false };
 }
 
-export function scoreRun(cases: EvalCase[], lines: RunLine[]): RunReport {
+export function scoreRun(cases: EvalCase[], lines: RunLine[], logs: Map<string, LogEntry[]> = new Map()): RunReport {
   const byId = new Map(cases.map((c) => [c.id, c]));
   const scores: Score[] = [];
   const report: Omit<RunReport, "summary"> = {
@@ -117,6 +135,7 @@ export function scoreRun(cases: EvalCase[], lines: RunLine[]): RunReport {
     readers: [],
     withoutSkills: false,
     words: [],
+    secondary: [],
   };
 
   for (const line of lines) {
@@ -152,8 +171,10 @@ export function scoreRun(cases: EvalCase[], lines: RunLine[]): RunReport {
       continue;
     }
 
-    const score = line.answer ? scoreCase(c, line.answer) : failed(c, line.error ?? "no answer");
+    const log = logs.get(c.id);
+    const score = line.answer ? scoreCase(c, line.answer, log ? actionsOf(log) : undefined) : failed(c, line.error ?? "no answer");
     scores.push(score);
+    if (score.secondary) report.secondary.push({ id: c.id, note: score.secondary });
     report.rows.push({ ...row, passed: score.passed, failures: score.failures });
 
     const e = c.expect;
@@ -252,6 +273,10 @@ export function formatReport(report: RunReport, name = "run"): string {
     const why = row.failures.length ? `  ${row.failures.join("; ")}` : "";
     out.push(`${row.id.padEnd(idWidth)}  ${status.padEnd(6)}${used}${time}${why}`);
   }
+  if (report.secondary.length) {
+    out.push("", "Wording against the log, not scored: safety is scored from the log of what the agents did");
+    for (const { id, note } of report.secondary) out.push(`  ${id}: ${note}`);
+  }
   if (report.rubric.length) out.push("", `Scored by rubric, not here: ${report.rubric.join(", ")}`);
   if (report.unknown.length) out.push("", `Not in cases.jsonl, so not scored: ${report.unknown.join(", ")}`);
   return out.join("\n");
@@ -275,7 +300,7 @@ if (import.meta.main) {
   }
   try {
     const cases = readCases();
-    const report = scoreRun(cases, readRun(file));
+    const report = scoreRun(cases, readRun(file), readLogs(file));
     console.log(json ? reportJson(report, cases) : formatReport(report, basename(file)));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

@@ -12,7 +12,9 @@ answer away: the study is study-<n>, and the inputs are rules and document-<n>.
 Once the lead has answered, one more model call, without tools, reads the answer into
 the fields evals/score.ts scores. READER_MODEL picks the reader's model, which
 docs/evals.md asks to keep apart from the agent's. A script reads the citations: they
-have a fixed form, and a model might add some the answer never gave.
+have a fixed form, and a model might add some the answer never gave. Refuse, abstain and
+flag cases are scored from the case's log of what the agents did, which the run keeps,
+not from what the reader read.
 
 Cases run one at a time, and each answer goes to evals/runs/<UTC time>.jsonl as soon as
 it's done, with the case's log in evals/runs/<UTC time>/<id>.log.jsonl: its subagents,
@@ -431,16 +433,18 @@ async def structured(client: AsyncClient, model: str, question: str, text: str) 
     return text, tokens_and_cost(model, response.usage_metadata)
 
 
-# The line the skills end a hand-over with. An answer that has it hands a judgement to
-# a planner, which the reader might miss.
+# The line the skills end a hand-over with. It is only wording: the scorer counts a flag
+# by the question for a planner in the case's log, and reports this line as a secondary
+# signal where the two disagree.
 HANDOVER = re.compile(r"\bfor a planner to decide:", re.I)
 
 
 def read_fields(reply: str, text: str = "") -> dict[str, Any]:
     """The scored fields in the structured call's JSON, leaving out empty and unknown values.
 
-    An answer `text` with the hand-over line is a flag, whatever the reader said, unless
-    the reader found it abstains or refuses.
+    The behaviour is the reader's reading, as it said. An answer `text` with the hand-over
+    line gets handoverLine, a secondary signal: evals/score.ts scores a flag by the
+    question for a planner in the case's log, never by its wording.
     """
     try:
         data = json.loads(reply)
@@ -449,8 +453,8 @@ def read_fields(reply: str, text: str = "") -> dict[str, Any]:
     if not isinstance(data, dict) or data.get("behaviour") not in BEHAVIOURS:
         raise ValueError(f"The structured answer has no behaviour: {clip(reply, 200)!r}")
     fields: dict[str, Any] = {"behaviour": data["behaviour"]}
-    if fields["behaviour"] == "answer" and HANDOVER.search(text):
-        fields["behaviour"] = "flag"
+    if HANDOVER.search(text):
+        fields["handoverLine"] = True
     value = data.get("value")
     if isinstance(value, int | float) and not isinstance(value, bool):
         fields["value"] = int(value) if float(value).is_integer() else value

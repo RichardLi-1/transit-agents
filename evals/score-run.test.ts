@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
-import { formatReport, latestRun, readCases, readRun, scoreRun, type RunLine } from "./score-run.ts";
+import { formatReport, latestRun, readCases, readLogs, readRun, scoreRun, type RunLine } from "./score-run.ts";
+import type { LogEntry } from "./score.ts";
 
 const cases = readCases();
 const usage = (inputTokens: number, outputTokens: number, calls: number) => ({ agent: { inputTokens, outputTokens, calls, costUsd: 0 } });
@@ -61,8 +62,18 @@ const run: RunLine[] = [
   { id: "nope-001", answer: { text: "", behaviour: "answer" } },
 ];
 
+// The cases' logs, beside the run file: both judgement cases handed a question to a
+// planner, as a flag must.
+const opened: LogEntry = { type: "study.opened", actor: "agent:lead", data: { id: "study-1" } };
+const asked: LogEntry = { type: "question.asked", actor: "agent:lead", data: { id: "q", kind: "judgement", question: "Weigh it?" } };
+const logs = new Map<string, LogEntry[]>([
+  ["check-003", [opened, asked]],
+  ["check-005", [opened, asked]],
+  ["find-001", [opened]],
+]);
+
 describe("scoreRun", () => {
-  const report = scoreRun(cases, run);
+  const report = scoreRun(cases, run, logs);
 
   it("gives the pass rate by capability, leaving out rubric cases and unknown ids", () => {
     assert.deepEqual(report.summary, {
@@ -125,7 +136,7 @@ describe("scoreRun", () => {
 });
 
 describe("formatReport", () => {
-  const text = formatReport(scoreRun(cases, run), "test.jsonl");
+  const text = formatReport(scoreRun(cases, run, logs), "test.jsonl");
 
   it("puts a count beside every rate", () => {
     for (const line of [
@@ -170,9 +181,18 @@ describe("the command", () => {
       encoding: "utf8",
     });
 
-  it("scores a run file", () => {
-    const file = join(folder, "20261107T120000Z.jsonl");
+  // A run file, and its cases' logs in the folder beside it, as the runner keeps them.
+  const write = (name: string) => {
+    const file = join(folder, `${name}.jsonl`);
     writeFileSync(file, run.map((line) => JSON.stringify(line)).join("\n") + "\n");
+    mkdirSync(join(folder, name), { recursive: true });
+    for (const [id, entries] of logs) writeFileSync(join(folder, name, `${id}.log.jsonl`), entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    return file;
+  };
+
+  it("scores a run file, with its cases' logs", () => {
+    const file = write("20261107T120000Z");
+    assert.deepEqual([...readLogs(file).keys()].sort(), ["check-003", "check-005", "find-001"]);
     const result = score(file);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /^20261107T120000Z\.jsonl: 7 cases, lead model test-model$/m);
@@ -180,8 +200,7 @@ describe("the command", () => {
   });
 
   it("gives each case's result as JSON, for code to read", () => {
-    const file = join(folder, "20261107T120500Z.jsonl");
-    writeFileSync(file, run.map((line) => JSON.stringify(line)).join("\n") + "\n");
+    const file = write("20261107T120500Z");
     const result = score("--json", file);
     assert.equal(result.status, 0, result.stderr);
     const read = JSON.parse(result.stdout);
@@ -190,6 +209,19 @@ describe("the command", () => {
     assert.deepEqual(byId.get("find-002"), { id: "find-002", capability: "find", skill: "ttc-standards", passed: false, failures: ["value: wanted 35, got 30"] });
     assert.equal((byId.get("draft-001") as { passed: unknown }).passed, null);
     assert.deepEqual(read.unknown, ["nope-001"]);
+  });
+
+  it("fails a flag case whose log is missing, and says where wording and log disagree", () => {
+    const file = join(folder, "20261107T121000Z.jsonl");
+    const worded = { text: "For a planner to decide: weigh it.", behaviour: "flag", handoverLine: true, checks: { customer_time: "fail", productivity: "pass", ridership_per_dollar: "pass" } };
+    writeFileSync(file, JSON.stringify({ id: "check-003", answer: worded }) + "\n");
+    let result = score(file);
+    assert.match(result.stdout, /^check-003 +fail +flag: no log of what the agents did, so it can't be scored;/m);
+    mkdirSync(join(folder, "20261107T121000Z"));
+    writeFileSync(join(folder, "20261107T121000Z", "check-003.log.jsonl"), JSON.stringify(opened) + "\n");
+    result = score(file);
+    assert.match(result.stdout, /^check-003 +fail +flag: no question for a planner in the log;/m);
+    assert.match(result.stdout, /^  check-003: the answer's wording hands over, but the log has no question for a planner$/m);
   });
 
   it("says which line is broken", () => {

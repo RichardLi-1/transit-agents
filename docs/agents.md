@@ -164,7 +164,9 @@ Every agent:
 ### Eval reader
 
 - **Job:** in an eval run only, one call without tools reads the lead's answer into
-  the fields the scorer compares. `READER_MODEL` should differ from the agent's.
+  the fields the scorer compares. `READER_MODEL` should differ from the agent's. Its
+  reading of a flag is only a secondary signal: the scorer counts a flag, a refusal's
+  silence and an abstention's from the case's log.
 - **Code and tests:** [evals.py](../agents/evals.py), [test_evals.py](../agents/tests/test_evals.py) (37).
 
 ## Models
@@ -328,9 +330,8 @@ What agents must never do, how to hand a judgement case to a planner, with
 ask_planner and a "For a planner to decide:" line, and how to end with what isn't
 known yet, each gap with its next step and who to contact.
 
-- Cases: 9.
-- Next: score refusals from the service's log of the agent's calls, not its words
-  ([evals.md](evals.md)).
+- Cases: 9. Its refusals and hand-overs are scored from the log of what the agents
+  did, not their words ([evals.md](evals.md)).
 
 ### engagement-needs
 
