@@ -384,6 +384,35 @@ class RunCaseTest(unittest.IsolatedAsyncioTestCase):
         line = await self.run_case(FakeGemini(lambda request: gemini_error(500)))
         self.assertEqual(line["error"], "Gemini refused lead-model with 500 ERROR, even after retries. Gemini said: Test ERROR")
 
+    async def test_model_logs_keep_the_agents_calls_apart_from_the_readers(self):
+        """openai_compat.py writes each call to MODEL_LOG: the lead's go to the agents'
+        file, the reader's to its own, and MODEL_LOG is as it was after."""
+        logged = []
+
+        def handler(request):
+            logged.append((bool(request.config.response_mime_type), os.environ.get("MODEL_LOG")))
+            if request.config.response_mime_type:
+                return reply(text=json.dumps({"behaviour": "answer", "value": 1680}))
+            return reply(text="1,680 (test-plan p. 1).")
+
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        logs = (folder / "run" / "a.model.jsonl", folder / "run" / "a.reader.model.jsonl")
+        self.enterContext(mock.patch.dict(os.environ, {"MODEL_LOG": "before.jsonl"}))
+        async with support.session() as session:
+            line = await evals.run_case(
+                session, FakeGemini(handler), self.case, {"test-plan": {"title": "Test plan"}}, model_logs=logs
+            )
+        self.assertEqual(line["answer"]["value"], 1680)
+        self.assertEqual(logged, [(False, str(logs[0])), (True, str(logs[1]))])
+        self.assertTrue((folder / "run").is_dir())
+        self.assertEqual(os.environ["MODEL_LOG"], "before.jsonl")
+
+    def test_run_file_names_each_cases_model_logs_beside_its_log(self):
+        run = evals.RunFile(Path("/runs"))
+        agents, reader = run.model_logs("find-001")
+        self.assertEqual(agents, run.logs / "find-001.model.jsonl")
+        self.assertEqual(reader, run.logs / "find-001.reader.model.jsonl")
+
     async def test_gemini_out_of_reach_stops_the_run_instead(self):
         # Every case after it would wait out the same retries, minutes each.
         with self.assertRaisesRegex(core.ModelError, "^Can't reach Gemini for lead-model"):
