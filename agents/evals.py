@@ -1,7 +1,7 @@
 """The eval runner: runs cases from evals/cases.jsonl through the lead agent, keeps the
 answers, and scores them with evals/score-run.ts.
 
-    python agents/main.py eval [--split dev] [--case ID ...] [--limit 3] [--no-skills]
+    python agents/main.py eval [--split dev] [--case ID ...] [--limit 3] [--no-skills | --skill-dir DIR]
 
 Each case runs on a throwaway service of its own, seeded with the public sources and
 the inputs the case needs, so no case sees another's work, or the demo's. Seeding takes
@@ -18,6 +18,10 @@ Cases run one at a time, and each answer goes to evals/runs/<UTC time>.jsonl as 
 it's done, with the case's log in evals/runs/<UTC time>/<id>.log.jsonl: its subagents,
 readings, figures and each model call's usage. If Gemini's quota runs out, or Gemini
 can't be reached, the run stops and keeps the answers so far.
+
+--skill-dir runs with a candidate's SKILL.md, from agents/evolve.py, in place of its
+live skill's instructions; its scripts and the other skills stay the live ones. Each
+answer names the candidate's skill and version, so it is never taken for the live one's.
 """
 
 import argparse
@@ -63,6 +67,7 @@ from core import (
 )
 from citations import citations
 from lead import run_lead
+from skills import SkillError, candidate_name, version, with_candidate
 
 ROOT = Path(__file__).resolve().parent.parent
 EVALS = ROOT / "evals"
@@ -173,10 +178,16 @@ def parse_args(args: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--limit", type=_at_least_one, default=3, metavar="N", help="run at most N cases (default: 3, to save quota)"
     )
-    parser.add_argument(
+    skills = parser.add_mutually_exclusive_group()
+    skills.add_argument(
         "--no-skills",
         action="store_true",
         help="run without skills, to set beside a run with them and show what they add",
+    )
+    skills.add_argument(
+        "--skill-dir",
+        metavar="DIR",
+        help="run with the SKILL.md in DIR, a candidate's, in place of its live skill's instructions",
     )
     return parser.parse_args(args)
 
@@ -456,12 +467,15 @@ async def run_case(
     study: str | None = None,
     *,
     skills: bool = True,
+    skills_dir: Path | None = None,
+    candidate: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Run one case in a study of its own, and return its line for the run file.
 
     An error goes in the line, except when Gemini refused in a way every case would
     meet (a ModelError, everywhere) or a connection failed: then the run stops.
-    Without skills, the lead has none to give its specialists.
+    Without skills, the lead has none to give its specialists. With `skills_dir`, the
+    lead's skills are those, and `candidate` names the skill and version swapped in.
     """
     settings = config()
     study = study or f"study-{secrets.token_hex(3)}"
@@ -469,6 +483,8 @@ async def run_case(
     line: dict[str, Any] = {"id": case["id"], "models": models}
     if not skills:
         line["skills"] = False
+    if candidate:
+        line["candidate"] = candidate
     usage: dict[str, Any] = {}
     started = time.monotonic()
     try:
@@ -476,7 +492,7 @@ async def run_case(
         # Without skills, the skills folder is an empty one.
         with contextlib.nullcontext() if skills else tempfile.TemporaryDirectory() as empty:
             task = task_for(case, sources)
-            text = (await run_lead(session, client, study, task, skills_dir=empty and Path(empty))).strip()
+            text = (await run_lead(session, client, study, task, skills_dir=Path(empty) if empty else skills_dir)).strip()
         if not text or NO_ANSWER.match(text):
             raise RuntimeError(text or "The lead gave no answer.")
         # Its tokens count even if its reply can't be read.
@@ -534,7 +550,14 @@ class RunFile:
 
 
 async def run_cases(
-    first: Service, client: AsyncClient, cases: list[dict[str, Any]], run: RunFile, *, skills: bool = True
+    first: Service,
+    client: AsyncClient,
+    cases: list[dict[str, Any]],
+    run: RunFile,
+    *,
+    skills: bool = True,
+    skills_dir: Path | None = None,
+    candidate: dict[str, str] | None = None,
 ) -> bool:
     """Run the cases one at a time, keeping each answer. False if Gemini stopped the run.
 
@@ -550,7 +573,9 @@ async def run_cases(
             sources = add_inputs(service, case)
             add_measured(service, case)
             async with open_session(service.url, service.tokens["agent"]) as session:
-                line = await run_case(session, client, case, sources, study, skills=skills)
+                line = await run_case(
+                    session, client, case, sources, study, skills=skills, skills_dir=skills_dir, candidate=candidate
+                )
         except (ModelError, httpx2.TransportError) as error:
             keep_log(run, service, case, study)
             why = error if isinstance(error, ModelError) else f"can't reach the service: {error}"
@@ -595,13 +620,16 @@ async def _run(
     client: AsyncClient | None,
     real: genai.Client | None,
     skills: bool,
+    skills_dir: Path | None = None,
+    candidate: dict[str, str] | None = None,
 ) -> bool:
+    own = {"skills": skills, "skills_dir": skills_dir, "candidate": candidate}
     if client is not None:
-        return await run_cases(first, client, cases, run, skills=skills)
+        return await run_cases(first, client, cases, run, **own)
     assert real is not None
     # Hold the client open: google-genai closes its connections once it's dropped.
     async with real.aio as aio:
-        return await run_cases(first, aio, cases, run, skills=skills)
+        return await run_cases(first, aio, cases, run, **own)
 
 
 def score(path: Path) -> None:
@@ -620,6 +648,14 @@ def main(args: list[str], *, client: AsyncClient | None = None, runs: Path = RUN
     """
     options = parse_args(args)
     try:
+        candidate = None
+        if options.skill_dir:
+            folder = Path(options.skill_dir)
+            try:
+                name = candidate_name(folder)
+            except SkillError as error:
+                raise SetupError(str(error)) from None
+            candidate = {"skill": name, "version": version((folder / "SKILL.md").read_text(encoding="utf-8"))}
         cases = select(load_cases(), split=options.split, ids=options.case)
         real = None if client else model_client()  # no key, no service started
         settings = config()  # a bad setting, likewise
@@ -633,13 +669,18 @@ def main(args: list[str], *, client: AsyncClient | None = None, runs: Path = RUN
     # A kill, as from a timeout, raises SystemExit, so the service and its data still go.
     previous = signal.signal(signal.SIGTERM, _exit)
     try:
-        with Service() as first:
+        with (
+            with_candidate(Path(options.skill_dir)) if candidate else contextlib.nullcontext() as skills_dir,
+            Service() as first,
+        ):
             first.seed()
             chosen = choose(first, cases, options.limit)
             if not chosen:
                 print("No cases to run.", file=sys.stderr)
                 return 1
-            if not asyncio.run(_run(first, chosen, run, client, real, not options.no_skills)):
+            if candidate:
+                print(f"With {candidate['skill']}'s candidate {candidate['version']} in place of its live instructions.", flush=True)
+            if not asyncio.run(_run(first, chosen, run, client, real, not options.no_skills, skills_dir, candidate)):
                 status = 1
     except SetupError as error:
         print(error, file=sys.stderr)

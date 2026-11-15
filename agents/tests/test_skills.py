@@ -68,6 +68,41 @@ class SkillsTest(unittest.TestCase):
         self.assertEqual(tool.name, "count_words")
         self.assertEqual(tool.function(text="one two three"), ["the-session", "the-study", 3])
 
+    def test_a_candidate_swaps_in_its_instructions_and_keeps_the_live_scripts(self):
+        live = self.write("counter", "---\nname: counter\ndescription: Count words.\n---\nCall count_words.\n")
+        (live.parent / "tools.py").write_text(
+            "from pathlib import Path\nfrom core import LocalTool\n\n"
+            "def tools(session, study):\n"
+            "    return [LocalTool('where', 'Where.', lambda: str(Path(__file__).resolve().parent))]\n"
+        )
+        self.write("other", "---\nname: other\ndescription: Other.\n---\nDo other.\n")
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        text ="---\nname: counter\ndescription: Count words, better.\n---\nCall count_words, then check.\n"
+        (folder / "SKILL.md").write_text(text)
+        self.assertEqual(skills.candidate_name(folder, self.root), "counter")
+        with skills.with_candidate(folder, self.root) as made:
+            self.assertEqual(
+                skills.list_skills(made),
+                [{"name": "counter", "description": "Count words, better."}, {"name": "other", "description": "Other."}],
+            )
+            skill = skills.load_skill("counter", made)
+            self.assertEqual(skill.body, "Call count_words, then check.")
+            [tool] = skills.skill_tools(skill, "session", "study")
+            self.assertEqual(tool.function(), str(live.parent.resolve()))
+        self.assertFalse(made.exists())
+        self.assertEqual(live.read_text(), "---\nname: counter\ndescription: Count words.\n---\nCall count_words.\n")
+        self.assertEqual(skills.version(text), skills.version(text))
+        self.assertNotEqual(skills.version(text), skills.version(live.read_text()))
+
+    def test_a_candidate_must_name_a_live_skill(self):
+        self.write("counter", "---\nname: counter\ndescription: Count words.\n---\nCall count_words.\n")
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        with self.assertRaisesRegex(skills.SkillError, "No SKILL.md"):
+            skills.candidate_name(folder, self.root)
+        (folder / "SKILL.md").write_text("---\nname: nope\ndescription: D\n---\nBody.\n")
+        with self.assertRaisesRegex(skills.SkillError, "isn't a live skill's"):
+            skills.candidate_name(folder, self.root)
+
     def test_refuses_scripts_without_a_tools_function(self):
         path = self.write("no-tools", "---\nname: no-tools\ndescription: D\n---\nBody.\n")
         (path.parent / "tools.py").write_text("COUNT = 1\n")

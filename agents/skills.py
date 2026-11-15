@@ -17,9 +17,14 @@ Its tools(session, study) returns LocalTools, which only that specialist gets:
 scripts compute, and the model reads their results.
 """
 
+import contextlib
+import hashlib
 import importlib.util
 import re
+import shutil
 import sys
+import tempfile
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -98,6 +103,54 @@ def skill_tools(skill: Skill, session: Any, study: str) -> list[Any]:
     if not callable(make):
         raise SkillError(f"{path}: define tools(session, study), returning the skill's tools")
     return list(make(session, study))
+
+
+def version(text: str) -> str:
+    """A SKILL.md's version: the start of its text's SHA-256, so a version names exactly one text."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def candidate_name(folder: Path, root: Path | None = None) -> str:
+    """The name of the live skill a candidate's folder, holding only a SKILL.md, would replace.
+
+    It is read from the candidate's frontmatter, and a live skill must have it."""
+    root = root or SKILLS_DIR
+    path = folder / "SKILL.md"
+    if not path.is_file():
+        raise SkillError(f"No SKILL.md in {folder}")
+    fields, body = _split(path.read_text(encoding="utf-8"), path)
+    name = fields.get("name", "")
+    if not NAME.match(name) or not (root / name / "SKILL.md").is_file():
+        raise SkillError(f"{path}: its name, {name!r}, isn't a live skill's")
+    if not fields.get("description") or not body:
+        raise SkillError(f"{path}: give a description and the instructions")
+    return name
+
+
+@contextlib.contextmanager
+def with_candidate(folder: Path, root: Path | None = None) -> Iterator[Path]:
+    """A skills folder like `root`, but with one skill's instructions taken from the
+    SKILL.md in `folder`, a candidate's, for an eval run. It is deleted afterwards.
+
+    Only the instructions change. The skill's scripts and every other skill are the
+    live ones, linked rather than copied, so a script finds its files as it would."""
+    root = (root or SKILLS_DIR).resolve()
+    name = candidate_name(folder, root)
+    made = Path(tempfile.mkdtemp(prefix="skills-with-candidate-"))
+    try:
+        for live in sorted(root.iterdir()):
+            if live.is_dir() and live.name != name:
+                (made / live.name).symlink_to(live, target_is_directory=True)
+        swapped = made / name
+        swapped.mkdir()
+        for live in (root / name).iterdir():
+            if live.name != "SKILL.md":
+                (swapped / live.name).symlink_to(live, target_is_directory=live.is_dir())
+        shutil.copyfile(folder / "SKILL.md", swapped / "SKILL.md")
+        read_skill(swapped / "SKILL.md")  # its name must be its folder's, as for any skill
+        yield made
+    finally:
+        shutil.rmtree(made, ignore_errors=True)
 
 
 def _split(text: str, path: Path) -> tuple[dict[str, str], str]:

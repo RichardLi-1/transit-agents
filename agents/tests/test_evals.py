@@ -21,6 +21,7 @@ import httpx2
 
 import core
 import evals
+from skills import list_skills, load_skill, version
 from tests import support
 from tests.support import FakeGemini, gemini_error, reply
 
@@ -49,11 +50,66 @@ class SelectTest(unittest.TestCase):
         options = evals.parse_args([])
         self.assertEqual((options.split, options.case, options.limit, options.no_skills), ("dev", [], 3, False))
         self.assertTrue(evals.parse_args(["--no-skills"]).no_skills)
+        self.assertEqual(evals.parse_args(["--skill-dir", "x"]).skill_dir, "x")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            evals.parse_args(["--no-skills", "--skill-dir", "x"])
         options = evals.parse_args(["--split", "test", "--case", "a", "--case", "b", "--limit", "5"])
         self.assertEqual((options.split, options.case, options.limit), ("test", ["a", "b"], 5))
         for bad in (["--limit", "0"], ["--limit", "x"], ["--split", "nope"]):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 evals.parse_args(bad)
+
+
+class SkillDirTest(unittest.TestCase):
+    """--skill-dir runs with a candidate's instructions in place of the live skill's,
+    and names the candidate in each answer. The service and the run are fakes here."""
+
+    def setUp(self):
+        self.folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
+
+        class NoService:
+            def __init__(self):
+                self.url = "http://127.0.0.1:1"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                pass
+
+            def seed(self):
+                pass
+
+        self.enterContext(mock.patch.object(evals, "Service", NoService))
+        self.enterContext(mock.patch.object(evals, "choose", lambda first, cases, limit: cases[:limit]))
+
+    def test_the_lead_gets_the_candidates_instructions_and_the_answer_names_it(self):
+        text = "---\nname: handover\ndescription: A candidate's description.\n---\nHand it over, better.\n"
+        (self.folder / "SKILL.md").write_text(text)
+        seen = {}
+
+        async def run(first, chosen, run, client, real, skills, skills_dir=None, candidate=None):
+            seen.update(skills=skills, candidate=candidate, listed=list_skills(skills_dir), body=load_skill("handover", skills_dir).body)
+            seen["dir"] = skills_dir
+            return True
+
+        with mock.patch.object(evals, "_run", run), contextlib.redirect_stdout(io.StringIO()) as out:
+            status = evals.main(["--skill-dir", str(self.folder), "--case", "hov-003"], client=object(), runs=self.runs)
+        self.assertEqual(status, 0)
+        self.assertEqual(seen["candidate"], {"skill": "handover", "version": version(text)})
+        self.assertIn({"name": "handover", "description": "A candidate's description."}, seen["listed"])
+        self.assertGreater(len(seen["listed"]), 1)  # the other skills are the live ones
+        self.assertEqual(seen["body"], "Hand it over, better.")
+        self.assertFalse(seen["dir"].exists())  # removed after the run
+        self.assertIn(f"handover's candidate {version(text)}", out.getvalue())
+        self.assertNotEqual(load_skill("handover").body, "Hand it over, better.")
+
+    def test_a_folder_without_a_live_skills_name_is_a_setup_error(self):
+        (self.folder / "SKILL.md").write_text("---\nname: nope\ndescription: D\n---\nBody.\n")
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(evals.main(["--skill-dir", str(self.folder)], client=object(), runs=self.runs), 1)
+        self.assertIn("isn't a live skill's", err.getvalue())
 
 
 class PortsTest(unittest.TestCase):
