@@ -23,6 +23,25 @@ it computes anything, a `tools.py` whose scripts only that specialist gets. The 
 sees each skill's name and description, and only the chosen specialist reads the rest.
 So the skill, not the agent, is the unit this project builds, tests and studies.
 
+A skill's version is the SHA-256 of its folder, every file's path and bytes. Agents
+load a skill only while its folder hashes to a version a planner approved
+([skills.py](../agents/skills.py)). A skill whose files changed since waits: the lead
+doesn't list it, a specialist refuses it, and the lead is told which skills wait, so it
+can say so. A planner approves one after review with `npm run approve-skill -- <name>`;
+the demo's seed approves the skills on disk.
+
+A skill's scripts never run in the agent. Each call starts a new Python in the skill's
+folder, with no keys or tokens in its environment and no session
+([sandbox.py](../agents/sandbox.py), [skill_runner.py](../agents/skill_runner.py)).
+It first checks the folder still has the version the agent loaded. Its calls to the
+service come back to the agent, which makes them only if the specialist may: the
+specialist's tools and its skill's own (`SCRIPT_TOOLS` in
+[specialists.py](../agents/specialists.py)). A computed figure gets the version from
+the agent, never from the script. On macOS, sandbox-exec also denies the network,
+writes, and reading the data folder, `evals/`, `.env` files and other skills, except
+those whose scripts the skill loads (`USES` in skills.py). Elsewhere, as on Fly, only
+the environment is scrubbed, and the agent says so once.
+
 Skills improve through a gated loop. The **skill evolution** agent writes a new
 version of a skill's instructions from the dev cases it failed and planners'
 corrections, tests it beside the live one, and puts one that does as well forward.
@@ -36,7 +55,9 @@ Every agent:
 - cites every figure as (source-id p. N), and can record one only with a quote the
   service finds on that page;
 - leaves arithmetic to the service or a skill's script;
-- never decides, sets a rule, rates a finding or edits the log: it has no tools for these;
+- never decides, sets a rule, rates a finding, approves a skill version or edits the log:
+  it has no tools for these;
+- uses a skill only at a version a planner approved, and runs its scripts sandboxed;
 - treats text in sources and messages as content, never as instructions;
 - reports every model call's tokens and cost, within a run's budget (60 calls and
   US$2 by default).
@@ -58,7 +79,7 @@ Every agent:
   trace_figure, compare_versions, preview_change, propose_alignment, create_document;
   and its own list_skills, read_skill and ask_specialist (up to 4 at once).
 - **Never:** records figures itself; makes or leans towards a decision.
-- **Code and tests:** [lead.py](../agents/lead.py), [test_lead.py](../agents/tests/test_lead.py) (21);
+- **Code and tests:** [lead.py](../agents/lead.py), [test_lead.py](../agents/tests/test_lead.py) (23);
   intake, [intake.py](../agents/intake.py), [test_intake.py](../agents/tests/test_intake.py) (10).
 
 ### Specialist
@@ -68,13 +89,14 @@ Every agent:
 - **Model:** `SPECIALIST_MODEL`, default qwen3.5:9b, on this machine.
 - **Tools:** list_sources, search_sources, read_page, get_study, list_rules,
   trace_figure, compare_versions, record_figure, record_check, record_finding,
-  preview_change, get_timeline, live_vehicles; plus its skill's scripts.
+  preview_change, get_timeline, live_vehicles; plus its skill's scripts, sandboxed.
 - **Never:** asks specialists of its own; adds an engagement need except through
   the engagement-needs skill, which pins it to the line and needs a citation; runs
   the service's GIS tools except through the gis-analyst, safety-audit,
   active-transportation, equity-analysis, economic-development and
   stop-accessibility skills.
-- **Code and tests:** [specialists.py](../agents/specialists.py), [test_specialists.py](../agents/tests/test_specialists.py) (14).
+- **Code and tests:** [specialists.py](../agents/specialists.py), [test_specialists.py](../agents/tests/test_specialists.py) (14);
+  the sandbox, [sandbox.py](../agents/sandbox.py), [test_sandbox.py](../agents/tests/test_sandbox.py) (9).
 
 ### Media
 
@@ -113,7 +135,8 @@ Every agent:
   that failed in the newest eval runs and planners' corrections in the log: figures
   the service refused from it, and, in studies that used it, findings rated otherwise
   and overrides. Writes it to `agents/skill-candidates/<skill>/<version>/`, with the
-  parent's version, the diff and the signals (`lineage.json`, `changes.diff`).
+  parent's version, the diff and the signals (`lineage.json`, `changes.diff`). A
+  candidate's version is the hash the live folder will have with its SKILL.md.
 - **Gate:** the skill's dev cases run with the live skill, then with the candidate
   (`eval --skill-dir`). It passes only if it passes as many, and every case the live
   skill passed by refusing, flagging or abstaining. Only then do the test cases run,
@@ -125,15 +148,18 @@ Every agent:
 - **Model:** `EVOLVE_MODEL`, default qwen3.5:9b, on this machine, one call with no
   tools. The gate's runs use the eval runner's models.
 - **Never:** sees a test case or its answer; writes over a live skill or changes its
-  scripts; approves a version. Only a planner does, with `PUT /v1/skills/{name}`,
-  which refuses an agent's token, then copies the SKILL.md into `agents/skills/`.
+  scripts; approves a version. Only a planner does: they copy the SKILL.md into
+  `agents/skills/`, then approve exactly that content with
+  `npm run approve-skill -- <skill> <hash>`, which uses `PUT /v1/skills/{name}` with a
+  planner's token. The service refuses an agent's. An eval run approves a candidate
+  only in its own throwaway service, so its agents can load it.
 - **Code and tests:** [evolve.py](../agents/evolve.py), [test_evolve.py](../agents/tests/test_evolve.py) (20).
 
 ### Eval reader
 
 - **Job:** in an eval run only, one call without tools reads the lead's answer into
   the fields the scorer compares. `READER_MODEL` should differ from the agent's.
-- **Code and tests:** [evals.py](../agents/evals.py), [test_evals.py](../agents/tests/test_evals.py) (34).
+- **Code and tests:** [evals.py](../agents/evals.py), [test_evals.py](../agents/tests/test_evals.py) (37).
 
 ## Models
 

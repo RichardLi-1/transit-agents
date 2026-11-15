@@ -87,6 +87,14 @@ flowchart LR
    its street, or a bus stop with its bus. Images and videos are kept by their
    hash outside the log, which records the hash, the model, the prompt and what
    it drew on, and they are always labelled Illustrative.
+9. **Skills run only as a planner approved them.** A skill's version is the
+   SHA-256 of its folder, every file's path and bytes. Agents load a skill only
+   while its folder hashes to a version a planner approved, and a computed figure
+   must name a version approved for its skill. The agent names it, never the
+   skill's script. Each call to a script runs in a new process with no keys or
+   tokens; the agent makes its calls to the service, and only those its
+   specialist may make. On macOS, sandbox-exec also keeps it off the network and
+   away from the data folder, the eval cases, `.env` files and other skills.
 
 ## API
 
@@ -100,7 +108,10 @@ Full schema at `GET /openapi.json`.
 - Test a figure against a rule: `POST /v1/studies/{id}/checks`
 - Add a finding, such as consultation: `POST /v1/studies/{id}/findings`
 - Rate how a finding reads: `PUT /v1/studies/{id}/findings/{finding}/tone`
-- Approve a skill version: `PUT /v1/skills/{name}`
+- Approve a skill version, its folder's SHA-256 (planners only): `PUT /v1/skills/{name}`,
+  or `npm run approve-skill -- <name> [<hash>]` after review. With the hash, it
+  approves only if the folder still has it. The demo's seed approves the skills on disk
+- Which skill versions are approved: `GET /v1/skills`
 - Put a skill version forward for a planner to approve, once it has passed its gate (agents only): `POST /v1/skills/{name}/candidates`. It approves nothing
 - Accept a skill's result: `POST /v1/studies/{id}/figures/{figure}/accept`
 - Set or change a rule or assumption: `PUT /v1/assumptions/{key}`
@@ -150,12 +161,12 @@ are JSON, sent as JSON.
 - **Viewer:** reads.
 - **Integration:** reads, adds citable context, subscribes webhooks.
 - **Agent:** reads, adds context that can't be cited, adds figures and findings,
-  and proposes engagement needs. An agent that claims a request to make a need
+  proposes engagement needs, and puts skill versions forward, approving none. An agent that claims a request to make a need
   attaches the media made for it, or says why it couldn't.
 - **Guest:** a visitor, or someone signed in who isn't a planner. Chats, rates,
   accepts, sets assumptions and asks for engagement media, in their own sandbox.
-- **Planner:** everything else, with citable context. Only planners decide, take
-  a file down and drop a need, and only their rules, ratings, acceptances and
+- **Planner:** everything else, with citable context. Only planners decide,
+  approve a skill version, take a file down and drop a need, and only their rules, ratings, acceptances and
   requests for media reach the shared record.
 
 Webhooks can only go to hosts listed in `WEBHOOK_HOSTS`.
