@@ -1149,9 +1149,16 @@ export function createApp(options: AppOptions) {
       handler: (c) => c.json([...view(c).state.assumptions.values()]),
     },
     {
+      method: "get",
+      path: "/v1/skills",
+      summary: "Each skill's approved versions: the SHA-256 content hashes of its folder a planner approved. Agents load only these",
+      roles: anyone,
+      handler: (c) => c.json(view(c).approvedSkills()),
+    },
+    {
       method: "put",
       path: "/v1/skills/:name",
-      summary: "Approve a skill version, so its results can enter studies. Planners only",
+      summary: "Approve a skill version, its folder's SHA-256 content hash, so agents may load it and its results can enter studies. Planners only",
       roles: planners,
       body: NewSkill,
       handler: async (c) => c.json(view(c).registerSkill(actorName(c), c.req.param("name") as string, await bodyOf(c, NewSkill)), 201),

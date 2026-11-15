@@ -8,6 +8,11 @@ export { evaluate, FormulaError, variables } from "./formula.ts";
 
 const slug = z.string().regex(/^[a-z0-9][a-z0-9.-]{0,62}$/, "Use lowercase letters, numbers, dots and dashes");
 
+// A skill version: the SHA-256 of the skill's folder, every file's path and bytes
+// (agents/skills.py, clients/skill-hash.ts). It names exactly one content, so
+// approving it approves that content, and nothing else.
+export const SkillHash = z.string().regex(/^[0-9a-f]{64}$/, "Give the skill folder's SHA-256: 64 lowercase hex digits");
+
 // A guest is a visitor with a guest pass, or someone signed in who isn't a planner.
 // It can do what a planner does, in its own sandbox, except decide.
 export const Role = z.enum(["viewer", "integration", "agent", "planner", "guest"]);
@@ -109,12 +114,13 @@ const Derived = z.object({
   inputs: z.record(z.string(), z.object({ figure: slug }).or(z.object({ assumption: slug }))),
 });
 
-// A result from a skill or model the service can't repeat. It is kept with what
-// produced it, and is marked stale when one of its inputs changes.
+// A result from a skill's script the service can't repeat. It is kept with what
+// produced it, and is marked stale when one of its inputs changes. version is the
+// skill's content hash, which a planner must have approved for that skill.
 const Computed = z.object({
   kind: z.literal("computed"),
   skill: z.string().min(1).max(100),
-  version: z.string().min(1).max(50),
+  version: SkillHash,
   inputs: z.array(z.object({ figure: slug }).or(z.object({ assumption: slug }))).default([]),
   run: z.string().max(200).optional(),
 });
@@ -763,9 +769,10 @@ export type LogEntry = {
   audience: string | null;
 };
 
-// A skill version a planner has approved. Computed figures must name one.
+// A skill version a planner approves: its content hash. Agents load only approved
+// hashes, and computed figures must name one.
 export const NewSkill = z.object({
-  version: z.string().min(1).max(50),
+  version: SkillHash,
   description: z.string().max(400).default(""),
 });
 export type NewSkill = z.input<typeof NewSkill>;
@@ -775,11 +782,12 @@ const Tally = z.object({ passed: z.number().int().nonnegative(), total: z.number
 
 // A skill version an agent puts forward once it has passed its gate (agents/evolve.py):
 // on the skill's dev cases, as good as its parent and losing no refusal or hand-over.
-// version and parent are hashes of their SKILL.md. test is reported, never used to
-// choose. Only a planner approves a version, with NewSkill.
+// version and parent are content hashes of the skill's folder, with the candidate's
+// SKILL.md and with the live one. test is reported, never used to choose. Only a
+// planner approves a version, with NewSkill.
 export const SkillCandidate = z.object({
-  version: z.string().min(1).max(50),
-  parent: z.string().min(1).max(50),
+  version: SkillHash,
+  parent: SkillHash,
   summary: z.string().max(400).default(""),
   dev: z.object({ candidate: Tally, parent: Tally }),
   test: z.object({ candidate: Tally, parent: Tally }).optional(),

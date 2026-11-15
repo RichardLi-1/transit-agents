@@ -137,11 +137,14 @@ describe("mcp", () => {
     const [planner, agent, integration, viewer] = await Promise.all(
       ["planner-token", "agent-token", "integration-token", "viewer-token"].map(names),
     );
-    // 52 and 43 with the safety and active transportation tools; the equity, jobs and stop
-    // accessibility skills each add their GIS tools for agents and planners too.
+    // 53 and 44 with the safety and active transportation tools and list_approved_skills;
+    // the equity, jobs and stop accessibility skills each add their GIS tools for agents
+    // and planners too.
     const skills = Object.keys(GIS_SKILL_TOOLS).length;
-    assert.equal(planner?.length, 52 + skills);
-    assert.equal(agent?.length, 43 + skills);
+    assert.equal(planner?.length, 53 + skills);
+    assert.equal(agent?.length, 44 + skills);
+    // Everyone may read which skill versions are approved; only a planner approves one.
+    for (const names of [planner, agent, integration, viewer]) assert.ok(names?.includes("list_approved_skills"));
     assert.ok(["route_stops", "buffer", "overlay", "points_within", "summarise_layer"].every((name) => agent?.includes(name)));
     assert.ok(agent?.includes("propose_alignment"));
     assert.ok(agent?.includes("create_document") && planner?.includes("create_document"));
@@ -149,9 +152,9 @@ describe("mcp", () => {
     assert.ok(agent?.includes("whoami"));
     assert.deepEqual(agent?.filter((name) => PLANNER_ONLY.includes(name)), []);
     assert.ok(agent?.includes("record_figure") && agent.includes("report_activity"));
-    assert.equal(integration?.length, 21);
+    assert.equal(integration?.length, 22);
     assert.ok(integration?.includes("add_source") && !integration.includes("record_figure"));
-    assert.equal(viewer?.length, 20);
+    assert.equal(viewer?.length, 21);
     assert.ok(viewer?.includes("list_layers") && !viewer.includes("overlay"));
     assert.ok(viewer?.includes("read_page") && !viewer.includes("add_source"));
     for (const names of [planner, agent, integration, viewer]) assert.ok(names?.includes("search_sources"));

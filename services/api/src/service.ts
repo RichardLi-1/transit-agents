@@ -453,8 +453,14 @@ export class Service {
 
     if (basis.kind === "computed") {
       if (input.value === undefined) throw new ApiError(422, "missing_value", "A computed figure needs a value");
+      // The version is the skill's content hash, which the agent's loader computed
+      // from the files it ran. Only one a planner approved for this skill counts.
       if (!this.state.skills.get(basis.skill)?.has(basis.version)) {
-        throw new ApiError(422, "unregistered_skill", `Skill "${basis.skill}" version ${basis.version} has not been approved`);
+        throw new ApiError(
+          422,
+          "unregistered_skill",
+          `Skill "${basis.skill}" version ${basis.version} has not been approved. A planner approves a skill's content hash with PUT /v1/skills/${basis.skill}`,
+        );
       }
       for (const dependency of basis.inputs) this.requireInput(study, dependency);
       this.rejectCycles(study, input.id, basis);
@@ -723,6 +729,12 @@ export class Service {
   }
 
   // --- Skills and removal ---------------------------------------------------
+
+  // Each skill's approved content hashes. Agents load a skill only while its folder
+  // hashes to one of these.
+  approvedSkills(): { approved: Record<string, string[]> } {
+    return { approved: Object.fromEntries([...this.state.skills].map(([name, versions]) => [name, [...versions]])) };
+  }
 
   registerSkill(actor: string, name: string, input: { version: string; description: string }) {
     if (this.audience) throw sharedOnly("Skills are approved");

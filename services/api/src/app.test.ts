@@ -23,6 +23,9 @@ const TOKENS = new Map<string, Actor>([
 ]);
 
 const GUEST_SECRET = "a-guest-secret-of-at-least-32-characters";
+// Two skill versions: content hashes, as agents/skills.py computes them.
+const HASH_A = "a".repeat(64);
+const HASH_B = "b".repeat(64);
 
 type Setup = {
   access?: AccessMode;
@@ -117,16 +120,32 @@ describe("roles", () => {
 
   it("lets only a planner rate consultation, approve a skill or accept a result", async () => {
     const { call } = setup();
-    assert.equal((await call("PUT", "/v1/skills/r5", "agent-token", { version: "1" })).status, 403);
-    assert.equal((await call("PUT", "/v1/skills/r5", "planner-token", { version: "1" })).status, 201);
+    assert.equal((await call("PUT", "/v1/skills/r5", "agent-token", { version: HASH_A })).status, 403);
+    assert.equal((await call("PUT", "/v1/skills/r5", "integration-token", { version: HASH_A })).status, 403);
+    assert.equal((await call("PUT", "/v1/skills/r5", "planner-token", { version: HASH_A })).status, 201);
     await call("POST", "/v1/studies", "agent-token", STUDY);
     assert.equal((await call("PUT", "/v1/studies/lawrence/findings/f/tone", "agent-token", { tone: "positive" })).status, 403);
     assert.equal((await call("POST", "/v1/studies/lawrence/figures/f/accept", "agent-token")).status, 403);
   });
 
+  it("approves only a skill's content hash, and lists the approved ones for anyone who reads", async () => {
+    const { call } = setup();
+    // A label, such as a version number a script could report for itself, isn't a hash.
+    for (const version of ["1", "1.0.0", HASH_A.slice(0, 12), HASH_A.toUpperCase()]) {
+      assert.equal((await call("PUT", "/v1/skills/r5", "planner-token", { version })).status, 400, version);
+    }
+    assert.deepEqual(await (await call("GET", "/v1/skills", "agent-token")).json(), { approved: {} });
+    assert.equal((await call("PUT", "/v1/skills/r5", "planner-token", { version: HASH_A })).status, 201);
+    assert.equal((await call("PUT", "/v1/skills/r5", "planner-token", { version: HASH_B })).status, 201);
+    assert.equal((await call("PUT", "/v1/skills/gis", "planner-token", { version: HASH_A })).status, 201);
+    for (const token of ["agent-token", "viewer-token", "planner-token"]) {
+      assert.deepEqual(await (await call("GET", "/v1/skills", token)).json(), { approved: { r5: [HASH_A, HASH_B], gis: [HASH_A] } });
+    }
+  });
+
   it("lets an agent put a skill version forward, which approves nothing until a planner does", async () => {
     const { call, service } = setup();
-    const candidate = { version: "b2c3", parent: "a1b2", summary: "Hands over split consultation", dev: { candidate: { passed: 4, total: 5 }, parent: { passed: 3, total: 5 } } };
+    const candidate = { version: HASH_B, parent: HASH_A, summary: "Hands over split consultation", dev: { candidate: { passed: 4, total: 5 }, parent: { passed: 3, total: 5 } } };
     const proposed = await call("POST", "/v1/skills/consultation/candidates", "agent-token", candidate);
     assert.equal(proposed.status, 201);
     assert.equal((await proposed.json()).approved, false);
@@ -134,15 +153,15 @@ describe("roles", () => {
     assert.equal(entry?.type, "skill.proposed");
     assert.equal(entry?.actor, "agent:lead");
     assert.deepEqual(entry?.data, { name: "consultation", ...candidate });
-    assert.equal(service.state.skills.get("consultation")?.has("b2c3"), undefined);
+    assert.equal(service.state.skills.get("consultation")?.has(HASH_B), undefined);
     // Proposing again is no way round: only a planner's PUT approves it.
-    assert.equal((await call("PUT", "/v1/skills/consultation", "agent-token", { version: "b2c3" })).status, 403);
-    assert.equal((await call("PUT", "/v1/skills/consultation", "planner-token", { version: "b2c3" })).status, 201);
-    assert.equal(service.state.skills.get("consultation")?.has("b2c3"), true);
+    assert.equal((await call("PUT", "/v1/skills/consultation", "agent-token", { version: HASH_B })).status, 403);
+    assert.equal((await call("PUT", "/v1/skills/consultation", "planner-token", { version: HASH_B })).status, 201);
+    assert.equal(service.state.skills.get("consultation")?.has(HASH_B), true);
     // Planners and integrations approve or add; they don't put a version forward here.
     assert.equal((await call("POST", "/v1/skills/consultation/candidates", "planner-token", candidate)).status, 403);
     assert.equal((await call("POST", "/v1/skills/consultation/candidates", "integration-token", candidate)).status, 403);
-    assert.equal((await call("POST", "/v1/skills/consultation/candidates", "agent-token", { ...candidate, version: "a1b2" })).status, 422);
+    assert.equal((await call("POST", "/v1/skills/consultation/candidates", "agent-token", { ...candidate, version: HASH_A })).status, 422);
   });
 
   it("names the open planner after PLANNER_NAME, so the presenter's decisions carry their name", async () => {
@@ -1314,7 +1333,7 @@ describe("visitors", () => {
       upload: await app.request("/v1/studies/lawrence/needs/poster/media", { method: "POST", headers: { authorization: `Bearer ${a}` }, body: new FormData() }),
       dismiss: await call("POST", "/v1/studies/lawrence/needs/poster/dismiss", a, { reason: "Not wanted" }),
       withdraw: await call("POST", `/v1/studies/lawrence/needs/poster/media/${"0".repeat(64)}/withdraw`, a, { reason: "Not wanted" }),
-      skill: await call("PUT", "/v1/skills/r5", a, { version: "1" }),
+      skill: await call("PUT", "/v1/skills/r5", a, { version: HASH_A }),
       subscription: await call("POST", "/v1/subscriptions", a, { url: "https://hook.test/x" }),
       removal: await call("POST", `/v1/log/${head.seq}/remove-content`, a, { reason: "Privacy request" }),
     };

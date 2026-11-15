@@ -156,15 +156,28 @@ describe("Service", () => {
   });
 
   describe("computed figures", () => {
-    const computed = NewFigure.parse({ id: "travel-time", label: "Travel time", value: 12, basis: { kind: "computed", skill: "travel-time-compare", version: "1.0.0", inputs: [{ assumption: "ridership-realised" }] } });
+    const version = createHash("sha256").update("travel-time-compare's folder").digest("hex");
+    const computed = NewFigure.parse({ id: "travel-time", label: "Travel time", value: 12, basis: { kind: "computed", skill: "travel-time-compare", version, inputs: [{ assumption: "ridership-realised" }] } });
     const check = NewCheck.parse({ id: "tt", label: "Travel time", figure: "travel-time", op: "<", threshold: { assumption: "max-minutes" } });
     const approve = () => {
-      service.registerSkill("planner:ana", "travel-time-compare", { version: "1.0.0", description: "r5py before and after" });
+      service.registerSkill("planner:ana", "travel-time-compare", { version, description: "r5py before and after" });
       service.setAssumption("planner:ana", "max-minutes", NewAssumption.parse({ value: 20, reason: "Target" }));
     };
 
     it("need an approved skill version", () => {
       rejects(() => service.addFigure("agent:a", "lawrence", computed), "unregistered_skill");
+    });
+
+    it("need the content hash approved for that skill, never a label or another skill's", () => {
+      // A self-reported version string isn't a content hash, so it never reaches the check.
+      assert.equal(NewFigure.safeParse({ ...computed, basis: { ...computed.basis, version: "1.0.0" } }).success, false);
+      assert.equal(NewFigure.safeParse({ ...computed, basis: { ...computed.basis, version: version.slice(0, 12) } }).success, false);
+      service.registerSkill("planner:ana", "other-skill", { version, description: "Another skill" });
+      rejects(() => service.addFigure("agent:a", "lawrence", computed), "unregistered_skill");
+      service.registerSkill("planner:ana", "travel-time-compare", { version: "f".repeat(64), description: "Another version" });
+      rejects(() => service.addFigure("agent:a", "lawrence", computed), "unregistered_skill");
+      approve();
+      assert.equal(service.addFigure("agent:a", "lawrence", computed).value, 12);
     });
 
     it("can't pass a check until a planner accepts them", () => {
@@ -705,7 +718,7 @@ describe("visitors", () => {
     const head = root.log.head().seq;
     rejects(() => view.openStudy("guest:a", NewStudy.parse({ id: "mine", title: "Mine" })), "shared_only");
     rejects(() => view.addContext("agent:lead", NewContext.parse({ id: "mine", title: "Mine", text: CANARY })), "shared_only");
-    rejects(() => view.registerSkill("agent:lead", "mine", { version: "1", description: "Mine" }), "shared_only");
+    rejects(() => view.registerSkill("agent:lead", "mine", { version: "a".repeat(64), description: "Mine" }), "shared_only");
     rejects(() => view.removeContent("agent:lead", seq, "Mine"), "shared_only");
     rejects(() => view.dismissNeed("guest:a", "lawrence", "poster", { reason: "Not wanted" }), "shared_only");
     rejects(() => view.withdrawMedia("guest:a", "lawrence", "poster", "f".repeat(64), { reason: "Not wanted" }), "shared_only");

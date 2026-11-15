@@ -292,9 +292,13 @@ export const TOOLS: Record<string, Spec> = {
     name: "set_rule",
     description: "Set or change a rule or assumption, with a reason. Planners, or a visitor in their own sandbox.",
   },
+  "GET /v1/skills": {
+    name: "list_approved_skills",
+    description: "Each skill's approved versions: the SHA-256 content hashes of its folder that a planner approved. The agents' own code loads only these.",
+  },
   "PUT /v1/skills/:name": {
     name: "approve_skill",
-    description: "Approve a skill version, so its results can enter studies. Planners only.",
+    description: "Approve a skill version, its folder's SHA-256 content hash, so agents may load it and its results can enter studies. Planners only.",
   },
   "POST /v1/log/:seq/remove-content": {
     name: "remove_content",
