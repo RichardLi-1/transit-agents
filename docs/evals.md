@@ -126,6 +126,8 @@ money, so the limit stays at 3 unless you raise it. Run the same cases again wit
 `--skill-dir DIR` runs with a candidate's SKILL.md, from the skill-evolution loop
 ([agents.md](agents.md#skill-evolution)), in place of its live skill's instructions,
 and each answer names the candidate, so its runs are never read as the live skill's.
+The evaluator ([agents.md](agents.md#evaluator)) runs a candidate's gate this way,
+3 times or more a side, then the test split, and alone posts the scores.
 
 - Each case runs on a throwaway service of its own, on a free port from 4175 to 4179 (set `EVAL_PORTS`, such as `4326-4330`, to use others), with the public sources and the inputs it needs, so no case can read what an earlier one found. Each is deleted once its case is done.
 - Cases run one at a time, each in its own study. The agent never sees a case's id or its inputs' file names, which could give the answer away: the study is `study-<n>`, and the inputs are `rules` and `document-<n>`. A case that names a source the service lacks is skipped: `ttc-standards-deck-2025` and `ttc-standards-note-2025` aren't seeded yet.

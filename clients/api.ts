@@ -3,7 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type ClientRole = "integration" | "agent" | "planner" | "viewer";
+export type ClientRole = "integration" | "agent" | "planner" | "viewer" | "evaluator";
 
 // Tokens come from TRANSIT_TOKEN_<ROLE>, or from the file the demo script writes
 // in the data folder.

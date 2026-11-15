@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import {
   evaluate,
+  GATE_RUNS,
   MEDIA_LABEL,
   MEDIA_MAX_BYTES,
   MEDIA_TYPES,
@@ -52,6 +53,7 @@ import type {
   NewNeed as NewNeedSchema,
   NewStudy as NewStudySchema,
   SkillCandidate as SkillCandidateSchema,
+  SkillScores as SkillScoresSchema,
   AreaRequest as AreaRequestSchema,
   BufferRequest as BufferRequestSchema,
   OverlayRequest as OverlayRequestSchema,
@@ -757,12 +759,50 @@ export class Service {
   // A planner approves a version: it becomes the skill's current one, replacing the
   // one before, which no agent loads any more. Rolling back is approving the parent's
   // hash again.
+  // When the version is a candidate an agent put forward, the approval's entry names
+  // the proposal and carries the evaluator's scores for it, or null if none were posted,
+  // so the log shows what the planner approved it on.
   registerSkill(actor: string, name: string, input: { version: string; description: string }) {
     if (this.audience) throw sharedOnly("Skills are approved");
     checkSkillName(name);
     const previous = this.state.skills.get(name) ?? null;
-    this.commit({ actor, type: "skill.registered", data: { name, ...input, previous } });
-    return { name, version: input.version, previous };
+    const candidate = this.state.candidates.get(name)?.get(input.version);
+    const review = candidate
+      ? {
+          proposal: { seq: candidate.seq, parent: candidate.parent },
+          evaluation: candidate.evaluation ? { seq: candidate.evaluation.seq, by: candidate.evaluation.by, ...candidate.evaluation.scores } : null,
+        }
+      : {};
+    this.commit({ actor, type: "skill.registered", data: { name, ...input, previous, ...review } });
+    return { name, version: input.version, previous, ...review };
+  }
+
+  // The evaluator, the process holding the test split, posts a candidate's scores and
+  // its gate's verdict. Only a candidate put forward can be scored, against the parent
+  // it was put forward with, and the verdict must follow from the numbers: each mean is
+  // its runs' mean, over GATE_RUNS runs or more on each side, and the gate passes only
+  // if the candidate's dev mean is no lower than its parent's and it lost no safety case.
+  scoreSkill(actor: string, name: string, version: string, input: z.output<typeof SkillScoresSchema>) {
+    if (this.audience) throw sharedOnly("Skills are scored");
+    checkSkillName(name);
+    const candidate = this.state.candidates.get(name)?.get(version);
+    if (!candidate) throw new ApiError(404, "not_found", `No candidate ${version} of skill "${name}" was put forward`);
+    if (input.parent !== candidate.parent) {
+      throw new ApiError(422, "wrong_parent", `Candidate ${version} was put forward with parent ${candidate.parent}, not ${input.parent}`);
+    }
+    const sides = [input.dev.candidate, input.dev.parent, ...(input.test ? [input.test.candidate, input.test.parent] : [])];
+    for (const side of sides) {
+      const mean = side.runs.reduce((sum, run) => sum + run, 0) / side.runs.length;
+      if (Math.abs(mean - side.mean) > 1e-9) throw new ApiError(422, "bad_mean", `A mean of ${side.mean} isn't its runs' mean, ${mean}`);
+    }
+    const runs = Math.min(input.dev.candidate.runs.length, input.dev.parent.runs.length);
+    const passes = runs >= GATE_RUNS && input.dev.candidate.mean >= input.dev.parent.mean && input.safety.lost.length === 0;
+    if (input.gate.passed !== passes) {
+      throw new ApiError(422, "bad_verdict", `The gate ${passes ? "passes" : "fails"} on these numbers: ${GATE_RUNS} runs or more a side, a dev mean no lower than the parent's, and no safety case lost`);
+    }
+    if (input.test && !passes) throw new ApiError(422, "test_before_gate", "Test cases are scored only once the gate passes");
+    const entry = this.commit({ actor, type: "skill.evaluated", data: { name, version, ...input } });
+    return { name, version, seq: entry.seq, gate: input.gate };
   }
 
   // A planner withdraws a skill's current version. No agent loads the skill, and no

@@ -54,11 +54,29 @@ const chosen =
         return [{ name: first as string, hash, files: skillFiles(folder) }];
       })();
 
+type Side = { mean: number; runs: number[]; cases: number };
+type Evaluation = { seq: number; by: string; dev: { candidate: Side; parent: Side }; safety: { cases: number; lost: string[] }; test?: { candidate: Side; parent: Side }; gate: { passed: boolean; why: string } };
+type Approval = { previous: string | null; proposal?: { seq: number; parent: string }; evaluation?: Evaluation | null };
+
+const pct = (side: Side) => `${Math.round(100 * side.mean)}%`;
+
+// What the log now holds beside the approval: the proposal and the evaluator's scores.
+function review({ proposal, evaluation }: Approval): string[] {
+  if (!proposal) return [];
+  if (!evaluation) return [`  Put forward at log entry ${proposal.seq}, with no evaluator's scores: none were posted.`];
+  const { dev, safety, test, gate } = evaluation;
+  return [
+    `  Put forward at log entry ${proposal.seq}; scored by ${evaluation.by} at ${evaluation.seq}: the gate ${gate.passed ? "passed" : "failed"}, ${gate.why}.`,
+    `  Dev: ${pct(dev.candidate)} against the parent's ${pct(dev.parent)}, over ${dev.candidate.runs.length} runs of ${dev.candidate.cases} cases. Safety cases lost: ${safety.lost.join(", ") || "none"} of ${safety.cases}.`,
+    ...(test ? [`  Test, for the record: ${pct(test.candidate)} against the parent's ${pct(test.parent)}.`] : []),
+  ];
+}
+
 for (const { name, hash, files } of chosen) {
-  const { previous } = await planner.put<{ previous: string | null }>(`/v1/skills/${name}`, {
+  const approval = await planner.put<Approval>(`/v1/skills/${name}`, {
     version: hash,
     description: `Approved by ${me.name} after review`,
   });
-  const replaced = previous && previous !== hash ? `, in place of ${short(previous)}` : "";
-  console.log(`Approved ${name} ${hash}${replaced}: ${files.join(", ")}`);
+  const replaced = approval.previous && approval.previous !== hash ? `, in place of ${short(approval.previous)}` : "";
+  console.log([`Approved ${name} ${hash}${replaced}: ${files.join(", ")}`, ...review(approval)].join("\n"));
 }

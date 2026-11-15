@@ -1,5 +1,6 @@
-"""The skill-evolution loop: a model proposes a better version of one skill's
-instructions, the eval set tests it beside the live one, and a planner decides.
+"""The skill-evolution loop's proposer: a model proposes a better version of one skill's
+instructions, and puts it forward. It runs no evaluation and posts no scores: the
+evaluator does that (agents/evaluate.py), and a planner decides.
 
     python agents/main.py evolve <skill> [--dry-run]
 
@@ -7,27 +8,25 @@ instructions, the eval set tests it beside the live one, and a planner decides.
    scored by evals/score-run.ts, and planners' corrections in the service's shared
    record: figures and findings the service refused from a specialist using the skill,
    and, in studies where it was used, findings a planner rated otherwise and decisions
-   recorded as overrides. Test cases never reach the proposer, nor do their answers.
+   recorded as overrides. Test cases never reach the proposer, nor do their answers,
+   and the private test split (EVAL_PRIVATE_DIR) is never read here.
 2. Proposal. One model call with no tools, EVOLVE_MODEL, writes a new SKILL.md. It goes
    to agents/skill-candidates/<skill>/<version>/, never over the live skill, with
    lineage.json (the parent's version, the model and the signals) and changes.diff.
    Only the instructions change: the skill's scripts are code a planner approved.
-3. Gate. The skill's dev cases run with the live skill, then with the candidate
-   (python agents/main.py eval --skill-dir). The candidate passes only if it passes as
-   many as the live skill, and every case the live skill passed by refusing, flagging
-   or abstaining.
-4. Test. Only a candidate that passed runs the test cases, beside the live skill, for
-   the record. Their counts go in lineage.json and to the service, never to a proposer.
-5. Put forward. POST /v1/skills/<skill>/candidates logs it for a planner. Only a
-   planner approves it, with PUT /v1/skills/<skill>, which an agent's token can't
-   call, and only a person copies its SKILL.md into agents/skills/. --dry-run writes
-   nothing to the service.
+3. Put forward. POST /v1/skills/<skill>/candidates, with an agent's token, logs the
+   candidate's content hash, its parent's, the diff and the typed signals: no scores.
+   --dry-run writes nothing to the service.
+4. Then, apart from this process: the evaluator runs the gate and the test split and
+   posts the scores (python agents/main.py evaluate-candidate <skill> <hash>), and a
+   planner approves it, or not, with PUT /v1/skills/<skill>, which an agent's token
+   can't call. Only a person copies its SKILL.md into agents/skills/.
 
 A version is the SHA-256 of the skill's folder (skills.skill_hash). A candidate's is the
 live folder's with the candidate's SKILL.md in its place (skills.with_instructions), so
 a planner who approves it approves exactly that content, and the agents load it once
 its SKILL.md is copied in. Settings: EVOLVE_MODEL (default qwen3.5:9b, on this machine,
-as the other agents), and those of the eval runner.
+as the other agents).
 """
 
 import argparse
@@ -40,7 +39,6 @@ import sys
 import urllib.error
 import urllib.request
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -69,9 +67,6 @@ SCORE_RUN = ROOT / "evals" / "score-run.ts"
 
 # A run file's name: the UTC time it started, as score-run.ts's latestRun reads it.
 RUN_NAME = re.compile(r"^\d{8}T\d{6}Z.*\.jsonl$")
-
-# Behaviours a candidate may never lose: a case the live skill passed by one of these.
-HAND_OVERS = ("refuse", "flag", "abstain")
 
 # How much of the signals the proposer gets: each answer cut to this many characters,
 # and the latest corrections only.
@@ -277,70 +272,12 @@ def parse_candidate(reply: str, name: str) -> str:
     return text + "\n"
 
 
-# --- The gate ----------------------------------------------------------------------
-
-# Runs the named cases with the live skills (None) or a candidate's folder, keeping the
-# run in a folder, and gives each case's result: True, False, or None for a rubric case.
-EvalRunner = Callable[[list[str], Path | None, Path], dict[str, bool | None]]
-
-
-def run_eval(ids: list[str], skill_dir: Path | None, folder: Path) -> dict[str, bool | None]:
-    """Run the cases with the eval runner, as python agents/main.py eval does, and score them."""
-    if not ids:
-        return {}
-    folder.mkdir(parents=True, exist_ok=True)
-    args = [*(part for name in ids for part in ("--case", name)), "--limit", str(len(ids))]
-    if skill_dir is not None:
-        args += ["--skill-dir", str(skill_dir)]
-    status = evals.main(args, runs=folder)
-    files = sorted(path for path in folder.glob("*.jsonl") if RUN_NAME.match(path.name))
-    if status or not files:
-        raise SetupError(f"The eval run in {folder} stopped before its end, so the gate can't compare it. Its output says why.")
-    rows = score_run(files[-1])
-    return {name: rows[name]["passed"] for name in ids if name in rows}
-
-
-@dataclass
-class Gate:
-    candidate: int  # dev cases passed
-    parent: int
-    total: int  # scored by script in either run
-    lost: list[str]  # refuse, flag or abstain cases the live skill passed and the candidate didn't
-    passed: bool
-    why: str
-
-
-def gate(
-    cases: dict[str, dict[str, Any]], parent: dict[str, bool | None], candidate: dict[str, bool | None]
-) -> Gate:
-    """Whether the candidate does at least as well as the live skill on the dev cases, and
-    loses none it passed by refusing, flagging or abstaining. A case the candidate's run
-    lacks counts as failed."""
-    scored = sorted(name for name in cases if isinstance(parent.get(name), bool) or isinstance(candidate.get(name), bool))
-    mine = sum(candidate.get(name) is True for name in scored)
-    theirs = sum(parent.get(name) is True for name in scored)
-    lost = [
-        name
-        for name in scored
-        if cases[name]["expect"]["behaviour"] in HAND_OVERS and parent.get(name) is True and candidate.get(name) is not True
-    ]
-    if not scored:
-        why = "no dev case was scored, so nothing shows it does as well"
-    elif mine < theirs:
-        why = f"it passed {mine} of {len(scored)} dev cases, fewer than the live skill's {theirs}"
-    elif lost:
-        why = f"it lost {', '.join(lost)}, which the live skill passed by refusing, flagging or abstaining"
-    else:
-        why = f"it passed {mine} of {len(scored)} dev cases, against the live skill's {theirs}, and lost no refusal or hand-over"
-    return Gate(mine, theirs, len(scored), lost, bool(scored) and mine >= theirs and not lost, why)
-
-
 # --- The service ---------------------------------------------------------------------
 
 
 class ServiceApi:
     """The service, as an agent: it reads the shared record's log and puts a candidate
-    forward. Its token can't approve one."""
+    forward. Its token can't approve one, nor post scores."""
 
     def __init__(self, url: str | None = None, token: str | None = None):
         self.url = (url or config().service_url).rstrip("/")
@@ -376,10 +313,20 @@ class ServiceApi:
 
 # --- The loop --------------------------------------------------------------------------
 
+# The fields of a correction that go to the service: what kind it is and where, never
+# the service's or a planner's words.
+TYPED = ("kind", "study", "tool", "finding", "proposed", "rated", "outcome")
 
-def _counts(results: dict[str, bool | None]) -> dict[str, int]:
-    scored = [passed for passed in results.values() if isinstance(passed, bool)]
-    return {"passed": sum(scored), "total": len(scored)}
+
+def typed_signals(failures: list[dict[str, Any]], fixes: list[dict[str, Any]]) -> dict[str, Any]:
+    """The signals as the service takes them: each failed dev case's id and the scorer's
+    reasons, and each correction's kind and where it was. No answer text."""
+    return {
+        "failures": [{"case": failure["id"], "why": [clip(str(why), 300) for why in failure["why"]][:20]} for failure in failures],
+        "corrections": [
+            {key: clip(str(fix[key]), 100) for key in TYPED if fix.get(key) is not None} for fix in fixes
+        ],
+    }
 
 
 def _plural(n: int, one: str, many: str | None = None) -> str:
@@ -395,7 +342,6 @@ def evolve(
     *,
     dry_run: bool = False,
     proposer: Proposer = propose_with_model,
-    eval_runner: EvalRunner = run_eval,
     service: ServiceApi | None = None,
     cases: list[dict[str, Any]] | None = None,
     runs: Path = RUNS,
@@ -406,7 +352,8 @@ def evolve(
 ) -> Path | None:
     """One turn of the loop for one skill. Returns the candidate's folder, or None when
     there was nothing to improve. Without `service`, as in a dry run with no service,
-    planners' corrections are left out; a real run needs one, to put a candidate forward."""
+    planners' corrections are left out; a real run needs one, to put a candidate forward.
+    It runs no eval case and posts no scores: the evaluator does both."""
     try:
         live = load_skill(skill, skills_root)
     except SkillError as error:
@@ -415,6 +362,7 @@ def evolve(
         raise SetupError(f"Candidates can't go in {skills_root}: the lead would take them for live skills.")
     if service is None and not dry_run:
         raise SetupError("A run that may put a candidate forward needs the service. Use --dry-run to try without it.")
+    # The committed cases only: the private test split is the evaluator's alone.
     cases = evals.load_cases() if cases is None else cases
     parent_text = (live.folder / "SKILL.md").read_text(encoding="utf-8")
     parent = live.hash
@@ -447,13 +395,15 @@ def evolve(
     folder = candidates / skill / short(mine)
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "SKILL.md").write_text(text, encoding="utf-8")
-    diff = difflib.unified_diff(
-        parent_text.splitlines(keepends=True),
-        text.splitlines(keepends=True),
-        fromfile=f"agents/skills/{skill}/SKILL.md ({short(parent)})",
-        tofile=f"candidate ({short(mine)})",
+    diff = "".join(
+        difflib.unified_diff(
+            parent_text.splitlines(keepends=True),
+            text.splitlines(keepends=True),
+            fromfile=f"agents/skills/{skill}/SKILL.md ({short(parent)})",
+            tofile=f"candidate ({short(mine)})",
+        )
     )
-    (folder / "changes.diff").write_text("".join(diff), encoding="utf-8")
+    (folder / "changes.diff").write_text(diff, encoding="utf-8")
     lineage: dict[str, Any] = {
         "skill": skill,
         "version": mine,
@@ -466,38 +416,13 @@ def evolve(
     shown = folder.relative_to(ROOT) if folder.is_relative_to(ROOT) else folder
     say(f"Candidate {short(mine)} is in {shown}: SKILL.md, changes.diff and lineage.json.")
 
-    dev = dev_cases(cases, skill)
-    ids = sorted(dev)
-    say(f"Gate: {_plural(len(ids), 'dev case')} with the live skill, then with the candidate.")
-    before = eval_runner(ids, None, folder / "runs" / "dev-live")
-    after = eval_runner(ids, folder, folder / "runs" / "dev-candidate")
-    result = gate(dev, before, after)
-    lineage["gate"] = {**asdict(result), "cases": {"live": before, "candidate": after}}
-    _save(folder, lineage)
-    if not result.passed:
-        say(f"Not put forward: {result.why}.")
-        return folder
-    say(f"Passed the gate: {result.why}.")
-
-    tests = sorted(case["id"] for case in cases if case.get("skill") == skill and case.get("split") == "test")
-    report: dict[str, Any] = {
-        "candidate": {"passed": result.candidate, "total": result.total},
-        "parent": {"passed": result.parent, "total": result.total},
+    body: dict[str, Any] = {
+        "version": mine,
+        "parent": parent,
+        "summary": clip(f"From {_plural(len(failures), 'failed dev case')} and {_plural(len(fixes), 'correction')}.", 400),
+        "diff": clip(diff, 100_000),
+        "signals": typed_signals(failures, fixes),
     }
-    body: dict[str, Any] = {"version": mine, "parent": parent, "dev": report}
-    if tests:
-        # For the record only: nothing from these runs reaches a proposer.
-        held = {"candidate": _counts(eval_runner(tests, folder, folder / "runs" / "test-candidate"))}
-        held["parent"] = _counts(eval_runner(tests, None, folder / "runs" / "test-live"))
-        lineage["test"] = body["test"] = held
-        _save(folder, lineage)
-        c, p = held["candidate"], held["parent"]
-        say(f"Test cases, for the record: the candidate passed {c['passed']} of {c['total']}, the live skill {p['passed']} of {p['total']}.")
-    body["summary"] = clip(
-        f"From {_plural(len(failures), 'failed dev case')} and {_plural(len(fixes), 'correction')}. "
-        f"Dev: {result.candidate} of {result.total}, against the live skill's {result.parent}.",
-        400,
-    )
     if dry_run:
         say("Dry run: not put forward.")
         return folder
@@ -506,8 +431,9 @@ def evolve(
     lineage["submitted"] = {"seq": answer.get("seq"), "at": datetime.now(UTC).isoformat(timespec="seconds")}
     _save(folder, lineage)
     say(
-        f"Put forward for a planner to approve. A planner reviews it, copies its SKILL.md into agents/skills/{skill}/ "
-        f"and approves exactly that content: npm run approve-skill -- {skill} {mine}"
+        f"Put forward, with no scores. Next, the evaluator runs its gate and the test split and posts the scores: "
+        f"python agents/main.py evaluate-candidate {skill} {mine}. Then a planner reviews the diff beside them, copies its "
+        f"SKILL.md into agents/skills/{skill}/ and approves exactly that content: npm run approve-skill -- {skill} {mine}"
     )
     return folder
 
@@ -515,19 +441,17 @@ def evolve(
 def parse_args(args: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="python agents/main.py evolve",
-        description="Propose a better version of one skill's instructions, test it beside the live one, "
-        "and put it forward for a planner to approve.",
+        description="Propose a better version of one skill's instructions and put it forward, for the evaluator "
+        "to score and a planner to approve.",
     )
     parser.add_argument("skill", help="the skill's name, a folder in agents/skills")
-    parser.add_argument(
-        "--dry-run", action="store_true", help="propose and test a candidate, but write nothing to the service"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="propose a candidate, but write nothing to the service")
     return parser.parse_args(args)
 
 
 def main(args: list[str], **given: Any) -> int:
     """Run the loop for the skill the arguments name. Returns the exit status. Tests pass
-    fakes for evolve's own arguments, such as the proposer and the eval runner."""
+    fakes for evolve's own arguments, such as the proposer and the service."""
     options = parse_args(args)
     try:
         if "service" not in given:

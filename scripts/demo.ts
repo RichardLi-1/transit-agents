@@ -35,6 +35,9 @@ const clients = [
   { key: "slack", role: "planner", name: "slack" },
   // The chat's computer use, which posts what the simulator run did.
   { key: "computer", role: "agent", name: "computer" },
+  // agents/evaluate.py, which alone posts a skill candidate's scores. On this one
+  // machine its token sits in the same folder as the agents'.
+  { key: "evaluator", role: "evaluator", name: "evaluator" },
 ];
 const tokens: Record<string, string> = Object.fromEntries(clients.map(({ key }) => [key, randomBytes(18).toString("base64url")]));
 mkdirSync(data, { recursive: true });

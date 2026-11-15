@@ -48,6 +48,7 @@ import {
   NewStudy,
   SkillCandidate,
   SkillRevocation,
+  SkillScores,
   NewSubscription,
   AUDIENCE,
   ON_BEHALF_OF,
@@ -149,7 +150,7 @@ const ANONYMOUS: Record<AccessMode, Actor | undefined> = {
   demo: { role: "viewer", name: "demo" },
 };
 
-const anyone: Role[] = ["viewer", "integration", "agent", "planner", "guest"];
+const anyone: Role[] = ["viewer", "integration", "agent", "planner", "guest", "evaluator"];
 const contributors: Role[] = ["integration", "agent", "planner"];
 const authors: Role[] = ["agent", "planner"];
 const planners: Role[] = ["planner"];
@@ -159,6 +160,8 @@ const agents: Role[] = ["agent"];
 const people: Role[] = ["planner", "guest"];
 // Agents can't create subscriptions: one could otherwise send the log anywhere.
 const integrators: Role[] = ["integration", "planner"];
+// The process holding the test split, which alone posts a skill candidate's scores.
+const evaluators: Role[] = ["evaluator"];
 
 // Bodies are read only up to a limit, so nobody can make the service hold a huge
 // one. Context can be a whole document, so a contributor gets more room for it.
@@ -1186,10 +1189,21 @@ export function createApp(options: AppOptions) {
     {
       method: "post",
       path: "/v1/skills/:name/candidates",
-      summary: "Put a skill version forward for a planner's approval, once it has passed its gate. It approves nothing. Agents only",
+      summary:
+        "Put a skill version forward: its content hash, its parent's, the diff and the typed signals it came from. It carries no scores and approves nothing. Agents only",
       roles: agents,
       body: SkillCandidate,
       handler: async (c) => c.json(view(c).proposeSkill(actorName(c), c.req.param("name") as string, await bodyOf(c, SkillCandidate)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/skills/:name/candidates/:version/scores",
+      summary:
+        "Post a candidate's scores and its gate's verdict: dev means over 3 runs or more against its parent's, the safety cases it lost, and the test split once the gate passed. The evaluator only, never an agent or a planner",
+      roles: evaluators,
+      body: SkillScores,
+      handler: async (c) =>
+        c.json(view(c).scoreSkill(actorName(c), c.req.param("name") as string, c.req.param("version") as string, await bodyOf(c, SkillScores)), 201),
     },
     {
       method: "post",

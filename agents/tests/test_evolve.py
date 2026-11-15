@@ -1,6 +1,6 @@
-"""Tests for the skill-evolution loop, with a fake proposer, a fake eval runner and a
-fake service. No model is called, and no service or eval run is started; one test
-scores a run file with evals/score-run.ts, as the loop does."""
+"""Tests for the skill-evolution loop's proposer, with a fake proposer and a fake service.
+No model is called, and no service or eval run is started; one test scores a run file
+with evals/score-run.ts, as the loop does. The gate is the evaluator's: test_evaluate.py."""
 
 import contextlib
 import inspect
@@ -9,6 +9,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import evals
 import evolve
@@ -83,24 +84,14 @@ class LoopTest(unittest.TestCase):
         self.prompts = []
         self.events = []  # what happened, in order
         self.service = FakeService()
-        # The candidate passes dev-1 too, and keeps the refusal.
-        self.results = {
-            "live": {"dev-1": False, "dev-2": True, "dev-3": True, "test-1": True},
-            "candidate": {"dev-1": True, "dev-2": True, "dev-3": True, "test-1": False},
-        }
         self.scored = []
+        # The proposer runs no eval case: the evaluator does.
+        self.enterContext(mock.patch.object(evals, "main", side_effect=AssertionError("the evolver ran an eval")))
 
     async def propose(self, text):
         self.prompts.append(text)
         self.events.append("proposed")
         return CANDIDATE, {"model": "fake-model", "inputTokens": 10, "outputTokens": 20}
-
-    def eval_runner(self, ids, skill_dir, folder):
-        who = "live" if skill_dir is None else "candidate"
-        if skill_dir is not None:
-            self.assertEqual((skill_dir / "SKILL.md").read_text(), CANDIDATE)
-        self.events.append((who, tuple(ids), folder.name))
-        return {name: self.results[who][name] for name in ids if name in self.results[who]}
 
     def score(self, path):
         self.scored.append(path.name)
@@ -109,7 +100,6 @@ class LoopTest(unittest.TestCase):
     def evolve(self, **given):
         options = {
             "proposer": self.propose,
-            "eval_runner": self.eval_runner,
             "service": self.service,
             "cases": CASES,
             "runs": self.runs,
@@ -131,9 +121,7 @@ class LoopTest(unittest.TestCase):
         self.assertEqual((self.skills / "triage" / "SKILL.md").read_text(), LIVE)
         self.assertEqual(sorted(path.name for path in (self.skills / "triage").iterdir()), ["SKILL.md", "tools.py"])
         self.assertFalse(folder.resolve().is_relative_to(self.skills.resolve()))
-        # The gate ran the live skill and the candidate on the same dev cases.
-        runs = [event for event in self.events if isinstance(event, tuple) and event[0] in ("live", "candidate")]
-        self.assertEqual(runs[:2], [("live", ("dev-1", "dev-2", "dev-3"), "dev-live"), ("candidate", ("dev-1", "dev-2", "dev-3"), "dev-candidate")])
+        self.assertEqual(sorted(path.name for path in folder.iterdir()), ["SKILL.md", "changes.diff", "lineage.json"])
 
     def test_candidates_cant_go_among_the_live_skills(self):
         with self.assertRaisesRegex(evolve.SetupError, "the lead would take them for live skills"):
@@ -150,30 +138,13 @@ class LoopTest(unittest.TestCase):
             self.assertNotIn(secret, text)
         self.assertNotIn("other-1", text)  # another skill's case
         self.assertNotIn("dev-2", text)  # it passed
-        # The proposer is called before any test case runs, and only once.
-        tests = [n for n, event in enumerate(self.events) if isinstance(event, tuple) and "test-1" in event[1]]
-        self.assertTrue(tests)
-        self.assertLess(self.events.index("proposed"), min(tests))
         self.assertEqual(self.events.count("proposed"), 1)
         lineage = json.loads((self.candidates / "triage" / self.mine[:12] / "lineage.json").read_text())
-        self.assertNotIn("test-1", json.dumps(lineage["signals"]))
-        self.assertEqual(lineage["test"], {"candidate": {"passed": 0, "total": 1}, "parent": {"passed": 1, "total": 1}})
-
-    def test_a_regression_on_a_refuse_case_blocks_the_candidate(self):
-        # As many passes overall, but the refusal the live skill got right is lost.
-        self.results["candidate"] = {"dev-1": True, "dev-2": False, "dev-3": True}
-        folder = self.evolve()
-        self.assertEqual(self.service.proposed, [])
-        self.assertFalse(any(isinstance(event, tuple) and "test-1" in event[1] for event in self.events))
-        gate = json.loads((folder / "lineage.json").read_text())["gate"]
-        self.assertEqual((gate["passed"], gate["lost"], gate["candidate"], gate["parent"]), (False, ["dev-2"], 2, 2))
-        self.assertIn("Not put forward: it lost dev-2", self.said())
-
-    def test_fewer_dev_passes_block_the_candidate(self):
-        self.results["candidate"] = {"dev-1": False, "dev-2": True, "dev-3": False}
-        self.evolve()
-        self.assertEqual(self.service.proposed, [])
-        self.assertIn("it passed 1 of 3 dev cases, fewer than the live skill's 2", self.said())
+        [(_, body)] = self.service.proposed
+        for written in (json.dumps(lineage), json.dumps(body)):
+            for secret in ("test-1", "SECRET TEST", "4242"):
+                self.assertNotIn(secret, written)
+        self.assertNotIn("test", lineage)
 
     def test_records_lineage(self):
         self.service.entries = [
@@ -188,34 +159,48 @@ class LoopTest(unittest.TestCase):
         self.assertEqual(lineage["proposer"]["model"], "fake-model")
         self.assertEqual([failure["id"] for failure in lineage["signals"]["failures"]], ["dev-1"])
         self.assertEqual(lineage["signals"]["corrections"], [{"kind": "override", "study": "s", "outcome": "adopt", "reason": "Council asked"}])
-        self.assertEqual((lineage["gate"]["passed"], lineage["gate"]["candidate"], lineage["gate"]["parent"]), (True, 3, 2))
+        self.assertNotIn("gate", lineage)  # the evaluator's
         self.assertEqual(lineage["submitted"]["seq"], 99)
         diff = (folder / "changes.diff").read_text()
         self.assertIn(f"--- agents/skills/triage/SKILL.md ({self.parent[:12]})", diff)
         self.assertIn("-Sort the request.\n", diff)
         self.assertIn("+Sort the request, and cite each page.\n", diff)
 
-    def test_puts_a_passing_candidate_forward_for_a_planners_approval(self):
-        self.evolve()
+    def test_puts_the_candidate_forward_with_its_hash_diff_and_typed_signals_and_no_scores(self):
+        self.service.entries = [
+            {"seq": 1, "type": "activity", "actor": "agent:lead", "studyId": "s", "data": {"kind": "subagent.started", "id": "a", "question": "Q", "skill": "triage"}},
+            {"seq": 2, "type": "decision.recorded", "actor": "planner:ana", "studyId": "s", "data": {"outcome": "adopt", "reason": "Council asked", "override": True}},
+        ]
+        folder = self.evolve()
         [(skill, body)] = self.service.proposed
         self.assertEqual(skill, "triage")
+        self.assertEqual(sorted(body), ["diff", "parent", "signals", "summary", "version"])
         # Content hashes of the whole folder, scripts and all: approving the candidate's
         # approves exactly the live folder with its SKILL.md.
         self.assertEqual(body["version"], self.mine)
         self.assertEqual(body["parent"], self.parent)
         self.assertRegex(body["version"], r"^[0-9a-f]{64}$")
-        self.assertEqual(body["dev"], {"candidate": {"passed": 3, "total": 3}, "parent": {"passed": 2, "total": 3}})
-        self.assertEqual(body["test"]["candidate"], {"passed": 0, "total": 1})
+        self.assertEqual(body["diff"], (folder / "changes.diff").read_text())
+        # Typed: case ids and the scorer's reasons, and corrections by kind, with no
+        # answer text and no planner's words.
+        self.assertEqual(body["signals"], {"failures": [{"case": "dev-1", "why": ["missing: page"]}], "corrections": [{"kind": "override", "study": "s", "outcome": "adopt"}]})
+        self.assertNotIn("Sorted, with no page.", json.dumps(body))
+        self.assertNotIn("Council asked", json.dumps(body))
+        self.assertIn(f"python agents/main.py evaluate-candidate triage {self.mine}", self.said())
         self.assertIn(f"npm run approve-skill -- triage {self.mine}", self.said())
         (self.skills / "triage" / "SKILL.md").write_text(CANDIDATE)
         self.assertEqual(skills.skill_hash(self.skills / "triage"), self.mine)
 
-    def test_the_loop_has_no_way_to_approve_a_version(self):
+    def test_the_loop_has_no_way_to_approve_a_version_or_post_scores(self):
         # It reads the log and puts a candidate forward; approving is a planner's PUT,
-        # which the service refuses an agent's token (services/api/src/app.test.ts).
+        # and scores the evaluator's POST, which the service refuses an agent's token
+        # (services/api/src/app.test.ts).
         methods = {name for name, _ in inspect.getmembers(evolve.ServiceApi, inspect.isfunction)}
         self.assertEqual(methods, {"__init__", "_call", "log", "propose"})
-        self.assertNotIn('"PUT"', inspect.getsource(evolve.ServiceApi))
+        source = inspect.getsource(evolve)
+        self.assertNotIn('"PUT"', source)
+        self.assertNotIn("/scores", source)
+        self.assertNotIn("eval_runner", inspect.signature(evolve.evolve).parameters)
 
     def test_a_dry_run_makes_no_service_writes(self):
         folder = self.evolve(dry_run=True)
@@ -231,7 +216,6 @@ class LoopTest(unittest.TestCase):
                 ["triage", "--dry-run"],
                 service=None,
                 proposer=self.propose,
-                eval_runner=self.eval_runner,
                 cases=CASES,
                 runs=self.runs,
                 candidates=self.candidates,
@@ -343,16 +327,3 @@ class ParseTest(unittest.TestCase):
         for reply, said in (("Here is a better skill.", "can't be read"), ("---\nname: triage\n---\n", "no description")):
             with self.subTest(reply), self.assertRaisesRegex(evolve.EvolveError, said):
                 evolve.parse_candidate(reply, "triage")
-
-
-class GateTest(unittest.TestCase):
-    cases = {name: case(name, "dev", behaviour) for name, behaviour in (("a", "answer"), ("b", "flag"), ("c", "answer"), ("r", "answer"))}
-
-    def test_a_rubric_case_doesnt_count_and_a_missing_one_fails(self):
-        result = evolve.gate(self.cases, {"a": True, "b": True, "c": False, "r": None}, {"a": True, "b": True, "r": None})
-        self.assertEqual((result.candidate, result.parent, result.total, result.passed), (2, 2, 3, True))
-        result = evolve.gate(self.cases, {"a": True, "b": True}, {"a": True})
-        self.assertEqual((result.lost, result.passed), (["b"], False))
-
-    def test_nothing_scored_passes_nothing(self):
-        self.assertFalse(evolve.gate(self.cases, {}, {}).passed)

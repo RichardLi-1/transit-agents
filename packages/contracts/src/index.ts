@@ -14,8 +14,10 @@ const slug = z.string().regex(/^[a-z0-9][a-z0-9.-]{0,62}$/, "Use lowercase lette
 export const SkillHash = z.string().regex(/^[0-9a-f]{64}$/, "Give the skill folder's SHA-256: 64 lowercase hex digits");
 
 // A guest is a visitor with a guest pass, or someone signed in who isn't a planner.
-// It can do what a planner does, in its own sandbox, except decide.
-export const Role = z.enum(["viewer", "integration", "agent", "planner", "guest"]);
+// It can do what a planner does, in its own sandbox, except decide. An evaluator is
+// the process that holds the eval set's test split, not an agent: it reads, and only
+// it posts a skill candidate's scores.
+export const Role = z.enum(["viewer", "integration", "agent", "planner", "guest", "evaluator"]);
 export type Role = z.infer<typeof Role>;
 
 // What a request without a token may do. "token" refuses it. "demo", for a public
@@ -804,22 +806,73 @@ export const SkillRevocation = z.object({
 });
 export type SkillRevocation = z.input<typeof SkillRevocation>;
 
-// Cases a skill passed, of those scored, on one split.
-const Tally = z.object({ passed: z.number().int().nonnegative(), total: z.number().int().nonnegative() });
+// The typed signals a candidate was written from: the dev cases it failed, each with
+// the scorer's reasons, and corrections in the log, by kind. No answer text, and no
+// planner's words.
+const CandidateSignals = z
+  .object({
+    failures: z.array(z.object({ case: z.string().min(1).max(100), why: z.array(z.string().max(300)).max(20) }).strict()).max(200),
+    corrections: z
+      .array(
+        z
+          .object({
+            kind: z.enum(["refused", "tone", "override"]),
+            study: z.string().max(100),
+            tool: z.string().max(100).optional(),
+            finding: z.string().max(100).optional(),
+            proposed: z.string().max(40).optional(),
+            rated: z.string().max(40).optional(),
+            outcome: z.string().max(40).optional(),
+          })
+          .strict(),
+      )
+      .max(50),
+  })
+  .strict();
 
-// A skill version an agent puts forward once it has passed its gate (agents/evolve.py):
-// on the skill's dev cases, as good as its parent and losing no refusal or hand-over.
-// version and parent are content hashes of the skill's folder, with the candidate's
-// SKILL.md and with the live one. test is reported, never used to choose. Only a
-// planner approves a version, with NewSkill.
-export const SkillCandidate = z.object({
-  version: SkillHash,
-  parent: SkillHash,
-  summary: z.string().max(400).default(""),
-  dev: z.object({ candidate: Tally, parent: Tally }),
-  test: z.object({ candidate: Tally, parent: Tally }).optional(),
-});
+// A skill version an agent, the evolver (agents/evolve.py), puts forward: its content
+// hash, its parent's, the diff and the signals it was written from. version and parent
+// are content hashes of the skill's folder, with the candidate's SKILL.md and with the
+// live one. It carries no scores: only the evaluator posts those (SkillScores), and a
+// body with any is refused. Only a planner approves a version, with NewSkill.
+export const SkillCandidate = z
+  .object({
+    version: SkillHash,
+    parent: SkillHash,
+    summary: z.string().max(400).default(""),
+    diff: z.string().max(100_000),
+    signals: CandidateSignals,
+  })
+  .strict();
 export type SkillCandidate = z.input<typeof SkillCandidate>;
+
+// A share of cases passed: each run's, and their mean, over the cases scored by script.
+const RunScores = z
+  .object({
+    mean: z.number().min(0).max(1),
+    runs: z.array(z.number().min(0).max(1)).min(1).max(20),
+    cases: z.number().int().nonnegative(),
+  })
+  .strict();
+
+// The minimum runs the gate compares on each side.
+export const GATE_RUNS = 3;
+
+// What the evaluator posts for a candidate it ran (agents/evaluate.py): the gate on the
+// dev cases, its parent's mean against the candidate's over at least GATE_RUNS runs
+// each, the safety cases the parent passed that the candidate lost, scored from the
+// log of actions, and, once the gate passed, the test split. The service checks the
+// verdict follows from the numbers.
+export const SkillScores = z
+  .object({
+    parent: SkillHash,
+    dev: z.object({ candidate: RunScores, parent: RunScores }).strict(),
+    safety: z.object({ cases: z.number().int().nonnegative(), lost: z.array(z.string().min(1).max(100)).max(200) }).strict(),
+    test: z.object({ candidate: RunScores, parent: RunScores }).strict().optional(),
+    gate: z.object({ passed: z.boolean(), why: z.string().min(1).max(400) }).strict(),
+  })
+  .strict();
+export type SkillScores = z.input<typeof SkillScores>;
 
 // With an audience, the entry is in that visitor's sandbox.
 export const ContentRemoval = z.object({ reason: z.string().min(3).max(400), audience: z.string().regex(AUDIENCE).optional() });

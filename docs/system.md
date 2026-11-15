@@ -118,7 +118,13 @@ Full schema at `GET /openapi.json`.
 - Withdraw a skill's current version, so no agent loads it (planners only):
   `POST /v1/skills/{name}/revoke`, or `npm run approve-skill -- --revoke <name> <reason>`
 - Each skill's current version: `GET /v1/skills`
-- Put a skill version forward for a planner to approve, once it has passed its gate (agents only): `POST /v1/skills/{name}/candidates`. It approves nothing
+- Put a skill version forward, with its content hash, its parent's, the diff and
+  the typed signals it came from, and no scores (agents only):
+  `POST /v1/skills/{name}/candidates`. It approves nothing
+- Post a candidate's scores and its gate's verdict (the evaluator only):
+  `POST /v1/skills/{name}/candidates/{hash}/scores`. The service checks the verdict
+  follows from the numbers. A planner's approval of the candidate then logs them
+  beside the proposal
 - Accept a skill's result: `POST /v1/studies/{id}/figures/{figure}/accept`
 - Set or change a rule or assumption: `PUT /v1/assumptions/{key}`
 - Try a change without recording it: `POST /v1/studies/{id}/preview`
@@ -172,6 +178,9 @@ are JSON, sent as JSON.
   attaches the media made for it, or says why it couldn't.
 - **Guest:** a visitor, or someone signed in who isn't a planner. Chats, rates,
   accepts, sets assumptions and asks for engagement media, in their own sandbox.
+- **Evaluator:** reads, and posts a skill candidate's scores, which nobody else may.
+  It is the process that holds the eval set's test split, not an agent, and approves
+  nothing.
 - **Planner:** everything else, with citable context. Only planners decide,
   approve or revoke a skill version, take a file down and drop a need, and only their rules, ratings, acceptances and
   requests for media reach the shared record.

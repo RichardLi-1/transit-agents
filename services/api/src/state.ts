@@ -63,6 +63,8 @@ export type Study = {
   questions: Map<string, { kind: string; question: string; askedBy: string; seq: number }>;
 };
 
+export type Candidate = { parent: string; seq: number; evaluation?: { seq: number; by: string; scores: Record<string, unknown> } };
+
 export type State = {
   contexts: Map<string, Context>;
   studies: Map<string, Study>;
@@ -70,6 +72,9 @@ export type State = {
   // Each skill's one current approved version, its content hash. A new approval
   // replaces it; a revocation removes it.
   skills: Map<string, string>;
+  // Skill versions agents put forward, by skill and version: the parent, the log
+  // position of the proposal, and the evaluator's latest scores for it, if any.
+  candidates: Map<string, Map<string, Candidate>>;
   usage: Usage;
   usageByStudy: Map<string, Usage>;
   // Every file a log entry names, by its sha256, and a need that names it. Only these
@@ -86,6 +91,7 @@ export const emptyState = (): State => ({
   studies: new Map(),
   assumptions: new Map(),
   skills: new Map(),
+  candidates: new Map(),
   usage: noUsage(),
   usageByStudy: new Map(),
   media: new Map(),
@@ -457,6 +463,22 @@ export function apply(state: State, entry: Entry): void {
     case "skill.registered": {
       const { name, version } = data as unknown as { name: string; version: string };
       state.skills.set(name, version);
+      return;
+    }
+
+    case "skill.proposed": {
+      const { name, version, parent } = data as unknown as { name: string; version: string; parent: string };
+      const versions = state.candidates.get(name) ?? new Map<string, Candidate>();
+      versions.set(version, { parent, seq: entry.seq });
+      state.candidates.set(name, versions);
+      return;
+    }
+
+    // The evaluator's scores for a candidate put forward. The latest stands.
+    case "skill.evaluated": {
+      const { name, version, ...scores } = data as unknown as { name: string; version: string } & Record<string, unknown>;
+      const candidate = state.candidates.get(name)?.get(version);
+      if (candidate) candidate.evaluation = { seq: entry.seq, by: entry.actor, scores };
       return;
     }
 

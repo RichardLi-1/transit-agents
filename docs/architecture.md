@@ -29,7 +29,8 @@ Models get better faster than agencies can buy and connect software. So:
 | Specialists and skills | One specialist per question, with one skill. The skill is what gets versioned, tested and improved. |
 | Adapters | How agents run existing systems: APIs and MCP where they exist, scheduled exports where they don't, computer use for desktop tools with neither. Each is a tool inside a skill. |
 | Record | The append-only log, the citation check, roles and budgets. Also which skill versions are approved. |
-| Evolver | An agent that proposes new skill versions. It is itself a skill. |
+| Evolver | An agent that proposes new skill versions. It is itself a skill. It runs no evaluation and posts no scores. |
+| Evaluator | Not an agent: a process of its own that holds the test split. It runs a candidate's gate, then the test split, and alone may post the scores. |
 
 ## How it improves itself
 
@@ -41,16 +42,23 @@ Three levels:
    cases, rejection codes and planner overrides. Never free text, which a
    planted document could steer. It writes new instructions (SKILL.md) beside
    the live skill, with its parent's hash, the change and the signals it used.
-   Scripts change only by code review: planners rely on what they compute. The
-   candidate goes live only if:
-   - it scores at least as well as its parent on the dev cases, over 3 runs or more;
-   - it still passes every refuse, flag and abstain case its parent passed,
-     judged from the log of what the agent did, not from its wording;
-   - a planner approves the diff, with scores the service computed
-     (`PUT /v1/skills/{name}`, planners only).
+   Scripts change only by code review: planners rely on what they compute. It
+   puts the candidate forward with its content hash, the diff and the signals,
+   and no scores (`POST /v1/skills/{name}/candidates`, agents only). The
+   evaluator then runs the gate, Equation 1 in the paper, and the candidate goes
+   live only if:
+   - its mean score on the dev cases, over 3 runs or more, is no lower than its
+     parent's;
+   - it passes every refuse, flag and abstain case its parent passed, at least as
+     often, judged from the log of what the agent did, not from its wording;
+   - a planner approves the diff, with the evaluator's scores beside the proposal
+     in the log (`PUT /v1/skills/{name}`, planners only).
 
-   Test cases are scored only after that, and kept off agent machines. A set
-   used to pick between changes stops measuring anything.
+   Only once the gate passes does the evaluator run the test split, and it posts
+   the scores and the gate's verdict with its own token
+   (`POST /v1/skills/{name}/candidates/{hash}/scores`, the evaluator only). The
+   service checks the verdict follows from the numbers. A set used to pick
+   between changes stops measuring anything.
 3. **The model.** Fine-tuning the local model on runs planners accepted goes
    through the same gate, for every skill.
 
@@ -74,6 +82,7 @@ its instructions, like the lead's, change by hand.
 | Agents load only approved content hashes | Enforced by the loader: only each skill's current hash, so a replaced or revoked one no longer loads |
 | Skill scripts run sandboxed, with no keys, tokens or session | Enforced: on macOS by sandbox-exec; elsewhere only the environment is scrubbed |
 | Evolution edits instructions only | Enforced by the evolver (in development) |
+| Only the evaluator scores a candidate | Enforced by service roles: an agent's token, the evolver's among them, and a planner's are refused, and the service refuses a verdict the numbers don't give |
 | Test cases stay off agent machines | Not yet: the test split is public |
 | Safety cases are scored from the log of actions | Partly: the scorer reads each case's log, so a refusal or abstention passes only if nothing was recorded or tried, and a flag only if an agent handed a question to a planner (ask_planner). Whether an answer refused rather than answered in words is still read by a small model |
 | Writes to agency systems need a planner decision | Not yet: computer use isn't logged |

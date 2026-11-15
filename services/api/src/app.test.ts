@@ -20,6 +20,7 @@ const TOKENS = new Map<string, Actor>([
   ["integration-token", { role: "integration", name: "hastus" }],
   ["viewer-token", { role: "viewer", name: "auditor" }],
   ["replay-token", { role: "agent", name: "replay" }],
+  ["evaluator-token", { role: "evaluator", name: "gate" }],
 ]);
 
 const GUEST_SECRET = "a-guest-secret-of-at-least-32-characters";
@@ -163,9 +164,9 @@ describe("roles", () => {
     assert.equal((await call("POST", "/v1/skills/r5/revoke", "planner-token", { reason: "Again" })).status, 404);
   });
 
-  it("lets an agent put a skill version forward, which approves nothing until a planner does", async () => {
+  it("lets an agent put a skill version forward, with no scores, which approves nothing until a planner does", async () => {
     const { call, service } = setup();
-    const candidate = { version: HASH_B, parent: HASH_A, summary: "Hands over split consultation", dev: { candidate: { passed: 4, total: 5 }, parent: { passed: 3, total: 5 } } };
+    const candidate = { version: HASH_B, parent: HASH_A, summary: "Hands over split consultation", diff: "-Old\n+New\n", signals: { failures: [{ case: "con-001", why: ["flag: no question for a planner in the log"] }], corrections: [] } };
     const proposed = await call("POST", "/v1/skills/consultation/candidates", "agent-token", candidate);
     assert.equal(proposed.status, 201);
     assert.equal((await proposed.json()).approved, false);
@@ -174,6 +175,9 @@ describe("roles", () => {
     assert.equal(entry?.actor, "agent:lead");
     assert.deepEqual(entry?.data, { name: "consultation", ...candidate });
     assert.equal(service.state.skills.get("consultation"), undefined);
+    // The evolver can't report its own scores: a candidate that carries any is refused.
+    const scored = { ...candidate, dev: { candidate: { passed: 4, total: 5 }, parent: { passed: 3, total: 5 } } };
+    assert.equal((await call("POST", "/v1/skills/consultation/candidates", "agent-token", scored)).status, 400);
     // Proposing again is no way round: only a planner's PUT approves it.
     assert.equal((await call("PUT", "/v1/skills/consultation", "agent-token", { version: HASH_B })).status, 403);
     assert.equal((await call("PUT", "/v1/skills/consultation", "planner-token", { version: HASH_B })).status, 201);
@@ -182,6 +186,78 @@ describe("roles", () => {
     assert.equal((await call("POST", "/v1/skills/consultation/candidates", "planner-token", candidate)).status, 403);
     assert.equal((await call("POST", "/v1/skills/consultation/candidates", "integration-token", candidate)).status, 403);
     assert.equal((await call("POST", "/v1/skills/consultation/candidates", "agent-token", { ...candidate, version: HASH_A })).status, 422);
+  });
+
+  describe("a candidate's scores", () => {
+    const candidate = { version: HASH_B, parent: HASH_A, summary: "", diff: "+New\n", signals: { failures: [], corrections: [] } };
+    const side = (...runs: number[]) => ({ mean: runs.reduce((a, b) => a + b, 0) / runs.length, runs, cases: 5 });
+    const scores = {
+      parent: HASH_A,
+      dev: { candidate: side(0.8, 0.8, 1), parent: side(0.6, 0.8, 0.8) },
+      safety: { cases: 2, lost: [] },
+      test: { candidate: side(0.75, 0.75, 0.5), parent: side(0.5, 0.5, 0.5) },
+      gate: { passed: true, why: "dev mean 0.87 against 0.73, no safety case lost" },
+    };
+    // Each test's own app, with the candidate put forward.
+    async function proposed() {
+      const app = setup();
+      assert.equal((await app.call("POST", "/v1/skills/consultation/candidates", "agent-token", candidate)).status, 201);
+      return app;
+    }
+
+    it("come only from the evaluator: agents, the evolver among them, and planners are refused", async () => {
+      const { call, service } = await proposed();
+      for (const token of ["agent-token", "planner-token", "integration-token", "viewer-token"]) {
+        assert.equal((await call("POST", `/v1/skills/consultation/candidates/${HASH_B}/scores`, token, scores)).status, 403, token);
+      }
+      const posted = await call("POST", `/v1/skills/consultation/candidates/${HASH_B}/scores`, "evaluator-token", scores);
+      assert.equal(posted.status, 201);
+      const entry = service.log.since(0, 1000).at(-1);
+      assert.equal(entry?.type, "skill.evaluated");
+      assert.equal(entry?.actor, "evaluator:gate");
+      assert.deepEqual(entry?.data, { name: "consultation", version: HASH_B, ...scores });
+      // An evaluator approves nothing, and isn't an agent.
+      assert.equal((await call("PUT", "/v1/skills/consultation", "evaluator-token", { version: HASH_B })).status, 403);
+      assert.equal((await call("POST", "/v1/studies", "evaluator-token", STUDY)).status, 403);
+      assert.equal((await call("GET", "/v1/skills", "evaluator-token")).status, 200);
+    });
+
+    it("need a candidate put forward, with its parent, and a verdict that follows from the numbers", async () => {
+      const { call } = await proposed();
+      const post = (body: unknown, version = HASH_B) => call("POST", `/v1/skills/consultation/candidates/${version}/scores`, "evaluator-token", body);
+      assert.equal((await post(scores, "c".repeat(64))).status, 404);
+      assert.equal((await (await post({ ...scores, parent: "c".repeat(64) })).json()).error.code, "wrong_parent");
+      assert.equal((await (await post({ ...scores, gate: { passed: false, why: "Said so" } })).json()).error.code, "bad_verdict");
+      // Fewer than 3 runs a side can't pass, and a lower dev mean, or a safety case lost, fails.
+      const fewer = { ...scores, dev: { candidate: side(1, 1), parent: side(0.5, 0.5) } };
+      assert.equal((await (await post(fewer)).json()).error.code, "bad_verdict");
+      const lower = { ...scores, dev: { candidate: side(0.6, 0.6, 0.6), parent: side(0.8, 0.8, 0.8) } };
+      assert.equal((await (await post(lower)).json()).error.code, "bad_verdict");
+      const lost = { ...scores, safety: { cases: 2, lost: ["stop-001"] } };
+      assert.equal((await (await post(lost)).json()).error.code, "bad_verdict");
+      const { test: _test, ...failed } = { ...lost, gate: { passed: false, why: "Lost stop-001" } };
+      assert.equal((await post(failed)).status, 201);
+      assert.equal((await (await post({ ...failed, test: scores.test })).json()).error.code, "test_before_gate");
+      assert.equal((await (await post({ ...scores, dev: { ...scores.dev, parent: { ...scores.dev.parent, mean: 0.9 } } })).json()).error.code, "bad_mean");
+    });
+
+    it("go in the log beside the proposal when a planner approves the candidate", async () => {
+      const { call, service } = await proposed();
+      const proposal = service.log.since(0, 1000).at(-1)?.seq;
+      const evaluation = (await (await call("POST", `/v1/skills/consultation/candidates/${HASH_B}/scores`, "evaluator-token", scores)).json()).seq;
+      const approved = await call("PUT", "/v1/skills/consultation", "planner-token", { version: HASH_B });
+      assert.equal(approved.status, 201);
+      const entry = service.log.since(0, 1000).at(-1);
+      assert.equal(entry?.type, "skill.registered");
+      assert.deepEqual((entry?.data as { proposal: unknown }).proposal, { seq: proposal, parent: HASH_A });
+      assert.deepEqual((entry?.data as { evaluation: unknown }).evaluation, { seq: evaluation, by: "evaluator:gate", ...scores });
+      // A candidate approved with no scores says so; a version never put forward has neither.
+      const other = { ...candidate, version: "c".repeat(64) };
+      await call("POST", "/v1/skills/consultation/candidates", "agent-token", other);
+      assert.equal((await (await call("PUT", "/v1/skills/consultation", "planner-token", { version: other.version })).json()).evaluation, null);
+      const plain = await (await call("PUT", "/v1/skills/consultation", "planner-token", { version: "d".repeat(64) })).json();
+      assert.equal("proposal" in plain || "evaluation" in plain, false);
+    });
   });
 
   it("lets an agent hand a question to a planner as its own entry, which decides nothing", async () => {
@@ -608,8 +684,8 @@ describe("openapi", () => {
     assert.deepEqual(spec.security, [{ token: [] }]);
     assert.deepEqual(spec.paths["/v1/config"].get.security, []);
     assert.deepEqual(spec.paths["/v1/guests"].post.security, []);
-    assert.deepEqual(spec.paths["/v1/config"].get["x-roles"], ["viewer", "integration", "agent", "planner", "guest"]);
-    assert.deepEqual(spec.paths["/v1/me"].get["x-roles"], ["viewer", "integration", "agent", "planner", "guest"]);
+    assert.deepEqual(spec.paths["/v1/config"].get["x-roles"], ["viewer", "integration", "agent", "planner", "guest", "evaluator"]);
+    assert.deepEqual(spec.paths["/v1/me"].get["x-roles"], ["viewer", "integration", "agent", "planner", "guest", "evaluator"]);
     assert.equal(spec.paths["/v1/me"].get.security, undefined);
   });
 });

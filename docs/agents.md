@@ -46,8 +46,9 @@ the environment is scrubbed, and the agent says so once.
 
 Skills improve through a gated loop. The **skill evolution** agent writes a new
 version of a skill's instructions from the dev cases it failed and planners'
-corrections, tests it beside the live one, and puts one that does as well forward.
-A planner approves it, or not.
+corrections, and puts it forward with no scores. The **evaluator**, a process apart
+from the agents, runs its gate and the test split and posts the scores. A planner
+approves it, or not.
 
 Every agent:
 
@@ -143,23 +144,45 @@ Every agent:
   and overrides. Writes it to `agents/skill-candidates/<skill>/<version>/`, with the
   parent's version, the diff and the signals (`lineage.json`, `changes.diff`). A
   candidate's version is the hash the live folder will have with its SKILL.md.
-- **Gate:** the skill's dev cases run with the live skill, then with the candidate
-  (`eval --skill-dir`). It passes only if it passes as many, and every case the live
-  skill passed by refusing, flagging or abstaining. Only then do the test cases run,
-  for the record. A candidate that passes is put forward with
-  `POST /v1/skills/{name}/candidates`.
+- **Puts it forward** with `POST /v1/skills/{name}/candidates`, with an agent's
+  token: the content hash, its parent's, the diff and the typed signals (failed case
+  ids with the scorer's reasons, and corrections by kind), and no scores. The service
+  refuses a body with any.
 - **Runs:** `python agents/main.py evolve <skill> [--dry-run]`. A dry run writes
-  nothing to the service. The gate runs every dev case twice, through the lead, so
-  it takes as long as that.
+  nothing to the service. It runs no eval case.
 - **Model:** `EVOLVE_MODEL`, default qwen3.5:9b, on this machine, one call with no
-  tools. The gate's runs use the eval runner's models.
-- **Never:** sees a test case or its answer; writes over a live skill or changes its
-  scripts; approves a version. Only a planner does: they copy the SKILL.md into
-  `agents/skills/`, then approve exactly that content with
-  `npm run approve-skill -- <skill> <hash>`, which uses `PUT /v1/skills/{name}` with a
-  planner's token. The service refuses an agent's. An eval run approves a candidate
+  tools.
+- **Never:** sees a test case or its answer, or the private split; runs the gate or
+  posts scores; writes over a live skill or changes its scripts; approves a version.
+  Only a planner does: they copy the SKILL.md into `agents/skills/`, then approve
+  exactly that content with `npm run approve-skill -- <skill> <hash>`, which uses
+  `PUT /v1/skills/{name}` with a planner's token. The service refuses an agent's.
+- **Code and tests:** [evolve.py](../agents/evolve.py), [test_evolve.py](../agents/tests/test_evolve.py) (16).
+
+### Evaluator
+
+Not an agent: a process of its own, which holds the test split and the evaluator's
+token, `TRANSIT_TOKEN_EVALUATOR` (or the demo's). Keep that token out of `agents/.env`.
+
+- **Job:** scores a candidate the evolver put forward. First the gate, Equation 1:
+  the skill's dev cases run 3 times or more with the live skill and as often with
+  the candidate (`eval --skill-dir`). It passes only if the candidate's mean dev
+  score is no lower than its parent's, and it passes each refuse, flag and abstain
+  case its parent passed at least as often, scored from the log of what the agents
+  did. Only then do the test cases run, as often, with both. Their answers are
+  deleted once scored, never kept where the evolver reads.
+- **Posts** the means, the safety cases lost, the test split's means and the gate's
+  verdict with `POST /v1/skills/{name}/candidates/{hash}/scores`, which only its role
+  may call. The service refuses a verdict the numbers don't give. When a planner
+  approves the candidate, the approval's log entry holds the proposal and these
+  scores, and `npm run approve-skill` prints them. An eval run approves a candidate
   only in its own throwaway service, so its agents can load it.
-- **Code and tests:** [evolve.py](../agents/evolve.py), [test_evolve.py](../agents/tests/test_evolve.py) (20).
+- **Runs:** `python agents/main.py evaluate-candidate <skill> <hash> [--runs 3] [--dry-run]`.
+  The gate runs every dev case 6 times or more, through the lead, so it takes as long
+  as that. The runs use the eval runner's models.
+- **Never:** approves a version, puts one forward, or runs as an agent: its token
+  can't, and it checks its role before it runs anything.
+- **Code and tests:** [evaluate.py](../agents/evaluate.py), [test_evaluate.py](../agents/tests/test_evaluate.py) (11).
 
 ### Eval reader
 
