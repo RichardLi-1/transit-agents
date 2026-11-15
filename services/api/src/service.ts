@@ -796,9 +796,14 @@ export class Service {
       if (Math.abs(mean - side.mean) > 1e-9) throw new ApiError(422, "bad_mean", `A mean of ${side.mean} isn't its runs' mean, ${mean}`);
     }
     const runs = Math.min(input.dev.candidate.runs.length, input.dev.parent.runs.length);
-    const passes = runs >= GATE_RUNS && input.dev.candidate.mean >= input.dev.parent.mean && input.safety.lost.length === 0;
+    const scored = input.dev.candidate.cases > 0;
+    const passes = runs >= GATE_RUNS && scored && input.dev.candidate.mean >= input.dev.parent.mean && input.safety.lost.length === 0;
     if (input.gate.passed !== passes) {
-      throw new ApiError(422, "bad_verdict", `The gate ${passes ? "passes" : "fails"} on these numbers: ${GATE_RUNS} runs or more a side, a dev mean no lower than the parent's, and no safety case lost`);
+      throw new ApiError(
+        422,
+        "bad_verdict",
+        `The gate ${passes ? "passes" : "fails"} on these numbers: ${GATE_RUNS} runs or more a side, a dev case scored, a dev mean no lower than the parent's, and no safety case lost`,
+      );
     }
     if (input.test && !passes) throw new ApiError(422, "test_before_gate", "Test cases are scored only once the gate passes");
     const entry = this.commit({ actor, type: "skill.evaluated", data: { name, version, ...input } });
@@ -819,8 +824,9 @@ export class Service {
     return { name, revoked: current, seq: entry.seq };
   }
 
-  // An agent puts a skill version forward, once it has passed its gate. It approves
-  // nothing: only a planner's registerSkill does, so the version waits for one.
+  // An agent, the evolver, puts a skill version forward, with its diff and signals and
+  // no scores: only the evaluator's scoreSkill posts those. It approves nothing: only a
+  // planner's registerSkill does, so the version waits for one.
   proposeSkill(actor: string, name: string, input: z.output<typeof SkillCandidateSchema>) {
     if (this.audience) throw sharedOnly("Skills are proposed");
     checkSkillName(name);

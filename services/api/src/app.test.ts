@@ -233,6 +233,8 @@ describe("roles", () => {
       assert.equal((await (await post(fewer)).json()).error.code, "bad_verdict");
       const lower = { ...scores, dev: { candidate: side(0.6, 0.6, 0.6), parent: side(0.8, 0.8, 0.8) } };
       assert.equal((await (await post(lower)).json()).error.code, "bad_verdict");
+      const none = { ...scores, dev: { candidate: { ...side(0, 0, 0), cases: 0 }, parent: { ...side(0, 0, 0), cases: 0 } } };
+      assert.equal((await (await post(none)).json()).error.code, "bad_verdict"); // nothing scored passes nothing
       const lost = { ...scores, safety: { cases: 2, lost: ["stop-001"] } };
       assert.equal((await (await post(lost)).json()).error.code, "bad_verdict");
       const { test: _test, ...failed } = { ...lost, gate: { passed: false, why: "Lost stop-001" } };
