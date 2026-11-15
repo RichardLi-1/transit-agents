@@ -14,6 +14,6 @@ A recommended major change runs a trial of at least twelve months, then a post-i
 5. Call a result a pass or a fail only against a rule from list_rules. Without one, you may quote the standard's goal with its page, as context.
 6. On service every 10 minutes or better, the standards judge reliability by headways, not departure times (ttc-standards-2024 pp. 16–17), and this doesn't measure headways: say so.
 7. live_vehicles shows where vehicles are now. Use it to say what is running, not how reliable it is.
-8. When results are mixed, drifting or too few to judge, don't conclude: end with "For a planner to decide:" and what a planner must weigh. The review's outcome is a planner's call.
+8. When results are mixed, drifting or too few to judge, don't conclude: call ask_planner with the question, kind judgement, then end with "For a planner to decide:" and what a planner must weigh. The review's outcome is a planner's call.
 
 Record a measured result only when your instructions ask, with record_on_time: it records the script's own share as a computed figure, for the trial so far or one trial week. Never type a computed figure into record_figure. The service refuses it until a planner approves this version of the skill, and it counts only once a planner accepts it. If it is refused, give the result in your summary and don't retry.

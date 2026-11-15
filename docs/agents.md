@@ -78,8 +78,11 @@ Every agent:
 - **Runs:** `python agents/main.py listen` (the chat, and new context), `run "task" --study ID`, `eval`.
 - **Model:** `LEAD_MODEL`, default qwen3.5:9b, on this machine.
 - **Tools:** list_sources, search_sources, read_page, get_study, list_rules,
-  trace_figure, compare_versions, preview_change, propose_alignment, create_document;
-  and its own list_skills, read_skill and ask_specialist (up to 4 at once).
+  trace_figure, compare_versions, preview_change, propose_alignment, create_document,
+  ask_planner; and its own list_skills, read_skill and ask_specialist (up to 4 at once).
+- **Hands over** with ask_planner: the question goes in the log as its own entry,
+  `question.asked`, with its kind (judgement, conflict, gap, instruction or decision).
+  It decides nothing. The evals score a flag by that entry.
 - **Never:** records figures itself; makes or leans towards a decision.
 - **Code and tests:** [lead.py](../agents/lead.py), [test_lead.py](../agents/tests/test_lead.py) (23);
   intake, [intake.py](../agents/intake.py), [test_intake.py](../agents/tests/test_intake.py) (10).
@@ -91,7 +94,8 @@ Every agent:
 - **Model:** `SPECIALIST_MODEL`, default qwen3.5:9b, on this machine.
 - **Tools:** list_sources, search_sources, read_page, get_study, list_rules,
   trace_figure, compare_versions, record_figure, record_check, record_finding,
-  preview_change, get_timeline, live_vehicles; plus its skill's scripts, sandboxed.
+  ask_planner, preview_change, get_timeline, live_vehicles; plus its skill's scripts,
+  sandboxed.
 - **Never:** asks specialists of its own; adds an engagement need except through
   the engagement-needs skill, which pins it to the line and needs a citation; runs
   the service's GIS tools except through the gis-analyst, safety-audit,
@@ -320,8 +324,9 @@ the page, checked by the tests. Says when no source defines a term.
 
 ### handover
 
-What agents must never do, how to hand a judgement case to a planner, and how to end
-with what isn't known yet, each gap with its next step and who to contact.
+What agents must never do, how to hand a judgement case to a planner, with
+ask_planner and a "For a planner to decide:" line, and how to end with what isn't
+known yet, each gap with its next step and who to contact.
 
 - Cases: 9.
 - Next: score refusals from the service's log of the agent's calls, not its words

@@ -184,6 +184,27 @@ describe("roles", () => {
     assert.equal((await call("POST", "/v1/skills/consultation/candidates", "agent-token", { ...candidate, version: HASH_A })).status, 422);
   });
 
+  it("lets an agent hand a question to a planner as its own entry, which decides nothing", async () => {
+    const { call, service } = setup();
+    await call("POST", "/v1/studies", "agent-token", STUDY);
+    const question = { id: "split", kind: "judgement", question: "Weigh split consultation against the tests?", detail: "Two channels disagree." };
+    for (const token of ["planner-token", "integration-token", "viewer-token"]) {
+      assert.equal((await call("POST", "/v1/studies/lawrence/questions", token, question)).status, 403, token);
+    }
+    assert.equal((await call("POST", "/v1/studies/lawrence/questions", "agent-token", { ...question, kind: "approve" })).status, 400);
+    const asked = await call("POST", "/v1/studies/lawrence/questions", "agent-token", question);
+    assert.equal(asked.status, 201);
+    const entry = service.log.since(0, 1000).at(-1);
+    assert.equal(entry?.type, "question.asked");
+    assert.equal(entry?.actor, "agent:lead");
+    assert.equal(entry?.studyId, "lawrence");
+    assert.deepEqual(entry?.data, question);
+    // Asking again changes nothing, and the study has no decision.
+    assert.equal((await (await call("POST", "/v1/studies/lawrence/questions", "agent-token", question)).json()).seq, entry?.seq);
+    assert.equal(service.log.since(0, 1000).at(-1)?.seq, entry?.seq);
+    assert.equal(service.viewStudy("lawrence").decision, undefined);
+  });
+
   it("names the open planner after PLANNER_NAME, so the presenter's decisions carry their name", async () => {
     const { call, service } = setup({ access: "open", openName: "Richard Li" });
     assert.deepEqual(await (await call("GET", "/v1/me")).json(), { role: "planner", name: "Richard Li" });

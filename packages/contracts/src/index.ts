@@ -237,6 +237,23 @@ export const NewFinding = z.object({
 });
 export type NewFinding = z.input<typeof NewFinding>;
 
+// A question an agent hands to a planner, as its own entry in the log: something
+// only a planner can settle. Asking decides nothing. kind says why: a judgement the
+// rules alone don't settle, sources that conflict, an input only a planner can give,
+// an instruction found in a source, or a decision or approval asked of the agent.
+export const QuestionKind = z.enum(["judgement", "conflict", "gap", "instruction", "decision"]);
+export type QuestionKind = z.infer<typeof QuestionKind>;
+export const NewQuestion = z.object({
+  id: slug,
+  kind: QuestionKind,
+  question: z.string().trim().min(3).max(300),
+  // What the rules show and what a planner must weigh, in a line or two.
+  detail: z.string().trim().max(600).optional(),
+  // The page that leaves it to a planner, if one does.
+  citation: Citation.optional(),
+});
+export type NewQuestion = z.input<typeof NewQuestion>;
+
 export const Tone = z.enum(["positive", "mixed", "negative", "neutral"]);
 export const FindingRating = z.object({ tone: Tone });
 

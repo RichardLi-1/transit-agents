@@ -137,12 +137,14 @@ describe("mcp", () => {
     const [planner, agent, integration, viewer] = await Promise.all(
       ["planner-token", "agent-token", "integration-token", "viewer-token"].map(names),
     );
-    // 54 and 44 with the safety and active transportation tools, list_approved_skills
-    // and revoke_skill; the equity, jobs and stop accessibility skills each add their
-    // GIS tools for agents and planners too.
+    // 54 and 45 with the safety and active transportation tools, list_approved_skills,
+    // revoke_skill for planners and ask_planner for agents; the equity, jobs and stop
+    // accessibility skills each add their GIS tools for agents and planners too.
     const skills = Object.keys(GIS_SKILL_TOOLS).length;
     assert.equal(planner?.length, 54 + skills);
-    assert.equal(agent?.length, 44 + skills);
+    assert.equal(agent?.length, 45 + skills);
+    // Agents may hand a question to a planner; they still can't decide.
+    assert.ok(agent?.includes("ask_planner") && !planner?.includes("ask_planner"));
     // Everyone may read which skill versions are approved; only a planner approves one.
     for (const names of [planner, agent, integration, viewer]) assert.ok(names?.includes("list_approved_skills"));
     assert.ok(["route_stops", "buffer", "overlay", "points_within", "summarise_layer"].every((name) => agent?.includes(name)));

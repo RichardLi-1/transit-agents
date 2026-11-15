@@ -43,6 +43,7 @@ import type {
   NewFigure as NewFigureSchema,
   NewAlignment as NewAlignmentSchema,
   NewFinding as NewFindingSchema,
+  NewQuestion as NewQuestionSchema,
   NeedClaim as NeedClaimSchema,
   NeedFailure as NeedFailureSchema,
   NeedWithdrawal as NeedWithdrawalSchema,
@@ -539,6 +540,18 @@ export class Service {
     this.commit({ actor, type: "finding.recorded", studyId, data: input });
     const { seq: _seq, ...finding } = study.findings.get(input.id) as FindingView & { seq: number };
     return finding;
+  }
+
+  // An agent hands a question to a planner, as its own entry: the typed hand-over
+  // the evals score a flag by. It decides nothing, and records no result. Asking the
+  // same question again, by its id, changes nothing.
+  askPlanner(actor: string, studyId: string, input: z.output<typeof NewQuestionSchema>) {
+    const study = this.study(studyId);
+    const asked = study.questions.get(input.id);
+    if (asked) return { id: input.id, kind: asked.kind, question: asked.question, seq: asked.seq };
+    if (input.citation) this.verifyCitation(input.citation);
+    const entry = this.commit({ actor, type: "question.asked", studyId, data: input });
+    return { id: input.id, kind: input.kind, question: input.question, seq: entry.seq };
   }
 
   // A draft alignment option, as a finding that carries one.

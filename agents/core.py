@@ -72,6 +72,7 @@ WRITES = {
     "record_figure": "studyId",
     "record_check": "studyId",
     "record_finding": "studyId",
+    "ask_planner": "studyId",
     "add_engagement_need": "studyId",
     "propose_alignment": "studyId",
     "create_document": "studyId",

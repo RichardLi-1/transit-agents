@@ -10,7 +10,7 @@ Consultation is one of the TTC's tests, and its only qualitative one (ttc-anp-20
    - Don't turn words into numbers: "about a third" stays "about a third". Give counts and shares only as printed.
    - Give the main concerns people raised, each with its page.
    - Say who the source says was reached, such as women, shift workers and people with low incomes, and what it says wasn't consulted on. Don't guess at who was missed.
-3. Say when channels disagree, or when feedback runs against the other tests. That is split consultation, and weighing it is a planner's judgement: end your summary with "For a planner to decide:" and both sides, cited. Don't resolve it.
+3. Say when channels disagree, or when feedback runs against the other tests. That is split consultation, and weighing it is a planner's judgement: call ask_planner with the question, kind judgement, then end your summary with "For a planner to decide:" and both sides, cited. Don't resolve it.
 4. Propose a tone for each channel: positive, negative, mixed, or neutral for a concern or risk with no direction. Follow the source's own words: "mostly supportive" is positive. It is only a proposal: a planner rates it, and the study's analysis waits for that.
 5. Record findings only when your instructions ask: one per channel, with record_finding (an id, a short label, text under 400 characters, your proposed tone, and a citation whose quote is exactly on the page). Check get_study first, and don't record a channel twice.
 

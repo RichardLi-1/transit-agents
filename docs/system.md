@@ -107,6 +107,8 @@ Full schema at `GET /openapi.json`.
 - Add a figure: `POST /v1/studies/{id}/figures`
 - Test a figure against a rule: `POST /v1/studies/{id}/checks`
 - Add a finding, such as consultation: `POST /v1/studies/{id}/findings`
+- Hand a question to a planner, as its own log entry (agents only): `POST /v1/studies/{id}/questions`,
+  with its kind: judgement, conflict, gap, instruction or decision. It decides nothing
 - Rate how a finding reads: `PUT /v1/studies/{id}/findings/{finding}/tone`
 - Approve a skill version, its folder's SHA-256, as the skill's current one,
   replacing the one before (planners only): `PUT /v1/skills/{name}`, or
@@ -165,7 +167,8 @@ are JSON, sent as JSON.
 - **Viewer:** reads.
 - **Integration:** reads, adds citable context, subscribes webhooks.
 - **Agent:** reads, adds context that can't be cited, adds figures and findings,
-  proposes engagement needs, and puts skill versions forward, approving none. An agent that claims a request to make a need
+  hands questions to planners, proposes engagement needs, and puts skill versions
+  forward, approving none. An agent that claims a request to make a need
   attaches the media made for it, or says why it couldn't.
 - **Guest:** a visitor, or someone signed in who isn't a planner. Chats, rates,
   accepts, sets assumptions and asks for engagement media, in their own sandbox.

@@ -11,7 +11,7 @@ Sources: the standards are ttc-standards-2024, the 2026 plan ttc-anp-2026. Page 
 3. Report the class with the tool's reasons, each with its page:
    - Major: any major kind, such as a new route, a route extension, an added period of service, or service on a road that had none (ttc-standards-2024 p. 22). So is a change the sources say will have a significant effect on resources, Table 7's resource implication for major changes (ttc-standards-2024 p. 22).
    - Minor: every kind is one of Table 7's minor ones, and existing equipment and the adopted budget cover it (ttc-standards-2024 p. 22).
-   - Not classified: when something is missing, find it in the sources, or say it's a gap and who holds it. When Table 7 doesn't list the change, or the tool says the standards don't settle it, end with "For a planner to decide:" and the question, with the pages the tool gives. Never pick a class yourself.
+   - Not classified: when something is missing, find it in the sources, or say it's a gap and who holds it. When Table 7 doesn't list the change, or the tool says the standards don't settle it, call ask_planner with the question, kind judgement, then end with "For a planner to decide:" and the question, with the pages the tool gives. Never pick a class yourself.
 4. List the steps the tool gives for the class, each with its page, and the conditions it gives for that kind of change.
 
 ## What each class needs

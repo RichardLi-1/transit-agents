@@ -37,4 +37,4 @@ The method is Metrolinx's Business Case Manual, metrolinx-bcm-vol2. Page numbers
 - Pass on the tool's notes: a large project needs a range from a Monte Carlo simulation, a small one may leave out optimism bias, and a stream may stop early or grow after 30 years.
 - Another project's ratio isn't this project's: never give it as this one's.
 - It records nothing. Give the results in your summary, and never type them into record_figure.
-- When a result needs a planner's confirmation, such as Table 5.6's reading or a rule that differs, end with "For a planner to decide:" and what they must confirm.
+- When a result needs a planner's confirmation, such as Table 5.6's reading or a rule that differs, call ask_planner with what they must confirm, then end with "For a planner to decide:" and the same.

@@ -59,6 +59,8 @@ export type Study = {
   needs: Map<string, Need>;
   // Map layers, in the order they were saved.
   layers: Map<string, StoredLayer>;
+  // Questions agents handed to a planner, by id.
+  questions: Map<string, { kind: string; question: string; askedBy: string; seq: number }>;
 };
 
 export type State = {
@@ -382,7 +384,15 @@ export function apply(state: State, entry: Entry): void {
         stale: new Set(),
         needs: new Map(),
         layers: new Map(),
+        questions: new Map(),
       });
+      return;
+    }
+
+    // An agent handed a question to a planner. It changes no figure, check or finding.
+    case "question.asked": {
+      const { id, kind, question } = data as unknown as { id: string; kind: string; question: string };
+      get(state.studies, entry.studyId).questions.set(id, { kind, question, askedBy: entry.actor, seq: entry.seq });
       return;
     }
 

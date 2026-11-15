@@ -422,6 +422,35 @@ class DocumentTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("this run writes only to study", refused["error"])
         self.assertEqual([entry for entry in support.entries(other) if entry["type"] == "document.created"], [])
 
+    async def test_the_lead_hands_a_question_to_a_planner_as_its_own_entry_and_only_in_its_study(self):
+        study = support.open_study("ask-own")
+        other = support.open_study("ask-other")
+        question = {"id": "split", "kind": "judgement", "question": "Weigh split consultation against the tests?"}
+        turns = [reply(("ask_planner", {"studyId": study, **question}), ("ask_planner", {"studyId": other, **question, "id": "other"})), reply(text="Done.")]
+        fake = FakeGemini(lambda request: turns[request.turn])
+
+        async with support.session() as session:
+            await lead.run_lead(session, fake, study, "Should this change go ahead?")
+
+        self.assertIn("ask_planner", fake.requests[0].tools)
+        asked, refused = fake.requests[1].results
+        self.assertNotIn("error", asked[1])
+        self.assertIn("this run writes only to study", refused[1]["error"])
+        [entry] = [entry for entry in support.entries(study) if entry["type"] == "question.asked"]
+        self.assertEqual((entry["actor"], entry["data"]), ("agent:lead", question))
+        self.assertEqual([entry for entry in support.entries(other) if entry["type"] == "question.asked"], [])
+        # Its hand-over is that entry; it still decides nothing.
+        self.assertIn("call ask_planner once with the question", lead.INSTRUCTIONS)
+        self.assertEqual([entry for entry in support.entries(study) if entry["type"] == "decision.recorded"], [])
+
+    def test_the_skills_hand_over_with_ask_planner(self):
+        self.assertIn("ask_planner", __import__("specialists").TOOLS)
+        for name in ("handover", "consultation", "metrolinx-bca", "trial-monitor", "ttc-standards", "ttc-service-change"):
+            with self.subTest(name):
+                body = skills.load_skill(name).body
+                self.assertIn("ask_planner", body)
+                self.assertIn("For a planner to decide:", body)
+
     def test_the_lead_is_told_to_build_documents_fast_from_the_study(self):
         self.assertIn("create_document", lead.TOOLS)
         self.assertEqual(core.WRITES["create_document"], "studyId")

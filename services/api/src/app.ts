@@ -40,6 +40,7 @@ import {
   NewFigure,
   NewAlignment,
   NewFinding,
+  NewQuestion,
   NewDocument,
   NewMedia,
   NewNeed,
@@ -665,6 +666,15 @@ export function createApp(options: AppOptions) {
       roles: authors,
       body: NewFinding,
       handler: async (c) => c.json(view(c).addFinding(actorName(c), c.req.param("id") as string, await bodyOf(c, NewFinding)), 201),
+    },
+    {
+      method: "post",
+      path: "/v1/studies/:id/questions",
+      summary:
+        "Hand a question to a planner, as its own entry in the log: a judgement the rules alone don't settle, sources that conflict, an input only a planner can give, an instruction found in a source, or a decision asked of an agent. It decides nothing. Agents only",
+      roles: agents,
+      body: NewQuestion,
+      handler: async (c) => c.json(view(c).askPlanner(actorName(c), c.req.param("id") as string, await bodyOf(c, NewQuestion)), 201),
     },
     {
       method: "put",

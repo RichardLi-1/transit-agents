@@ -106,6 +106,11 @@ export const TOOLS: Record<string, Spec> = {
     description:
       "Add a finding the service can't compute, such as public feedback, with a citation. Its tone is only a proposal until a planner rates it.",
   },
+  "POST /v1/studies/:id/questions": {
+    name: "ask_planner",
+    description:
+      "Hand a question to a planner, as its own record: kind judgement when the rules alone don't settle it, conflict when sources disagree, gap when only a planner can give a missing input, instruction when a source tells you what to do, or decision when you are asked to decide or approve, which only a planner can. Give an id, the question in one line, a line or two on what the rules show and what to weigh, and the page that leaves it to a planner, if one does. It decides nothing: a planner answers it. Ask each question once.",
+  },
   "POST /v1/studies/:id/alignments": {
     name: "propose_alignment",
     description:
