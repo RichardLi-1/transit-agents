@@ -2,8 +2,9 @@
 
 A specialist starts with nothing but its question, the lead's request with it, and
 its own instructions: the service's rules, its role, and a skill's text when the lead
-picks one. It has the service's tools for reading and recording, and any its skill's
-scripts give, but never ask_specialist, so it can't ask specialists of its own. It returns a short summary
+picks one. It has the service's tools for reading and recording, any its skill's
+scripts give, and use_computer for a skill that works a desktop app (COMPUTER_APPS),
+but never ask_specialist, so it can't ask specialists of its own. It returns a short summary
 with citations, and the display shows it start and finish.
 """
 
@@ -17,6 +18,7 @@ from pathlib import Path
 from google.genai.client import AsyncClient
 from mcp import ClientSession
 
+import computer_use
 from core import Budget, LocalTool, ModelError, ToolError, answered, call, clip, config, for_planners, report, work, working_for
 from skills import Approved, Skill, approved_from, offer, skill_tools
 
@@ -67,6 +69,14 @@ SCRIPT_TOOLS: dict[str, frozenset[str]] = {
 }
 
 
+# The skills that get computer use, and the one app each may open. use_computer runs in
+# the agent, not in a sandboxed script: it needs Gemini's key and its own session to the
+# service, which no script may hold. It logs every step in the study and makes a write
+# only under a planner's decision (computer_use.py). A skill gets it only while a planner
+# approved its version, as with its scripts, and this list changes only by code review.
+COMPUTER_APPS: dict[str, str] = {"trip-scheduler": "scheduler"}
+
+
 async def approvals(session: ClientSession) -> dict[str, str]:
     """Each skill's current approved version, from the service. None from a service that
     can't say, so no skill is used: what isn't known to be approved isn't."""
@@ -81,6 +91,12 @@ def script_tools(skill: Skill, session: ClientSession, study: str) -> list[Local
     """The tools a skill's scripts give its specialist, each call sandboxed, and each of
     their service calls limited to the specialist's tools and the skill's own."""
     return skill_tools(skill, session, study, allowed=TOOLS | SCRIPT_TOOLS.get(skill.name, frozenset()))
+
+
+def agent_tools(skill: Skill, session: ClientSession, study: str) -> list[LocalTool]:
+    """The tools the agent itself runs for a skill: use_computer on its app, if it has one."""
+    app = COMPUTER_APPS.get(skill.name)
+    return [computer_use.tool(session, study, computer_use.APPS[app])] if app else []
 
 
 ROLE = """\
@@ -189,6 +205,7 @@ async def run_specialist(
     chosen = offer(skill, skills_dir, approved or {}) if skill else None
     # Declaring the scripts' tools runs a process, so it doesn't hold up other specialists.
     scripts = await asyncio.to_thread(script_tools, chosen, session, study) if chosen else []
+    scripts += agent_tools(chosen, session, study) if chosen else []
     system = system_instruction(session.instructions or "", study, chosen)
     sub = secrets.token_hex(3)
     async with limit or concurrency_limit():

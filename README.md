@@ -33,7 +33,7 @@ number traces to the page it came from, and planners make every decision.
   accessibility, best practices and SEO.
 - **Computer use:** agents work legacy desktop tools by sight, a trip scheduler
   and a traffic microsimulator, included as sample apps.
-- **Evals:** 145 cases, at least 8 for each skill. See [docs/evals.md](docs/evals.md).
+- **Evals:** 205 cases, at least 8 for each skill but trip-scheduler, which has none yet. See [docs/evals.md](docs/evals.md).
 
 ## Run it
 

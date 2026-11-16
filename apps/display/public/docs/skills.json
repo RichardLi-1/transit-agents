@@ -205,6 +205,18 @@
       }
     },
     {
+      "name": "trip-scheduler",
+      "description": "Carry out a schedule change a planner decided in Trip Scheduler, a sample legacy scheduling app with no API, by computer use with use_computer. Every step is logged in the study, and it saves only under the planner's recorded decision.",
+      "summary": "Carry out a schedule change a planner decided in Trip Scheduler, a sample legacy scheduling app with no API, by computer use with use_computer. Every step is logged in the study, and it saves only under the planner's recorded decision.",
+      "scripts": false,
+      "tools": null,
+      "cases": {
+        "dev": 0,
+        "test": 0,
+        "future": 0
+      }
+    },
+    {
       "name": "ttc-service-change",
       "description": "Classify a proposed TTC service change as minor or major by the Service Standards' Table 7, list the steps that class requires (Board Period or Annual Service Plan, consultation, Board approval, trial), and say when only a planner can classify it.",
       "summary": "Classify a proposed TTC service change as minor or major by the Service Standards' Table 7, list the steps that class requires (Board Period or Annual Service Plan, consultation, Board approval, trial), and say when only a planner can classify it.",

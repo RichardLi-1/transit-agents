@@ -894,6 +894,53 @@ async def run(
     return result
 
 
+TOOL = "use_computer"
+
+TOOL_PARAMETERS = {
+    "type": "object",
+    "properties": {
+        "task": {
+            "type": "string",
+            "description": "The change a planner decided, as they would say it, such as \"Change route 605 Elm's weekday peak headway from 8 to 6 minutes and save.\"",
+        }
+    },
+    "required": ["task"],
+}
+
+
+def tool(session: Any, study: str, app: App, *, gemini: Callable[[], Any] | None = None) -> core.LocalTool:
+    """use_computer, for a specialist whose skill works `app`: one run of computer use on
+    the task, by this agent with its own session and Gemini's key, never in a skill's
+    sandboxed script, which has neither. Each step is logged in the study and each write
+    waits for a planner's decision, as run() says. `gemini` makes the Gemini client
+    (core.gemini, unless given)."""
+
+    async def use_computer(task: str) -> dict[str, Any]:
+        model = os.environ.get("COMPUTER_USE_MODEL") or MODEL
+        priced(model)
+        async with (gemini or core.gemini)().aio as aio, Screen(app=app) as screen:
+            result = await run(screen, aio, task.strip() or app.task, record=Record(session, study), model=model, log=lambda line: None)
+        answer: dict[str, Any] = {
+            "finished": result.finished,
+            "said": result.text,
+            "saved": [app.describe(change) for change in result.saved],
+            "unsaved": [app.describe(change) for change in result.unsaved],
+            "writesAuthorisedBy": result.decisions,
+        }
+        if result.asked:
+            answer["askedPlanner"] = result.asked
+        if outcome := app.outcome(result):
+            answer["outcome"] = outcome
+        return answer
+
+    description = (
+        f"Work the {app.noun} by sight, with computer use, to carry out a change a planner decided. "
+        "Every step is logged in the study. Reading is free; a write, such as Save, goes ahead only under a planner's "
+        "recorded decision that authorises it, and without one the run stops and asks a planner. One run at a time."
+    )
+    return core.LocalTool(TOOL, description, use_computer, TOOL_PARAMETERS, at_once=1)
+
+
 async def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Gemini works a mock legacy app by sight.")
     parser.add_argument(

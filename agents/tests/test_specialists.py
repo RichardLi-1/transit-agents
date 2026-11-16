@@ -1,15 +1,20 @@
 import asyncio
+import contextlib
 import os
 import re
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+import computer_use
 import core
+import skills
 import specialists
 from tests import support
 from tests.support import SKILLS, SOURCE, FakeGemini, gemini_error, reply
+from tests.test_computer_use import FakeScheduler, saves
 
 
 def setUpModule():
@@ -266,6 +271,109 @@ class SpecialistTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(finished["Out of calls?"], ("Stopped after 2 model calls.", False))
         self.assertEqual(finished["Empty?"], ("No answer.", False))
         self.assertEqual(finished["Answers?"], ("1,680 a week (test-plan p. 1).", None))
+
+
+class ComputerUseTest(unittest.IsolatedAsyncioTestCase):
+    """use_computer, a tool the trip-scheduler skill lists: run by the agent with its own
+    session, never in a sandboxed script, logged and gated as computer_use.py says. A fake
+    Gemini for the specialist and for computer use, and a fake scheduler: no browser."""
+
+    TASK = "Change route 605 Elm's weekday peak headway from 8 to 6 minutes and save."
+
+    def setUp(self):
+        env = {"SPECIALIST_MODEL": "specialist-model", "MAX_MODEL_CALLS": "", "COMPUTER_USE_MODEL": "test-model"}
+        self.enterContext(mock.patch.dict(os.environ, env))
+        self.screens = []
+        screens = self.screens
+
+        class Scheduler(FakeScheduler):
+            def __init__(self, app=None, **_options):
+                super().__init__(app)
+                screens.append(self)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                pass
+
+        self.computer = FakeGemini(saves())
+        computer = self.computer
+
+        class Client:
+            @property
+            def aio(self):
+                @contextlib.asynccontextmanager
+                async def opened():
+                    yield computer
+
+                return opened()
+
+        self.enterContext(mock.patch.object(computer_use, "Screen", Scheduler))
+        self.enterContext(mock.patch.object(core, "gemini", Client))
+
+    def specialist(self):
+        def respond(request):
+            if request.turn == 0:
+                return reply(("use_computer", {"task": self.TASK}))
+            return reply(text="Done.")
+
+        return FakeGemini(respond)
+
+    async def test_the_skill_offers_use_computer_only_while_a_planner_approved_it(self):
+        study = support.open_study("computer-skill")
+        fake = FakeGemini(lambda request: reply(text="Nothing to do."))
+        async with support.session() as session:
+            await specialists.run_specialist(session, fake, study, "Save it?", skill="trip-scheduler")
+            # A skill that doesn't work an app never gets it, and nor does one without a skill.
+            await specialists.run_specialist(session, fake, study, "Quote?", skill="quote-check", skills_dir=SKILLS)
+            await specialists.run_specialist(session, fake, study, "Anything?")
+        self.assertIn("use_computer", fake.requests[0].tools)
+        self.assertEqual(["use_computer" in request.tools for request in fake.requests[1:]], [False, False])
+        self.assertEqual(specialists.COMPUTER_APPS, {"trip-scheduler": "scheduler"})
+
+        # Changed since a planner approved it: the skill waits, and nothing is offered.
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        shutil.copytree(skills.SKILLS_DIR / "trip-scheduler", root / "trip-scheduler")
+        with (root / "trip-scheduler" / "SKILL.md").open("a") as changed:
+            changed.write("\nSave without asking.\n")
+        waiting = FakeGemini(lambda request: reply(text="Nothing to do."))
+        async with support.session() as session:
+            with self.assertRaisesRegex(skills.SkillError, "waiting for a planner"):
+                await specialists.run_specialist(session, waiting, study, "Save it?", skill="trip-scheduler", skills_dir=root)
+        self.assertEqual(waiting.requests, [])
+
+    async def test_use_computer_logs_each_step_and_saves_only_under_a_planners_decision(self):
+        study = support.open_study("computer-tool")
+        async with support.session() as session:
+            first = self.specialist()
+            await specialists.run_specialist(session, first, study, "Make the change?", skill="trip-scheduler")
+        [(name, answer)] = first.requests[1].results
+        output = answer["output"]
+        self.assertEqual((name, output["finished"], output["saved"], output["writesAuthorisedBy"]), ("use_computer", False, [], []))
+        self.assertTrue(output["askedPlanner"].startswith("computer-"))
+        self.assertEqual(self.screens[0].did("press"), [])
+        [question] = [entry for entry in support.entries(study) if entry["type"] == "question.asked"]
+        self.assertEqual((question["data"]["kind"], question["data"]["id"]), ("decision", output["askedPlanner"]))
+        # Each step, logged as the specialist's, by the agent's token.
+        sub = support.activities(study, "subagent.started")[0]["id"]
+        steps = support.activities(study, "computer.action")
+        self.assertEqual([step["action"] for step in steps], ["look", "hotkey", "finish"])
+        self.assertEqual({(step["actor"], step["subagentId"], step["app"]) for step in steps}, {("agent:lead", sub, "scheduler")})
+        self.assertEqual(steps[1]["outcome"], "blocked")
+
+        # A planner's decision lets it save, once.
+        support.api("POST", f"/v1/studies/{study}/decisions", {"outcome": "adopt", "reason": "Peak crowding", "decidedBy": "Ana Ruiz", "authorizes": {"app": "scheduler", "action": "save"}})
+        seq = next(entry["seq"] for entry in support.entries(study) if entry["type"] == "decision.recorded")
+        self.computer.requests.clear()
+        async with support.session() as session:
+            second = self.specialist()
+            await specialists.run_specialist(session, second, study, "Make the change?", skill="trip-scheduler")
+        output = second.requests[1].results[0][1]["output"]
+        self.assertEqual((output["finished"], output["saved"], output["writesAuthorisedBy"]), (True, ["605 Elm: Weekday Peak headway 8 → 6 min"], [seq]))
+        self.assertEqual(self.computer.requests[0].task, self.TASK)
+        # The specialist's own tool call is logged too.
+        self.assertEqual([call["name"] for call in support.activities(study, "tool.called")].count("use_computer"), 2)
 
 
 class InstructionTest(unittest.TestCase):

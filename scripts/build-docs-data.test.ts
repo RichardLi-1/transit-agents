@@ -66,17 +66,24 @@ describe("the docs data", () => {
 
   it("counts each skill's cases as npm run agent:cases does", () => {
     const counts = countBySkill(readEvalCases());
+    const cased = new Set(counts.map(({ skill }) => skill));
     assert.deepEqual(
-      committed.skills.map(({ name, cases }) => ({ skill: name, ...cases })),
+      committed.skills.filter(({ name }) => cased.has(name)).map(({ name, cases }) => ({ skill: name, ...cases })),
       counts.map(({ skill, dev, test, future }) => ({ skill, dev, test, future })),
     );
+    // A skill with no cases yet shows none.
+    for (const { name, cases } of committed.skills.filter(({ name }) => !cased.has(name))) assert.deepEqual(cases, { dev: 0, test: 0, future: 0 }, name);
   });
 
   it("the Models and evals page gives the eval set's figures", () => {
     const page = readFileSync(join(OUT, "../models/index.html"), "utf8");
     const figures = Object.fromEntries([...page.matchAll(/data-figure="(\w+)">([\d,]+)</g)].map(([, key, value]) => [key, Number(value?.replace(/,/g, ""))]));
     assert.deepEqual(figures, { ...committed.evals, skills: committed.skills.length });
-    // It says each skill has at least 8 cases of its own.
-    for (const { name, cases } of committed.skills) assert.ok(cases.dev + cases.test + cases.future >= 8, `${name} has fewer than 8 cases`);
+    // It says each skill has at least 8 cases of its own, but those it names as having none yet.
+    const uncased = [...page.matchAll(/<span data-uncased>([a-z0-9-]+)</g)].map(([, name]) => name);
+    for (const { name, cases } of committed.skills) {
+      const count = cases.dev + cases.test + cases.future;
+      assert.ok(uncased.includes(name) ? count === 0 : count >= 8, `${name} has ${count} cases`);
+    }
   });
 });

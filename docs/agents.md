@@ -263,8 +263,8 @@ What the table shows:
   page, and that no skill gives away a held-out case's answer ([test_skills.py](../agents/tests/test_skills.py)).
 - Descriptions say what a skill does, not when to pick another. Three overlap:
   metrolinx-business-case, business-case-template and metrolinx-bca are one method.
-- The evidence is still missing. Every skill now has at least 8 cases of its own,
-  half kept for `test`, but the 139 new ones wait for a planner to check their gold,
+- The evidence is still missing. Every skill but trip-scheduler now has at least 8
+  cases of its own, half kept for `test`, but the 139 new ones wait for a planner to check their gold,
   and no skill has been run with and without. The eval set has been run once, on one
   case (2026-11-08).
 
