@@ -21,6 +21,12 @@ it's done, with the case's log in evals/runs/<UTC time>/<id>.log.jsonl: its suba
 readings, figures and each model call's usage. If Gemini's quota runs out, or Gemini
 can't be reached, the run stops and keeps the answers so far.
 
+EVAL_MODEL_LOGS=1 also keeps each case's raw model requests and replies beside its log,
+as openai_compat.py writes them to MODEL_LOG: the agents' in <id>.model.jsonl, and the
+reader's apart, in <id>.reader.model.jsonl, so the agents' own conversations can be read
+back, as for fine-tuning, without the reader's call. Only calls to a chat completions
+server are written; Gemini's aren't.
+
 --skill-dir runs with a candidate's SKILL.md, from agents/evolve.py, in place of its
 live skill's instructions; its scripts and the other skills stay the live ones. Each
 answer names the candidate's skill and version, so it is never taken for the live one's.
@@ -166,6 +172,8 @@ PRIVATE = "EVAL_PRIVATE_DIR"
 EVALUATOR_TOKEN = "TRANSIT_TOKEN_EVALUATOR"
 # A canary is at least this long, so it is unique enough to search for.
 CANARY_CHARS = 20
+# Set, it keeps each case's raw model calls beside its log (RunFile.model_logs).
+MODEL_LOGS = "EVAL_MODEL_LOGS"
 
 
 def private_dir() -> Path | None:
@@ -531,6 +539,25 @@ def read_fields(reply: str, text: str = "") -> dict[str, Any]:
     return fields
 
 
+@contextlib.contextmanager
+def model_log(path: Path | None):
+    """MODEL_LOG set to `path` while held, and as it was after: openai_compat.py appends
+    each raw request and reply to it. None leaves it as it is."""
+    if path is None:
+        yield
+        return
+    before = os.environ.get("MODEL_LOG")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.environ["MODEL_LOG"] = str(path)
+    try:
+        yield
+    finally:
+        if before is None:
+            os.environ.pop("MODEL_LOG", None)
+        else:
+            os.environ["MODEL_LOG"] = before
+
+
 async def run_case(
     session: ClientSession,
     client: AsyncClient,
@@ -541,6 +568,7 @@ async def run_case(
     skills: bool = True,
     skills_dir: Path | None = None,
     candidate: dict[str, str] | None = None,
+    model_logs: tuple[Path, Path] | None = None,
 ) -> dict[str, Any]:
     """Run one case in a study of its own, and return its line for the run file.
 
@@ -548,7 +576,9 @@ async def run_case(
     meet (a ModelError, everywhere) or a connection failed: then the run stops.
     Without skills, the lead has none to give its specialists. With `skills_dir`, the
     lead's skills are those, and `candidate` names the skill and version swapped in.
+    `model_logs`, the agents' file and the reader's, keep their raw model calls apart.
     """
+    agents_log, reader_log = model_logs or (None, None)
     settings = config()
     study = study or f"study-{secrets.token_hex(3)}"
     models = {"lead": settings.lead_model, "specialist": settings.specialist_model, "reader": reader_model()}
@@ -564,11 +594,13 @@ async def run_case(
         # Without skills, the skills folder is an empty one.
         with contextlib.nullcontext() if skills else tempfile.TemporaryDirectory() as empty:
             task = task_for(case, sources)
-            text = (await run_lead(session, client, study, task, skills_dir=Path(empty) if empty else skills_dir)).strip()
+            with model_log(agents_log):
+                text = (await run_lead(session, client, study, task, skills_dir=Path(empty) if empty else skills_dir)).strip()
         if not text or NO_ANSWER.match(text):
             raise RuntimeError(text or "The lead gave no answer.")
         # Its tokens count even if its reply can't be read.
-        reply, usage["structured"] = await structured(client, models["reader"], case["query"], text)
+        with model_log(reader_log):
+            reply, usage["structured"] = await structured(client, models["reader"], case["query"], text)
         # Cited by the names the agent saw; kept by the case's own.
         names = input_names(case)
         cited = [{**cite, "source": names.get(cite["source"], cite["source"])} for cite in citations(text, sources)]
@@ -614,6 +646,11 @@ class RunFile:
         """The folder beside the run file for its cases' logs: evals/runs/<UTC time>/."""
         return self.path.with_suffix("")
 
+    def model_logs(self, case: str) -> tuple[Path, Path]:
+        """Where a case's raw model calls go, with EVAL_MODEL_LOGS set: the agents' and the
+        reader's, <case>.model.jsonl and <case>.reader.model.jsonl, beside its log."""
+        return self.logs / f"{case}.model.jsonl", self.logs / f"{case}.reader.model.jsonl"
+
     def keep_log(self, case: str, entries: list[dict[str, Any]]) -> None:
         """Keep a case's log entries, to see how it reached its answer: <case>.log.jsonl."""
         self.logs.mkdir(parents=True, exist_ok=True)
@@ -644,9 +681,11 @@ async def run_cases(
         try:
             sources = add_inputs(service, case)
             add_measured(service, case)
+            logs = run.model_logs(case["id"]) if os.environ.get(MODEL_LOGS, "").strip() else None
             async with open_session(service.url, service.tokens["agent"]) as session:
                 line = await run_case(
-                    session, client, case, sources, study, skills=skills, skills_dir=skills_dir, candidate=candidate
+                    session, client, case, sources, study,
+                    skills=skills, skills_dir=skills_dir, candidate=candidate, model_logs=logs,
                 )
         except (ModelError, httpx2.TransportError) as error:
             keep_log(run, service, case, study)
