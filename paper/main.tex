@@ -1,0 +1,212 @@
+% CASPT & TransitData 2027, practitioner track (4 pages including references).
+% Built from the conference LaTeX template. References are written out in APA
+% style below, so the paper compiles without biber.
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\documentclass[11pt,a4paper]{article}
+\usepackage{array}
+\usepackage{caption}
+\captionsetup{labelfont=bf, font=small, skip=2pt}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage[round,authoryear]{natbib}
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{\usepackage[]{microtype}}{}
+\IfFileExists{parskip.sty}{\usepackage{parskip}}{%
+  \setlength{\parindent}{0pt}\setlength{\parskip}{6pt plus 2pt minus 1pt}}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta}
+\setlength{\emergencystretch}{3em}
+\setcounter{secnumdepth}{3}
+\IfFileExists{bookmark.sty}{\usepackage{bookmark}}{\usepackage{hyperref}}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{}
+\urlstyle{same}
+\hypersetup{hidelinks}
+
+\author{}
+\date{}
+
+\usepackage[a4paper,margin=25mm]{geometry}
+
+% Times New Roman for text and mathematics
+\usepackage{newtxtext,newtxmath}
+
+% APA hanging indent for the reference list
+\setlength{\bibhang}{1.27cm}
+\setlength{\bibsep}{2pt}
+
+\begin{document}
+
+{\centering
+
+{\fontsize{16}{19}
+\selectfont
+\textbf{\textsc{Designing for Future AI Models: An Agent-Centred Architecture for Transit Planning}}}
+
+\vspace{16pt}
+
+ Richard Li\textsuperscript{*}
+
+\textit{University of Waterloo, 200 University Avenue West, Waterloo, ON N2L 3G1, Canada, richard.li1@uwaterloo.ca}
+
+* Corresponding author
+
+\vspace{12pt}
+
+\emph{Practitioner track paper submitted for presentation at International Conference
+on Advanced Systems in Public Transport and TransitData 2027}
+
+\emph{June 21--24, 2027, Stockholm, Sweden}
+
+\vspace{12pt}
+
+}
+
+\textbf{Abstract}: AI models improve faster than agencies can buy software, so systems bought today will run on far stronger models. We present a public transport planning architecture designed for that. AI agents are at its centre: planners supply context and make decisions, while agents plan the work, operate existing tools and propose changes to their own written procedures (skills), which go live only after tests on unseen cases and a planner's approval. What improves with the model is left to the model; evidence, authority and testing are enforced by code outside it. We describe an open-source implementation for Toronto.
+
+\textbf{Keywords}: large language model agents; public transport planning; software architecture; self-improving systems; human oversight
+
+\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+\section{Introduction}\label{introduction}
+
+Most of the effort in transit planning studies goes into assembling evidence from standards, business cases, ridership data and public consultation. Municipal governments do this work with little capacity: Canadian municipalities own more than 60\% of core public infrastructure but receive 8 to 10 cents of every tax dollar \citep{fcm2025}, so planning staff are scarce. At a panel on municipal AI in Waterloo, Canada, in November 2026, practitioners named the main barriers to adopting AI: limited staff capacity, fragile public trust, and a growing number of software subscriptions, often priced per user, that do not work together.
+
+Uses of large language models (LLMs) in transport have mostly answered questions or run analysis tools on request, such as writing code over GTFS schedule data \citep{devunuri2025transitgpt}: a planner writes a prompt, reads the answer and carries the result between systems. Model developers now describe agents: LLMs that work in a loop with tools, written skills loaded when needed, standard connections to other software and control of a computer screen \citep{anthropic2024mcp, schluntz2024effective, zhang2025skills}. They hope agents will write, edit and test their own skills \citep{zhang2025skills}. Capability is rising fast: the length of software tasks that the best models complete half the time has doubled about every seven months since 2019 \citep{kwa2025measuring}.
+
+This paper presents an architecture built around one question: which parts of a planning system should a stronger model take over, and which must stay fixed however capable the model becomes? Its answer is one open-source system that operates an agency's existing tools instead of adding another subscription. The code, skills and test cases are at \mbox{\url{https://github.com/RichardLi-1/transit-agents}} \citep{li2026transitagents}.
+
+\section{Architecture}\label{architecture}
+
+\subsection{Design principles}
+
+\emph{(P1) Leave to the model what improves with the model.} Every part of the code around a model (its harness) encodes an assumption about what the model cannot do on its own, and these assumptions can go out of date as models improve \citep{rajasekaran2026harness}. So planning the work, choosing tools and writing procedures are written instructions the model reads, not fixed program logic. \emph{(P2) Enforce what must not depend on the model in code outside it}: evidence, authority, the record and testing, since a more capable model is also more convincing when it is wrong. \emph{(P3) Use general interfaces}, such as documents, files and screens, which stronger models use better without new integration work. \emph{(P4) Treat the model as replaceable}: the test set, not the model, is the lasting asset that decides whether a new model is good enough.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize,
+  box/.style={draw, rounded corners=2pt, align=center, inner sep=2pt, text width=2.5cm, minimum height=0.85cm},
+  human/.style={box, fill=black!12},
+  arr/.style={-{Stealth[length=3.5pt]}, semithick},
+  lab/.style={font=\scriptsize, fill=white, inner sep=0.8pt}
+]
+\node[human] (pl) at (0,0) {\textbf{Planners}\\add context; decide};
+\node[box] (or) at (3.05,0) {\textbf{Orchestrator agent}\\triages context,\\plans the work};
+\node[box] (sp) at (6.1,0) {\textbf{Specialist agents}\\one skill each:\\instructions, scripts};
+\node[box] (ad) at (9.15,0) {\textbf{Adapters} (in skills)\\APIs, exports,\\screens};
+\node[box] (lg) at (12.2,0) {\textbf{Existing systems}\\scheduling, demand\\models, GIS, desktop};
+\node[draw, rounded corners=2pt, align=center, text width=12.9cm, minimum height=0.75cm] (rec) at (6.1,-1.35)
+  {\textbf{Record}: append-only, tamper-evident log $\cdot$ citation check $\cdot$ access roles $\cdot$ cost limits $\cdot$ approved skill versions};
+\node[box, dashed] (ev) at (3.05,-2.7) {\textbf{Evolver agent}\\proposes new skill\\instructions};
+\node[box] (eh) at (6.1,-2.7) {\textbf{Testing}\\practice and safety\\cases; test set held out};
+\node[human] (ap) at (9.15,-2.7) {\textbf{Planner}\\approves or rejects\\each version};
+\draw[arr] (pl) -- (or);
+\draw[arr] (or) -- (sp);
+\draw[arr] (sp) -- (ad);
+\draw[arr] (ad) -- (lg);
+\draw[arr] ([xshift=-5pt]pl.south) -- ([xshift=-5pt]pl.south |- rec.north) node[lab, midway, left, align=right] {context,\\decisions};
+\draw[arr] ([xshift=5pt]pl.south |- rec.north) -- ([xshift=5pt]pl.south) node[lab, midway, right] {questions};
+\draw[arr] (or.south |- rec.north) -- (or.south) node[lab, midway] {events};
+\draw[arr] (sp.south) -- (sp.south |- rec.north) node[lab, midway] {cited figures};
+\draw[arr] (ad.south) -- (ad.south |- rec.north) node[lab, midway] {outputs};
+\draw[arr] (ev.north |- rec.south) -- (ev.north) node[lab, midway] {structured signals};
+\draw[arr] (ev) -- (eh);
+\draw[arr] (eh) -- (ap);
+\draw[arr] (ap.north) -- (ap.north |- rec.south) node[lab, midway] {approved version};
+\end{tikzpicture}
+\vspace{4pt}
+\caption{The architecture. Shaded boxes are people; the dashed box is built but not yet tested.}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{Components}
+
+\textbf{Context intake.} Planners add documents, meeting transcripts, messages, data exports and feeds through an API, a watched folder or the Slack chat tool; each becomes an event in the record (Figure~\ref{fig:architecture}). \textbf{Orchestrator.} An orchestrator agent reads each event, works out which studies and open questions it affects, and starts work without being asked. \textbf{Specialists and skills.} Each question goes to a specialist agent that starts with no memory of earlier questions and one skill: written instructions with cited rules and, where needed, scripts, so arithmetic runs in code, not in the model. \textbf{Adapters.} Existing tools are operated, not replaced: through APIs and the Model Context Protocol (MCP), a standard way for AI to call software; through scheduled data exports; or through computer use, where the agent works a desktop program by looking at the screen and clicking. Adapters may read freely, but a write to an agency system needs a recorded planner decision. \textbf{Record.} Every write goes to an append-only log in which each entry includes a hash (a fingerprint) of the one before, so any later edit shows. A cited figure is rejected unless its source was added by a planner or an agency system and the quoted text, with the value in it, is on the cited page; a computed figure must name the approved skill version that produced it, so each number traces to reviewed code.
+
+\subsection{Gated self-improvement}
+
+Within a run, rejected citations and failed checks go back to the agent, which fixes its work. Across runs, an evolver agent drafts new versions of a skill's instructions from structured signals in the record (failed practice cases, rejection codes, planner overrides), never from free text, which a document with hidden instructions could steer. Scripts change only through human code review, since a rewritten script would run with the agent's access. A candidate $s'$ replaces its parent $s$ only if
+\begin{equation}
+\bar{q}_{D}(s') \ge \bar{q}_{D}(s) \;\wedge\; \forall c \in S(s): \mathrm{pass}(s', c) \;\wedge\; a(s') = 1,
+\end{equation}
+that is, it scores at least as well on practice cases, loses no safety case, and a planner signs off. Here $\bar{q}_{D}$ is the mean score on the skill's development (practice) cases $D$ over at least three runs; $S(s) \subseteq D$ holds the safety cases the parent passes, where the right answer is to refuse, decline or hand over to a planner, judged from the log of what the agent did rather than its wording; and $a(s') = 1$ when a planner approves the change, seeing scores computed by the service. Test cases are scored only after acceptance and kept off agent machines, because a test set reused to choose between changes stops being a fair test \citep{dwork2015reusable}. Agents load only versions whose fingerprint a planner approved; rolling back means re-approving the parent. The evolver is itself a skill, but it cannot be held to Equation~(1) until it has test cases of its own; until then its instructions, like the orchestrator's, change by hand. A version of the model fine-tuned on approved runs is likewise a new model, admitted only by the same cases (P4).
+
+\section{Implementation and lessons}\label{implementation}
+
+The implementation, for Toronto, uses only public data \citep{li2026transitagents}. Its orchestrator and specialists run by default on an open-weight model on the agency's own machine (Qwen3.5, 9 billion parameters), so planning documents stay in-house and, unlike per-user subscriptions, no licence fee applies; computer use still calls a hosted model. Its sources are ten documents cited by page, among them the service standards and 2026 network plan of the Toronto Transit Commission (TTC), business cases for the Ontario Line (a subway under construction) and the business case manual of Metrolinx (Ontario's regional transit agency), plus ten open datasets, such as GTFS schedules, census areas and collision records, and the TTC's real-time vehicle feed. Nineteen skills apply them, from service standards and trial monitoring to business cases, benefit--cost analysis, GIS, safety and equity. Three case studies use them: an Ontario Line extension and two TTC bus service proposals, one of which, Lawrence--Sunnybrook, is on a twelve-month trial measured from the real-time feed. Computer use runs on two sample desktop programs: a trip scheduler and a traffic-signal simulator.
+
+Building it taught three lessons. First, telling agents the rules is not enough: an independent reviewer found that a request without a login was treated as a planner's, and that agents could set the pass marks for their own checks, so the server now enforces both. Second, the citation check must assume agents will try to slip past it: the reviewer found five ways, such as quoting ``adopted'' from a page that says ``not adopted'', and each is now caught. Third, letting agents improve themselves opens new ways to cheat: a red-team review (an attempt to break it) found that a rewritten skill script could use the agent's access, that approval covered a version label rather than the actual file, and that test answers were readable. Fingerprint approval, sandboxed scripts and a separate scoring role now block these (Table~\ref{tab:rules}).
+
+Like the Pacific Northwest National Laboratory's benchmark of AI on U.S. environmental reviews \citep{meyur2025benchmarking}, the test set is built from real public documents. It has 205 cases, at least eight per skill: 105 for development (practice) and 99 for testing, plus one about the Lawrence--Sunnybrook trial that can't be answered until its 2027 review. Some cases change a document's numbers, so remembering the published answer fails, or hide instructions in it. The reference answers for 139 cases still await a planner's check, so results use the other 66. Of these, a small model (Qwen3.5 with 4 billion parameters, run with Apple's MLX library) with skills passed 19 of the 60 that could run and be scored automatically (14 of 36 practice, 5 of 24 test). In 16 of the 60 answers, the text said the agent had handed a decision to a planner, but the log shows it never did; scoring from actions catches this. A low-rank adapter (LoRA), a small set of extra weights trained in 10 minutes on a 16 GB laptop from 9 conversations in passing practice runs, passed 8 of the same 24 test cases against 5 for the base model; 9 cases changed in both directions, and a paired test finds no significant difference (exact McNemar $p = 0.51$). Combining skill-specific adapters in weight space is a further direction. Event-triggered triage and the evolver have unit tests but no evaluation yet.
+
+\begin{table}[htbp]
+\caption{Rules that bound self-improvement, and their status in the repository}
+\label{tab:rules}
+\centering
+\small
+\begin{tabular}{@{}p{0.52\textwidth}p{0.44\textwidth}@{}}
+\toprule
+\textbf{Rule} & \textbf{Status today} \\
+\midrule
+Only planners decide or approve; only an evaluator scores & Enforced by access roles \\
+A cited figure's quotation must be on the cited page & Enforced by the service \\
+A computed figure names its skill's approved version & Enforced by the service \\
+Agents load only approved skill versions, by fingerprint & Enforced by the skill loader \\
+Skill scripts run sandboxed, without keys or passwords & Enforced (fully on macOS) \\
+Evolution edits instructions only & Enforced by the evolver \\
+Test cases stay off agent machines & Partly: committed test answers are public \\
+Safety cases are scored from logged actions & Partly: a model still reads refusals \\
+Writes to agency systems need a planner decision & Partly: only for the sample programs \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Discussion and conclusion}\label{discussion}
+
+The architecture moves planners' work from producing analysis to supplying context and deciding, so it depends on careful review; automation bias, over-trusting a machine's output, is a known risk \citep{parasuraman2010complacency}. Every decision needs a named person; whether review stays careful must be observed in use. Self-improvement adds the risk that an evolver learns to pass the tests rather than do the task, as a self-modifying coding agent did by bypassing a check meant to catch faked tool use \citep{zhang2026dgm}; the rules in Table~\ref{tab:rules} block the routes found so far. Whether the system improves with stronger models is untested here but testable: with the code fixed, a stronger model should score higher on the same cases. The results are preliminary: one run per case, a small model that also judges the answers, 24 test cases and one city. Placing agents at the centre of planning is an architectural choice: one system receives context, operates existing tools and proposes its own improvements, while decisions, evidence and testing stay outside the agents' reach.
+
+\begin{thebibliography}{99}
+\small\raggedright
+
+\bibitem[Anthropic(2024)]{anthropic2024mcp}
+Anthropic. (2024, November 25). \emph{Introducing the Model Context Protocol}. \url{https://www.anthropic.com/news/model-context-protocol}
+
+\bibitem[Devunuri \& Lehe(2025)]{devunuri2025transitgpt}
+Devunuri, S., \& Lehe, L. (2025). TransitGPT: A generative AI-based framework for interacting with GTFS data using large language models. \emph{Public Transport, 17}(2), 319--345. \url{https://doi.org/10.1007/s12469-025-00395-w}
+
+\bibitem[Dwork et~al.(2015)]{dwork2015reusable}
+Dwork, C., Feldman, V., Hardt, M., Pitassi, T., Reingold, O., \& Roth, A. (2015). The reusable holdout: Preserving validity in adaptive data analysis. \emph{Science, 349}(6248), 636--638. \url{https://doi.org/10.1126/science.aaa9375}
+
+\bibitem[Federation of Canadian Municipalities(2025)]{fcm2025}
+Federation of Canadian Municipalities. (2025, October 30). \emph{Canada risks stalling nation-building without strong local infrastructure} [News release]. \url{https://fcm.ca/en/news-media/news-release/canada-risks-stalling-nation-building-without-strong-local-infrastructure}
+
+\bibitem[Kwa et~al.(2025)]{kwa2025measuring}
+Kwa, T., West, B., Becker, J., Deng, A., Garcia, K., Hasin, M., Jawhar, S., Kinniment, M., Rush, N., Von Arx, S., Bloom, R., Broadley, T., Du, H., Goodrich, B., Jurkovic, N., Miles, L. H., Nix, S., Lin, T., Painter, C., \ldots\ Chan, L. (2025). Measuring AI ability to complete long software tasks. In \emph{Advances in Neural Information Processing Systems}. \url{https://doi.org/10.48550/arXiv.2503.14499}
+
+\bibitem[Li(2026)]{li2026transitagents}
+Li, R. (2026). \emph{Transit Agents} [Computer software]. GitHub. \url{https://github.com/RichardLi-1/transit-agents}
+
+\bibitem[Meyur et~al.(2025)]{meyur2025benchmarking}
+Meyur, R., Phan, H., Hayashi, K., Stewart, I., Sharma, S., Chaturvedi, S., Parker, M., Nally, D., Montgomery, S., Pazdernik, K., Jannesari, A., Halappanavar, M., Munikoti, S., Horawalavithana, S., \& Acharya, A. (2025). \emph{Benchmarking LLMs for environmental review and permitting} (arXiv:2407.07321). arXiv. \url{https://doi.org/10.48550/arXiv.2407.07321}
+
+\bibitem[Parasuraman \& Manzey(2010)]{parasuraman2010complacency}
+Parasuraman, R., \& Manzey, D. H. (2010). Complacency and bias in human use of automation: An attentional integration. \emph{Human Factors, 52}(3), 381--410. \url{https://doi.org/10.1177/0018720810376055}
+
+\bibitem[Rajasekaran(2026)]{rajasekaran2026harness}
+Rajasekaran, P. (2026, March 24). \emph{Harness design for long-running application development}. Anthropic. \url{https://www.anthropic.com/engineering/harness-design-long-running-apps}
+
+\bibitem[Schluntz \& Zhang(2024)]{schluntz2024effective}
+Schluntz, E., \& Zhang, B. (2024, December 19). \emph{Building effective agents}. Anthropic. \url{https://www.anthropic.com/engineering/building-effective-agents}
+
+\bibitem[B. Zhang et~al.(2025)]{zhang2025skills}
+Zhang, B., Lazuka, K., \& Murag, M. (2025, October 16). \emph{Equipping agents for the real world with Agent Skills}. Anthropic. \url{https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills}
+
+\bibitem[J. Zhang et~al.(2026)]{zhang2026dgm}
+Zhang, J., Hu, S., Lu, C., Lange, R., \& Clune, J. (2026). Darwin G\"odel Machine: Open-ended evolution of self-improving agents. In \emph{International Conference on Learning Representations}. \url{https://doi.org/10.48550/arXiv.2505.22954}
+
+\end{thebibliography}
+
+\end{document}
