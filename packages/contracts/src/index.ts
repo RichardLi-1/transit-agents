@@ -705,9 +705,11 @@ export const Activity = z.discriminatedUnion("kind", [
   // at, by the screenshot's SHA-256, never the image, and what it clicked, typed or
   // pressed, in a line. write names the app's write it is, by the app's manifest. The
   // service records a write only with a planner's decision that authorises it and no
-  // write used yet, and names that decision in the entry. outcome "blocked" says the
-  // agent's harness stopped the step before it was done; "unauthorised" says the app
-  // changed anyway, found after the step.
+  // write used yet, names that decision in the entry, and uses it up. confirm says the
+  // model asked a person to confirm the step: the service records it only with such a
+  // decision for a write in the app, which it names and, unless the step writes, leaves
+  // unused. outcome "blocked" says the agent's harness stopped the step before it was
+  // done; "unauthorised" says the app changed anyway, found after the step.
   z.object({
     kind: z.literal("computer.action"),
     app: slug,
@@ -716,6 +718,7 @@ export const Activity = z.discriminatedUnion("kind", [
     summary: z.string().min(1).max(300),
     screenshot: z.string().regex(/^[0-9a-f]{64}$/).optional(),
     write: slug.optional(),
+    confirm: z.boolean().optional(),
     outcome: z.enum(["blocked", "unauthorised"]).optional(),
     subagentId: slug.optional(),
   }),

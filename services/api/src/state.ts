@@ -634,8 +634,8 @@ export function apply(state: State, entry: Entry): void {
     case "activity": {
       countUsage(state, entry);
       // A computer-use write the service took names the decision it used up.
-      const step = data as { kind?: string; decision?: number };
-      const used = step.kind === "computer.action" && step.decision !== undefined ? state.studies.get(entry.studyId as string)?.authorizations.get(step.decision) : undefined;
+      const step = data as { kind?: string; write?: string; decision?: number };
+      const used = step.kind === "computer.action" && step.write && step.decision !== undefined ? state.studies.get(entry.studyId as string)?.authorizations.get(step.decision) : undefined;
       if (used) used.usedBy = entry.seq;
       return;
     }

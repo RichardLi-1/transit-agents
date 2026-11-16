@@ -1361,26 +1361,27 @@ export class Service {
     if (activity.kind === "reading" && !this.state.contexts.has(activity.contextId)) {
       throw new ApiError(422, "unknown_source", `No context "${activity.contextId}"`);
     }
-    if (activity.kind === "computer.action" && activity.write && !activity.outcome) {
+    if (activity.kind === "computer.action" && (activity.write || activity.confirm) && !activity.outcome) {
       return this.commit({ actor, type: "activity", studyId, data: { ...activity, decision: this.authorization(study, activity.app, activity.write) } });
     }
     return this.commit({ actor, type: "activity", studyId, data: activity });
   }
 
-  // The log position of a planner's decision in the study that authorises this write
-  // in this app and hasn't been used by another: the oldest such. Each authorises one
-  // write. Only the shared record holds planners' decisions, so a visitor's sandbox
-  // never writes to an agency system.
-  private authorization(study: Study, app: string, action: string): number {
+  // The log position of a planner's decision in the study that authorises this write in
+  // this app, or any write in it when none is named, and hasn't been used by a write:
+  // the oldest such. Each authorises one write. Only the shared record holds planners'
+  // decisions, so a visitor's sandbox never writes to an agency system.
+  private authorization(study: Study, app: string, action: string | undefined): number {
     if (this.audience) throw sharedOnly("Writes to agency systems are made");
     for (const [seq, authorization] of study.authorizations) {
-      if (authorization.app === app && authorization.action === action && authorization.usedBy === undefined) return seq;
+      if (authorization.app === app && (action === undefined || authorization.action === action) && authorization.usedBy === undefined) return seq;
     }
+    const what = action ?? "a write";
     throw new ApiError(
       403,
       "needs_decision",
-      `No planner's decision in study ${study.id} authorises ${action} in ${app}, or each one that did was used. ` +
-        `A planner records one with POST /v1/studies/${study.id}/decisions and authorizes: { app: "${app}", action: "${action}" }`,
+      `No planner's decision in study ${study.id} authorises ${what} in ${app}, or each one that did was used. ` +
+        `A planner records one with POST /v1/studies/${study.id}/decisions and authorizes: { app: "${app}", action: "${action ?? "<the write>"}" }`,
     );
   }
 

@@ -323,9 +323,18 @@ describe("roles", () => {
     // Used: the next save needs another decision, and an agent can't name one itself.
     assert.equal((await call("POST", activity, "agent-token", step)).status, 403);
     assert.equal((await call("POST", activity, "agent-token", { ...step, decision: seq })).status, 403);
-    // Reads need none.
+    // Reads need none, unless the model asked a person to confirm one.
     const { write: _write, ...read } = step;
-    assert.equal((await call("POST", activity, "agent-token", { ...read, action: "click", summary: "Clicked 605 Elm" })).status, 201);
+    const click = { ...read, action: "click", summary: "Clicked OK" };
+    assert.equal((await call("POST", activity, "agent-token", click)).status, 201);
+    assert.equal((await call("POST", activity, "agent-token", { ...click, confirm: true })).status, 403);
+    // A planner's unused decision for a write in the app confirms it, and stays unused.
+    const next = await (await call("POST", decisions, "planner-token", authorizing)).json();
+    const again = service.log.since(0, 1000).at(-1)?.seq;
+    assert.equal(((await (await call("POST", activity, "agent-token", { ...click, confirm: true })).json()) as { decision: number }).decision, again);
+    assert.equal(((await (await call("POST", activity, "agent-token", step)).json()) as { decision: number }).decision, again);
+    assert.ok(next);
+    assert.equal((await call("POST", activity, "agent-token", { ...click, confirm: true })).status, 403);
   });
 
   it("names the open planner after PLANNER_NAME, so the presenter's decisions carry their name", async () => {
