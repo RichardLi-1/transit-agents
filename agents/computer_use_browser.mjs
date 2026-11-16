@@ -321,6 +321,24 @@ const commands = {
   async box({ selector }) {
     return { box: await page.locator(selector).first().boundingBox() };
   },
+  // For the harness, never the model: which of the app's writes, by its manifest's
+  // selectors, the element at each point belongs to, and the focused one. A point that
+  // is null means where the pointer is. The drawn pointer takes no clicks, so it's never hit.
+  async writes({ points = [], selectors = {} }) {
+    await restoring;
+    const at = points.map((point) => (point ? { x: point[0], y: point[1] } : pointer));
+    return page.evaluate(
+      ({ at, selectors }) => {
+        const which = (element) => {
+          if (!element) return null;
+          for (const [name, list] of Object.entries(selectors)) if (list.some((selector) => element.closest(selector))) return name;
+          return null;
+        };
+        return { at: at.map(({ x, y }) => which(document.elementFromPoint(x, y))), focused: which(document.activeElement) };
+      },
+      { at, selectors },
+    );
+  },
 };
 
 let closed = false;

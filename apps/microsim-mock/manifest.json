@@ -1,0 +1,11 @@
+{
+  "app": "microsim",
+  "about": "What in Intersection Simulator changes what the app holds. Computer use does one of these writes only with a planner's recorded decision that authorises it. Everything else only reads, including editing the signal timing and running the simulation, which change nothing until the model is saved.",
+  "writes": {
+    "save": {
+      "says": "save the simulation model",
+      "selectors": ["#save-button", "[data-action='save']"],
+      "keys": ["Control+s"]
+    }
+  }
+}

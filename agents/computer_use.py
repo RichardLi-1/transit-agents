@@ -11,31 +11,45 @@ address. The agent can touch nothing else.
   microsim   apps/microsim-mock, an old traffic microsimulator for one signalized
              intersection, a stand-in for tools like Vissim or Synchro
 
-    python computer_use.py                     change route 605 Elm's weekday peak headway from 8 to 6 minutes, and save
-    python computer_use.py --app microsim      lengthen a left-turn phase, run the simulation, and save if it helps
-    python computer_use.py "<task>"            another task in the mock app
-    python computer_use.py --record run.mp4    also record the screen at 1920x1080, with a caption for each step
-    python computer_use.py --study <id>        report each model call's tokens and cost to that study
+    python computer_use.py --study <id>                  change route 605 Elm's weekday peak headway from 8 to 6 minutes, and save
+    python computer_use.py --study <id> --app microsim   lengthen a left-turn phase, run the simulation, and save if it helps
+    python computer_use.py --study <id> "<task>"         another task in the mock app
+    python computer_use.py --study <id> --record run.mp4 also record the screen at 1920x1080, with a caption for each step
 
-A planner decides the change; the agent only carries it out. A run stops after 15
-model calls, or before a call likely to take it past US$1.50, judged by what the last
-call cost. It refuses a model with no price, in prices.py or MODEL_PRICES, since its
-calls would count as free. When Gemini asks for a person to confirm a step, as it does
-before saving, the agent asks at the terminal and stops unless told yes. --confirm says
-yes for the planner who set the task. A recording captions that moment "The agent
-asks. The planner confirms." COMPUTER_USE_MODEL picks the model, CHROME_PATH the
-browser and FFMPEG the encoder.
+Every run works in a study's record, through the agent's own session to the service.
+Each step is logged in the study before it is done, as a computer.action activity: what
+the agent looked at, by the screenshot's SHA-256 (never the image), and what it clicked,
+typed or pressed. A step the log doesn't take isn't done.
+
+Reads are free. A write, as the app's manifest (manifest.json beside its page) names its
+writes, such as Save, is done only if the service logs it, which it does only with a
+planner's decision in the study that authorises that write and hasn't been used. The
+harness decides what is a write, never the model. Without such a decision the step is
+blocked, a question goes to a planner with ask_planner, and the run stops. Nothing
+confirms a write but that decision: not Gemini, the chat or a flag. When Gemini asks a
+person to confirm a step, the confirmation is a planner's unused decision that
+authorises a write in the app, which the service names in the step's entry; with none,
+the run stops and asks a planner. After each step the harness also checks what the app
+saved, and stops the run, and asks a planner, if the app saved anything no decision
+authorised.
+
+A run stops after 15 model calls, or before a call likely to take it past US$1.50,
+judged by what the last call cost. It refuses a model with no price, in prices.py or
+MODEL_PRICES, since its calls would count as free. COMPUTER_USE_MODEL picks the model,
+CHROME_PATH the browser and FFMPEG the encoder.
 """
-
 import argparse
 import asyncio
 import base64
 import contextlib
+import functools
+import hashlib
 import json
 import os
+import secrets
 import shutil
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -114,6 +128,43 @@ KEYS = {
 }  # fmt: skip
 
 
+# Keys as the harness compares them with an app's manifest. The apps are Windows-style
+# and take Control or Command for a shortcut, so both are "mod".
+MODIFIERS = {"control": "mod", "meta": "mod", "controlormeta": "mod", "shift": "shift", "alt": "alt"}
+# Keys that press a focused button, such as Save.
+ACTIVATE = frozenset({"enter", "space"})
+
+
+@dataclass(frozen=True)
+class Write:
+    """One write an app's manifest names: an action that changes what the app holds.
+
+    `selectors` are the controls that do it, and `keys` the shortcuts, each a set of
+    keys pressed together as the harness compares them.
+    """
+
+    name: str  # such as save, as a planner's decision names it
+    says: str  # what it does, in words: "save the schedule"
+    selectors: tuple[str, ...]
+    keys: tuple[frozenset[str], ...]
+
+
+@functools.cache
+def manifest(path: Path) -> dict[str, Write]:
+    """The writes an app's manifest.json names, by name. Read once, when first needed."""
+    if not path.is_file():
+        raise SetupError(f"No manifest at {path}, so computer use can't tell the app's writes from its reads.")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        name: Write(name, str(write["says"]), tuple(write.get("selectors", ())), tuple(keyset(names(keys)) for keys in write.get("keys", ())))
+        for name, write in data["writes"].items()
+    }
+
+
+class Unauthorised(RuntimeError):
+    """The service didn't log a write: no planner's decision in the study authorises it unused."""
+
+
 class ScreenError(RuntimeError):
     """The browser couldn't do a command. The message is Playwright's first line."""
 
@@ -135,6 +186,10 @@ class Result:
     saved: list[dict[str, Any]] = field(default_factory=list)  # what the app saved, oldest first
     unsaved: list[dict[str, Any]] = field(default_factory=list)  # changes left unsaved
     evaluation: dict[str, Any] | None = None  # the microsim's runs: before (Run 1) and after (the latest)
+    decisions: list[int] = field(default_factory=list)  # the log positions of the decisions its writes used
+    blocked: str | None = None  # the write it stopped before, for want of a decision
+    asked: str | None = None  # the question it handed a planner, if it stopped to ask one
+    unauthorised: str | None = None  # what the app saved that no decision authorised, if it did
 
 
 @dataclass(frozen=True)
@@ -156,6 +211,12 @@ class App:
     did_task: Callable[[Result], bool]
     missed: str  # what the terminal says when a run of the default task didn't do it
     outcome: Callable[[Result], str] = lambda result: ""
+    manifest: Path | None = None  # its manifest.json, which names its writes
+
+    @property
+    def writes(self) -> Mapping[str, Write]:
+        """What in the app changes what it holds, by its manifest: everything else only reads."""
+        return manifest(self.manifest) if self.manifest else {}
 
 
 class Screen:
@@ -300,12 +361,8 @@ def key_name(key: str) -> str:
     return key.strip()  # a letter, a digit, or a name Playwright knows
 
 
-def combo(keys: str | list[str]) -> str:
-    """Keys pressed together, such as "ctrl+s" or ["Control", "s"], as Playwright writes them.
-
-    The app is Windows-style, so on a Mac, Control with another key does what it does on
-    Windows: Control+S saves and Control+A selects all.
-    """
+def names(keys: str | Sequence[str]) -> list[str]:
+    """Keys pressed together, such as "ctrl+s" or ["Control", "s"], each as Playwright names it."""
     if isinstance(keys, str):
         parts, current = [], ""
         for character in keys:
@@ -315,10 +372,30 @@ def combo(keys: str | list[str]) -> str:
             else:
                 current += character
         keys = [*parts, current] if current else parts
-    names = [key_name(str(key)) for key in keys if str(key)]
-    if sys.platform == "darwin" and len(names) > 1:
-        names = ["ControlOrMeta" if name == "Control" else name for name in names]
-    return "+".join(names)
+    return [key_name(str(key)) for key in keys if str(key)]
+
+
+def combo(keys: str | Sequence[str]) -> str:
+    """Keys pressed together, such as "ctrl+s" or ["Control", "s"], as Playwright writes them.
+
+    The app is Windows-style, so on a Mac, Control with another key does what it does on
+    Windows: Control+S saves and Control+A selects all.
+    """
+    pressed = names(keys)
+    if sys.platform == "darwin" and len(pressed) > 1:
+        pressed = ["ControlOrMeta" if name == "Control" else name for name in pressed]
+    return "+".join(pressed)
+
+
+def key(name: str) -> str:
+    """One key as the harness compares it: lowercase, with Control and Command both "mod"."""
+    folded = {" ": "space", "\n": "enter", "\r": "enter"}.get(name) or key_name(name).lower()
+    return MODIFIERS.get(folded, folded)
+
+
+def keyset(pressed: Sequence[str]) -> frozenset[str]:
+    """Keys pressed together, as the harness compares them with a manifest's shortcuts."""
+    return frozenset(key(name) for name in pressed)
 
 
 async def act(screen: Screen, name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -363,6 +440,127 @@ async def act(screen: Screen, name: str, args: dict[str, Any]) -> dict[str, Any]
     except ScreenError as error:
         return {"error": str(error)}
     return {}
+
+
+def _reach(screen: Screen, name: str, args: dict[str, Any], held: frozenset[str]) -> tuple[list[dict[str, int] | None], list[frozenset[str]]]:
+    """What an action touches, as act() would do it: the points it presses or releases
+    the mouse at (None for where the pointer is), and the keys it presses together."""
+    has_point = "x" in args and "y" in args
+    if name in CLICKS:
+        return [screen.point(args)], []
+    if name == "mouse_up":
+        return [screen.point(args) if has_point else None], []
+    if name == "drag_and_drop":
+        return [screen.point(args, "start_x", "start_y"), screen.point(args, "end_x", "end_y")], []
+    if name == "type":
+        typed = [*str(args["text"]), *(["Enter"] if args.get("press_enter") else [])]
+        return ([screen.point(args)] if has_point else []), [held | {key(k)} for k in typed]
+    if name == "press_key":
+        return [], [held | keyset(names(str(args["key"])))]
+    if name == "hotkey":
+        return [], [held | keyset(names([str(k) for k in args["keys"]]))]
+    if name == "key_down" and (down := key(str(args["key"]))) not in MODIFIERS.values():
+        return [], [held | {down}]
+    return [], []
+
+
+async def write_of(screen: Screen, name: str, args: dict[str, Any], held: frozenset[str] = frozenset()) -> Write | None:
+    """The app's write an action would do, by its manifest, or None for a read.
+
+    The harness decides this, never the model: a click or a release on one of a write's
+    controls, Enter or Space on one that has the focus, or its shortcut, with any
+    modifier held down by key_down. An action with arguments act() can't use does
+    nothing, so it's a read.
+    """
+    writes = screen.app.writes
+    if not writes:
+        return None
+    try:
+        points, pressed = _reach(screen, name, args, held)
+    except (KeyError, TypeError, ValueError):
+        return None
+    for keys in pressed:
+        for write in writes.values():
+            if any(shortcut <= keys for shortcut in write.keys):
+                return write
+    presses = any(keys & ACTIVATE for keys in pressed)
+    if not points and not presses:
+        return None
+    # The browser says which write's controls are at each point, and has the focus.
+    selectors = {write.name: list(write.selectors) for write in writes.values()}
+    found = await screen.send("writes", points=[None if p is None else [p["x"], p["y"]] for p in points], selectors=selectors)
+    hits = [*(found.get("at") or []), *([found.get("focused")] if presses else [])]
+    return next((writes[hit] for hit in hits if hit in writes), None)
+
+
+def held_after(name: str, args: dict[str, Any], held: frozenset[str]) -> frozenset[str]:
+    """The modifiers held down after an action: key_down presses one, key_up lets it go."""
+    if name not in ("key_down", "key_up"):
+        return held
+    try:
+        changed = key(str(args["key"]))
+    except (KeyError, TypeError, ValueError):
+        return held
+    if changed not in MODIFIERS.values():
+        return held
+    return held | {changed} if name == "key_down" else held - {changed}
+
+
+def digest(shot: Screenshot) -> str:
+    """A screenshot as the log keeps it: its SHA-256, never the image."""
+    return hashlib.sha256(shot.png).hexdigest()
+
+
+def said(name: str, args: dict[str, Any], intent: str) -> str:
+    """An action in a line for the log: what it clicked, typed or pressed, and why."""
+    where = ", ".join(f"{k}={args[k]}" for k in ("x", "y", "key", "keys", "text", "direction") if k in args)
+    line = f"{name}{f' ({where})' if where else ''}: {intent}"
+    return line if len(line) <= 300 else line[:299] + "…"
+
+
+class Record:
+    """A run's place in a study's log, through the agent's own session to the service.
+
+    Each step is logged before it's done. A write is logged only with a planner's
+    decision in the study that authorises it, which the service finds and names; with
+    none, the service refuses it and `step` raises Unauthorised.
+    """
+
+    def __init__(self, session: Any, study: str):
+        self.session = session
+        self.study = study
+
+    @staticmethod
+    def _whose() -> dict[str, str]:
+        sub = core.working_for.get()
+        return {"subagentId": sub} if sub else {}
+
+    async def step(self, **fields: Any) -> dict[str, Any]:
+        """Log one step of computer use. Returns the service's answer: its log position,
+        and for a write, the decision it used."""
+        arguments = {"studyId": self.study, "kind": "computer.action", **fields, **self._whose()}
+        try:
+            answer = await core.call(self.session, "report_activity", arguments)
+        except core.ToolError as error:
+            if error.message.startswith("403 needs_decision"):
+                raise Unauthorised(error.message) from None
+            raise
+        return answer if isinstance(answer, dict) else {}
+
+    async def ask(self, question: str, detail: str) -> str:
+        """Hand a question to a planner as its own entry in the log, kind decision. Returns its id."""
+        asked = f"computer-{secrets.token_hex(4)}"
+        arguments = {"studyId": self.study, "id": asked, "kind": "decision", "question": clip(question, 300), "detail": clip(detail, 600)}
+        await core.call(self.session, "ask_planner", arguments)
+        return asked
+
+    async def usage(self, model: str, fields: dict[str, Any]) -> None:
+        """Report a model call's tokens and cost to the study."""
+        await core.report(self.session, self.study, "usage", model=model, **fields, **self._whose())
+
+
+def clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def answer(call: types.FunctionCall, result: dict[str, Any], shot: Screenshot) -> types.Part:
@@ -482,6 +680,7 @@ SCHEDULER = App(
     describe=describe,
     did_task=headway_changed,
     missed="The app didn't save the change the task asks for.",
+    manifest=PAGE.parent / "manifest.json",
 )
 
 MICROSIM = App(
@@ -495,6 +694,7 @@ MICROSIM = App(
     did_task=left_turn_fixed,
     missed="The app didn't save phase 2's green at 20 s after a run that lowered the northbound left's delay.",
     outcome=los_outcome,
+    manifest=MICROSIM_PAGE.parent / "manifest.json",
 )
 
 APPS = {app.name: app for app in (SCHEDULER, MICROSIM)}
@@ -505,24 +705,30 @@ async def run(
     client: Any,
     task: str | None = None,
     *,
+    record: Record,
     model: str | None = None,
     max_steps: int = MAX_STEPS,
     max_usd: float = MAX_USD,
-    report: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
-    confirm: Callable[[str], Awaitable[bool]] | None = None,
     log: Callable[[str], Any] = print,
 ) -> Result:
     """Carry out a task in the app on `screen`, with Gemini's computer use, and say how it went.
 
-    The task is the app's own unless given. `client` is Gemini's async client. Each model
-    call's tokens and cost go to `report`, if given. A step Gemini wants confirmed runs
-    only if `confirm` says yes. A model with no price is refused before anything starts. The run stops before a call that would
-    likely pass `max_usd`, judged by what the last call cost: an estimate, not a bound.
-    A try Gemini didn't answer in time takes one of `max_steps`, and counts from an estimate.
+    The task is the app's own unless given. `client` is Gemini's async client. `record`
+    is the study's log: each step goes there before it's done, and a step it doesn't take
+    isn't done. A write, by the app's manifest, is done only with a planner's decision
+    that authorises it; without one the run asks a planner and stops. So does a step
+    Gemini wants a person to confirm, with no unused decision for a write in the app,
+    and a step after which the app saved something no decision authorised. Each model
+    call's tokens and cost go to the study too. A model with no price is refused before
+    anything starts.
+    The run stops before a call that would likely pass `max_usd`, judged by what the last
+    call cost: an estimate, not a bound. A try Gemini didn't answer in time takes one of
+    `max_steps`, and counts from an estimate.
     """
     model = model or os.environ.get("COMPUTER_USE_MODEL") or MODEL
     priced(model)
     app = screen.app
+    writes = app.writes  # an app whose writes aren't known is refused before anything starts
     task = task or app.task
     who = f"{display_name(model)} · computer use"
     computer = types.ComputerUse(environment=ENVIRONMENT, excluded_predefined_functions=EXCLUDED)
@@ -533,6 +739,9 @@ async def run(
     )
     await screen.caption(who, f"Task: {task}")
     shot = await screen.screenshot()
+    # What the app had saved before the run, so a save nobody authorised shows.
+    saved = len((await screen.state()).get("changes") or [])
+    await record.step(app=app.name, step=0, action="look", summary=clip(f"Opened the {app.noun}. Task: {task}", 300), screenshot=digest(shot))
     contents = [
         types.Content(
             role="user", parts=[types.Part(text=task), types.Part.from_bytes(data=shot.png, mime_type="image/png")]
@@ -543,6 +752,8 @@ async def run(
     # Every try at a call takes a step. One that timed out may have run, and been
     # billed, so it counts as a step too, and its cost from an estimate.
     tries = core.Budget(max_steps)
+    held: frozenset[str] = frozenset()  # modifiers held down with key_down
+    done_steps = 0  # actions, numbered in the log from 1; 0 is the screen it opened on
 
     async def count(usage: Any) -> float:
         """Add a call's tokens and cost to the result, and report them. Returns its cost."""
@@ -550,15 +761,25 @@ async def run(
         result.cost_usd += fields.get("costUsd", 0.0)
         result.input_tokens += fields["inputTokens"]
         result.output_tokens += fields["outputTokens"]
-        if report is not None:
-            try:
-                await report(fields)
-            except Exception as error:  # the run goes on; the terminal says what's missing
-                log(f"Couldn't report {model}'s usage: {core.redact(str(error))}")
+        try:
+            await record.usage(model, fields)
+        except Exception as error:  # the run goes on; the terminal says what's missing
+            log(f"Couldn't report {model}'s usage: {core.redact(str(error))}")
         return fields.get("costUsd", 0.0)
 
     async def lost() -> None:
         await count(core.estimated_usage(contents, settings))
+
+    async def stop_for_planner(entry: dict[str, Any], why: str, question: str, detail: str, write: Write | None = None) -> str:
+        """Log the step as blocked, hand the question to a planner, and say why the run stopped."""
+        blocked = {key: value for key, value in entry.items() if key != "confirm"}
+        await record.step(**blocked, **({"write": write.name} if write else {}), outcome="blocked")
+        result.asked = await record.ask(question, detail)
+        result.blocked = write.name if write else None
+        log(f"   Blocked: {why} Asked a planner ({result.asked}).")
+        await screen.caption(who, f"Stopped: {why} A planner was asked.", f"step {result.steps}")
+        await screen.pause(4)
+        return f"Stopped: {why} A planner was asked (question {result.asked})."
 
     while True:
         if tries.left < 1:
@@ -583,30 +804,77 @@ async def run(
         for call in calls:
             args = dict(call.args or {})
             intent = str(args.pop("intent", "") or call.name)
-            decision = args.pop("safety_decision", None) or {}
-            extra = {}
-            if decision.get("decision") == "require_confirmation":
-                explanation = str(decision.get("explanation") or "Gemini wants a person to check this step.")
-                log(f"{result.steps}. {call.name} waits for a person: {explanation}")
-                await screen.caption(who, ASKS, f"step {result.steps}")
-                await screen.pause(4)
-                if confirm is None or not await confirm(explanation):
-                    stop = f"Gemini asked a person to confirm a step ({explanation}), and nobody did, so it stopped."
-                    break
-                await screen.caption(who, CONFIRMATIONS.get(confirm, "Confirmed."), f"step {result.steps}")
-                await screen.pause(2)
-                extra["safety_acknowledgement"] = "true"
-            elif decision.get("decision") == "blocked":
-                stop = f"Gemini's safety check stopped the run: {decision.get('explanation') or 'blocked'}"
+            check = args.pop("safety_decision", None) or {}
+            if check.get("decision") == "blocked":
+                stop = f"Gemini's safety check stopped the run: {check.get('explanation') or 'blocked'}"
                 break
-            where = ", ".join(f"{key}={args[key]}" for key in ("x", "y", "key", "keys", "text") if key in args)
-            log(f"{result.steps}. {call.name}{f' ({where})' if where else ''}: {intent}")
-            await screen.caption(who, intent, f"step {result.steps} · US${result.cost_usd:.3f}")
+            done_steps += 1
+            entry = {"app": app.name, "step": done_steps, "action": call.name[:40], "summary": said(call.name, args, intent), "screenshot": digest(shot)}
+            # The harness, never the model, says whether this step writes.
+            write = await write_of(screen, call.name, args, held)
+            confirm = check.get("decision") == "require_confirmation"
+            if confirm:
+                entry["confirm"] = True
+            meta = f"step {result.steps} · US${result.cost_usd:.3f}"
+            if write:
+                try:
+                    logged = await record.step(**entry, write=write.name)
+                except Unauthorised:
+                    why = f"It would {write.says}, a write to the {app.noun}, and no planner's decision in this study authorises it."
+                    question = f"May the agent {write.says} in the {app.noun}?"
+                    detail = (
+                        f"Computer use stopped before it would {write.says}, for the task: {task} "
+                        f'To allow one write, record an adopt or amend decision with authorizes {{"app": "{app.name}", "action": "{write.name}"}}.'
+                    )
+                    stop = await stop_for_planner(entry, why, question, detail, write)
+                    break
+                decision = logged.get("decision")
+                result.decisions.append(decision)
+                log(f"{result.steps}. {call.name} is a write ({write.name}), authorised by the planner's decision at log {decision}.")
+                meta = f"{meta} · authorised by decision {decision}"
+            elif confirm:
+                # A person must confirm it, and the only one who can is a planner, by a
+                # recorded decision that authorises a write in this app. The service
+                # names it, and leaves it for the write.
+                try:
+                    logged = await record.step(**entry)
+                except Unauthorised:
+                    explanation = str(check.get("explanation") or "Gemini wants a person to check this step.")
+                    why = f"Gemini asked a person to confirm a step ({explanation}), and no planner's decision in this study authorises a change in the {app.noun}."
+                    question = f"Gemini asked a person to confirm a step in the {app.noun}: {explanation} May the agent go on?"
+                    detail = (
+                        f"Step: {entry['summary']} Task: {task} "
+                        f"To allow it, record an adopt or amend decision that authorises a write in the {app.noun}, "
+                        f'such as authorizes {{"app": "{app.name}", "action": "{next(iter(writes), "save")}"}}.'
+                    )
+                    stop = await stop_for_planner(entry, why, question, detail)
+                    break
+                meta = f"{meta} · confirmed by decision {logged.get('decision')}"
+            else:
+                await record.step(**entry)
+            log(f"{result.steps}. {entry['summary']}")
+            await screen.caption(who, intent, meta)
             done = await act(screen, call.name, args)
             if "error" in done:
                 log(f"   {done['error']}")
+            held = held_after(call.name, args, held)
             shot = await screen.screenshot()
-            parts.append(answer(call, {**done, **extra}, shot))
+            # Whatever the manifest says, a save nobody authorised stops the run.
+            now = (await screen.state()).get("changes") or []
+            if len(now) > saved and not write:
+                result.unauthorised = unseen = "; ".join(app.describe(change) for change in now[saved:])
+                why = f"The {app.noun} saved a change no planner's decision authorised: {unseen}."
+                found = next(iter(writes.values()), None)
+                await record.step(
+                    app=app.name, step=done_steps, action="check", summary=clip(why, 300), screenshot=digest(shot),
+                    **({"write": found.name} if found else {}), outcome="unauthorised",
+                )  # fmt: skip
+                result.asked = await record.ask(f"{why} Keep it, or undo it?", f"Step: {entry['summary']} Task: {task}")
+                log(f"   {why} Asked a planner ({result.asked}).")
+                stop = f"Stopped: {why} A planner was asked (question {result.asked})."
+                break
+            saved = len(now)
+            parts.append(answer(call, {**done, **({"safety_acknowledgement": "true"} if confirm else {})}, shot))
         if stop:
             result.text = stop
             break
@@ -618,36 +886,12 @@ async def run(
     ending = "; ".join(app.describe(change) for change in result.saved) or "nothing saved"
     outcome = app.outcome(result)
     meta = f"{result.steps} steps · US${result.cost_usd:.3f}"
-    said = f"{'Done' if result.finished else 'Stopped'}. Saved in the app: {ending}."
-    await screen.caption(who, f"{said} {outcome}" if outcome else said, meta)
+    said_now = f"{'Done' if result.finished else 'Stopped'}. Saved in the app: {ending}."
+    with contextlib.suppress(core.ToolError):  # the run is over: this only closes its record
+        await record.step(app=app.name, step=done_steps + 1, action="finish", summary=clip(f"{said_now} {outcome}".strip(), 300), screenshot=digest(shot))
+    await screen.caption(who, f"{said_now} {outcome}" if outcome else said_now, meta)
     await screen.pause(4)
     return result
-
-
-async def ask_at_terminal(explanation: str) -> bool:
-    """Ask the person at the terminal to confirm a step. No terminal, no yes."""
-    if not sys.stdin.isatty():
-        return False
-    question = f"Gemini wants a person to confirm the next step: {explanation}\nGo ahead? [y/N] "
-    reply = await asyncio.to_thread(input, question)
-    return reply.strip().lower() in ("y", "yes")
-
-
-async def confirmed(explanation: str) -> bool:
-    """--confirm: the planner who set the task said yes, before the run, to the steps Gemini asks about."""
-    return True
-
-
-# What a recording shows when Gemini's safety check asks a person to confirm a step,
-# as it does before Save. Gemini's reason goes to the terminal.
-ASKS = "The agent asks. The planner confirms."
-
-# What it shows once the step is confirmed: who said yes, and when. Nobody confirms
-# during a run with --confirm, so the caption says it was approved in advance.
-CONFIRMATIONS = {
-    confirmed: "Approved in advance with --confirm by the planner who set the task.",
-    ask_at_terminal: "Confirmed at the terminal by the person running the agent.",
-}
 
 
 async def main(argv: list[str] | None = None) -> int:
@@ -667,12 +911,11 @@ async def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--size", help="the screen as WIDTHxHEIGHT, such as 1440x810 to fit a laptop (default 1920x1080)")
     parser.add_argument("--hold", type=float, default=0, help="with --headed, keep the window open this many seconds after the run")
     parser.add_argument(
-        "--confirm",
-        action="store_true",
-        help="say yes, as the planner who set the task, when Gemini asks a person to confirm a step",
+        "--study",
+        required=True,
+        help="the study whose log records each step and model call, and whose planners' decisions authorise writes",
     )
-    parser.add_argument("--study", help="report each model call's tokens and cost to this study")
-    parser.add_argument("--service", help="the service for --study (default: TRANSIT_URL, or http://127.0.0.1:4100)")
+    parser.add_argument("--service", help="the service (default: TRANSIT_URL, or http://127.0.0.1:4100)")
     parser.add_argument("--model", help=f"the Gemini model (default: COMPUTER_USE_MODEL, or {MODEL})")
     parser.add_argument("--steps", type=int, default=MAX_STEPS, help=f"the most model calls (default {MAX_STEPS})")
     parser.add_argument(
@@ -699,13 +942,8 @@ async def main(argv: list[str] | None = None) -> int:
     priced(model)  # before the browser or the service starts
 
     async with contextlib.AsyncExitStack() as stack:
-        report = None
-        if args.study:
-            session = await stack.enter_async_context(core.open_session(args.service))
-
-            async def report(fields: dict[str, Any]) -> None:
-                await core.report(session, args.study, "usage", model=model, **fields)
-
+        # The agent's own session: an agent's token, so the run can't decide anything.
+        session = await stack.enter_async_context(core.open_session(args.service))
         aio = await stack.enter_async_context(core.gemini().aio)
         screen = await stack.enter_async_context(
             Screen(app=app, record=args.record, captions=not args.no_captions, headed=args.headed, size=size)
@@ -716,10 +954,9 @@ async def main(argv: list[str] | None = None) -> int:
             aio,
             task,
             model=model,
+            record=Record(session, args.study),
             max_steps=args.steps,
             max_usd=args.max_usd,
-            report=report,
-            confirm=confirmed if args.confirm else ask_at_terminal,
         )
         if args.headed and args.hold > 0:
             await asyncio.sleep(args.hold)  # so people watching see where it ended
@@ -731,9 +968,15 @@ async def main(argv: list[str] | None = None) -> int:
         print("Left unsaved: " + "; ".join(app.describe(change) for change in result.unsaved) + ".")
     if outcome := app.outcome(result):
         print(outcome)
+    for decision in result.decisions:
+        print(f"A write authorised by the planner's decision at log {decision}.")
+    if result.unauthorised:
+        print(f"Unauthorised: {result.text.removeprefix('Stopped: ')}")
+    elif result.asked:
+        print(f"Blocked: {result.text.removeprefix('Stopped: ')}")
     print(
         f"{result.steps} model calls, {result.input_tokens:,} tokens in and {result.output_tokens:,} out, "
-        f"US${result.cost_usd:.4f}{f', reported to {args.study}' if args.study else ''}."
+        f"US${result.cost_usd:.4f}, each step and call logged in {args.study}."
     )
     if video:
         print(f"Recording: {video}")

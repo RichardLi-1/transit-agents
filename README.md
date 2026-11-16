@@ -250,15 +250,30 @@ every other address, the other app's included, and Gemini isn't offered
 navigation.
 
 It needs the agents set up as in Run it, with `GEMINI_API_KEY` in
-`agents/.env`, and Node 24 or later. Recording needs ffmpeg. The service needn't
-run unless the agent reports to a study.
+`agents/.env`, Node 24 or later, and the service running, since every run works
+in a study's record. Recording needs ffmpeg.
+
+Each step is logged in the study before it's done, as a `computer.action`
+activity: what the agent looked at, by the screenshot's SHA-256 (never the
+image), and what it clicked, typed or pressed. Reads are free. A write, as the
+app's `manifest.json` names its writes (Save, in both apps), happens only under
+a planner's decision in the study that authorises it, and each decision
+authorises one. Without one the step is blocked, the agent hands a planner the
+question with ask_planner, and the run stops. A planner authorises one save by
+recording an adopt or amend decision with `authorizes`:
+
+```sh
+curl -X POST localhost:4100/v1/studies/<study>/decisions -H 'content-type: application/json' \
+  -d '{"outcome": "adopt", "reason": "605 Elm to every 6 minutes at the weekday peak", "decidedBy": "<name>",
+       "authorizes": {"app": "scheduler", "action": "save"}}'
+```
 
 ```sh
 npx playwright-core install chromium   # once: Chrome for Testing, or set CHROME_PATH
-agents/.venv/bin/python agents/computer_use.py --confirm                   # the default task
-agents/.venv/bin/python agents/computer_use.py --confirm --record run.mp4  # and a video of it
-agents/.venv/bin/python agents/computer_use.py "<task>" --headed           # another task, in a window
-agents/.venv/bin/python agents/computer_use.py --app microsim --confirm --record microsim.mp4  # the microsim
+agents/.venv/bin/python agents/computer_use.py --study <study>                    # the default task
+agents/.venv/bin/python agents/computer_use.py --study <study> --record run.mp4  # and a video of it
+agents/.venv/bin/python agents/computer_use.py --study <study> "<task>" --headed # another task, in a window
+agents/.venv/bin/python agents/computer_use.py --study <study> --app microsim --record microsim.mp4  # the microsim
 ```
 
 In the scheduler, by default it changes route 605 Elm's weekday peak headway
@@ -280,20 +295,21 @@ Gemini's safety filter refused the task when it read as changing a real
 intersection's signals, so it says it is an edit to a simulation model with
 sample data. Ours took 7 calls, about a minute and US$0.02.
 
-The agent asks, and the planner confirms. In our runs, Gemini's safety check
-asked a person to confirm before it pressed OK and Save. Without `--confirm`,
-the agent asks at the terminal and stops unless told yes. `--confirm` says yes
-in advance, for the planner who set the task. A recording captions that moment
-"The agent asks. The planner confirms.", then says who said yes, and when.
+Nothing says yes for a planner but their recorded decision: not Gemini, the
+chat or a flag. In our runs, Gemini's safety check asked a person to confirm
+before it pressed OK and Save. The step goes ahead only with a planner's unused
+decision that authorises a write in the app, which the log names beside it;
+otherwise the run stops and asks a planner. After each step the agent also
+checks what the app saved, and stops and asks a planner if it saved anything no
+decision authorised.
 
 A run stops at 15 model calls, or before one likely to take it past US$1.50,
 judged by what the last call cost; `--steps` and `--max-usd` set other caps. A
 call Gemini didn't answer in time counts as one, at an estimated cost, since
 Gemini may have run it. It refuses a model with no price in `agents/prices.py`
 or `MODEL_PRICES`, whose calls would count as free. Ours took 8 or 9 calls and
-about US$0.02 a run. `--study <id>` reports each call's tokens and cost to that
-study, and `--record` writes a 1920x1080 video with a caption for each step,
-using ffmpeg. Its tests use a stand-in for Gemini, and skip without Chrome for
+about US$0.02 a run. Each call's tokens and cost go to the study too, and
+`--record` writes a 1920x1080 video with a caption for each step, using ffmpeg. Its tests use a stand-in for Gemini, and skip without Chrome for
 Testing.
 
 ## Repo

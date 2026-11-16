@@ -1,0 +1,11 @@
+{
+  "app": "scheduler",
+  "about": "What in Trip Scheduler changes what the app holds. Computer use does one of these writes only with a planner's recorded decision that authorises it. Everything else only reads, including editing a period, which changes nothing until it is saved.",
+  "writes": {
+    "save": {
+      "says": "save the schedule",
+      "selectors": ["#save-button", "[data-action='save']"],
+      "keys": ["Control+s"]
+    }
+  }
+}

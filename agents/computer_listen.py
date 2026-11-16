@@ -6,6 +6,10 @@ in a window on this machine, lets Gemini work it by sight (computer_use.py --app
 microsim), and posts in the chat what it changed and what it cost. npm run dev starts
 it, and tells the lead to leave those messages to it. One run at a time.
 
+Asking in the chat authorises nothing. Each step is logged in the study, and the run
+saves the model only under a planner's recorded decision that authorises saving in the
+simulator. Without one it stops before saving and hands a planner the question.
+
     python computer_listen.py
 
 Settings: TRANSIT_URL, DATA_DIR (for the demo's "computer" token) or
@@ -70,11 +74,30 @@ def front() -> None:
             return
 
 
+def command(study: str, url: str) -> list[str]:
+    """The computer_use.py run for a study: the simulator, in a window, logged in the study.
+    Nothing in it says yes for a planner: only their recorded decision authorises a save."""
+    return [
+        sys.executable, str(HERE / "computer_use.py"), "--app", "microsim", "--headed",
+        "--size", "1500x860", "--steps", "22", "--hold", str(HOLD_SECONDS), "--study", study, "--service", url,
+    ]  # fmt: skip
+
+
 def summary(lines: list[str], ok: bool) -> str:
     """What the run did, in the chat's words, from computer_use.py's last lines."""
     saved = next((line for line in lines if line.startswith("The app saved:")), "")
     outcome = next((line for line in lines if line.startswith("Northbound left:")), "")
     cost = next((line for line in lines if "model calls" in line), "")
+    blocked = next((line for line in lines if line.startswith("Blocked: ")), "")
+    authorised = next((line for line in lines if line.startswith("A write authorised by")), "")
+    unauthorised = next((line for line in lines if line.startswith("Unauthorised: ")), "")
+    if unauthorised:
+        return f"The simulator run stopped. {unauthorised.removeprefix('Unauthorised: ')}"
+    if blocked:
+        return (
+            f"The simulator run stopped before saving. {blocked.removeprefix('Blocked: ')} "
+            'To let it save once, record an adopt or amend decision with authorizes {"app": "microsim", "action": "save"}, then ask again.'
+        )
     if not ok or not saved or saved.endswith("nothing."):
         last = next((line for line in reversed(lines) if line.strip()), "no output")
         return f"The simulator run didn't finish: {last[:300]}"
@@ -82,7 +105,8 @@ def summary(lines: list[str], ok: bool) -> str:
     parts = [f"Done in the simulator, and saved: {done}."]
     if outcome:
         parts.append(outcome)
-    parts.append("Gemini asked before saving; you set this task, so it went ahead.")
+    if authorised:
+        parts.append(authorised.replace("A write authorised", "Saved as authorised"))
     if cost:
         parts.append(cost.split(",")[0].rstrip(".") + ".")
     return " ".join(parts)
@@ -114,12 +138,8 @@ def main() -> int:
             print(f"{study}: simulator run asked for at {entry['seq']}", flush=True)
             try:
                 mark(study, "run.started")
-                say(study, "Opening the intersection simulator on this screen. Gemini will work it by sight, and ask before it saves.")
-                run = subprocess.Popen(
-                    [sys.executable, str(HERE / "computer_use.py"), "--app", "microsim", "--headed", "--confirm",
-                     "--size", "1500x860", "--steps", "22", "--hold", str(HOLD_SECONDS), "--study", study, "--service", url],
-                    cwd=HERE.parent, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                )
+                say(study, "Opening the intersection simulator on this screen. Gemini will work it by sight, each step logged here, and save only under a planner's decision that authorises it.")
+                run = subprocess.Popen(command(study, url), cwd=HERE.parent, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                 front()
                 out, _ = run.communicate(timeout=600)
                 lines = out.splitlines()

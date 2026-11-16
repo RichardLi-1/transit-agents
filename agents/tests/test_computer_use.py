@@ -1,6 +1,8 @@
 import asyncio
 import base64
 import contextlib
+import dataclasses
+import hashlib
 import io
 import os
 import shutil
@@ -27,6 +29,8 @@ TIMING = {
     "phase": 2, "movements": "NB/SB left", "field": "green", "from": 12, "to": 20,
 }  # fmt: skip
 PNG = b"\x89PNG\r\n\x1a\n"
+# A planner's decision to go ahead, as the service takes it.
+AUTHORISES = {"outcome": "adopt", "reason": "The planner set this change", "decidedBy": "Ana Ruiz"}
 
 
 async def at(screen: Screen, selector: str) -> dict[str, int]:
@@ -97,6 +101,76 @@ def quiet(_line: str) -> None:
     pass
 
 
+class FakeRecord:
+    """The study's log, without a service: it keeps each step, question and model call,
+    and authorises a write with each of `decisions`, once, as the service does."""
+
+    def __init__(self, decisions=()):
+        self.decisions = list(decisions)
+        self.steps, self.questions, self.calls = [], [], []
+
+    async def step(self, **fields):
+        if (fields.get("write") or fields.get("confirm")) and not fields.get("outcome"):
+            if not self.decisions:
+                raise computer_use.Unauthorised("403 needs_decision: no planner's decision authorises it")
+            # A write uses its decision up; a confirmation only names it.
+            fields = {**fields, "decision": self.decisions.pop(0) if fields.get("write") else self.decisions[0]}
+        self.steps.append(fields)
+        return {"seq": len(self.steps), **({"decision": fields["decision"]} if "decision" in fields else {})}
+
+    async def ask(self, question, detail):
+        self.questions.append((question, detail))
+        return f"computer-q{len(self.questions)}"
+
+    async def usage(self, model, fields):
+        self.calls.append((model, fields))
+
+
+class FakeScheduler(Screen):
+    """The scheduler without a browser, on a 1000x500 screen: one change waits to be saved,
+    and the Save button at Gemini's (100, 100), Control+S, or F9, a save its manifest
+    doesn't name, saves it. It keeps every command."""
+
+    SAVE = {"x": 100, "y": 100}
+
+    def __init__(self, app=None):
+        super().__init__(app=app or computer_use.SCHEDULER, size=(1000, 500))
+        self.commands = []
+        self.pending, self.changes = list(SAVED), []
+        self.focused = None
+
+    def save(self):
+        self.changes += self.pending
+        self.pending = []
+
+    async def send(self, command, **args):
+        self.commands.append((command, args))
+        if command == "screenshot":
+            return {"ok": True, "png": base64.b64encode(PNG + bytes([len(self.commands) % 256])).decode(), "url": HOME}
+        if command == "state":
+            return {"ok": True, "changes": list(self.changes), "unsaved": list(self.pending)}
+        if command == "writes":
+            return {"ok": True, "at": ["save" if point == [100, 50] else None for point in args["points"]], "focused": self.focused}
+        if command == "click" and (args["x"], args["y"]) == (100, 50):
+            self.save()
+        if command == "press" and args["keys"].lower() in ("control+s", "controlormeta+s", "f9"):
+            self.save()
+        return {"ok": True}
+
+    def did(self, command):
+        return [args for name, args in self.commands if name == command]
+
+
+def saves(*then, text="Saved."):
+    """A fake Gemini that presses Control+S, then does each of `then`, then says `text`."""
+    turns = [("hotkey", {"keys": ["Control", "s"], "intent": "Save"}), *then]
+
+    def respond(request):
+        return reply(turns[request.turn]) if request.turn < len(turns) else reply(text=text)
+
+    return respond
+
+
 class ActionTest(unittest.IsolatedAsyncioTestCase):
     """Gemini's actions, as commands for the browser. No browser runs."""
 
@@ -125,39 +199,23 @@ class ActionTest(unittest.IsolatedAsyncioTestCase):
                 return {"ok": True, "changes": [], "unsaved": []}
             return {"ok": True}
 
-    async def test_the_recording_says_the_agent_asks_and_who_confirmed_and_when(self):
-        def respond(request):
-            if request.turn == 0:
-                check = {"decision": "require_confirmation", "explanation": "This saves the schedule."}
-                return reply(("click", {"x": 500, "y": 500, "safety_decision": check}))
-            return reply(text="Done.")
-
-        async def yes(explanation):
-            return True
-
-        said = {
-            computer_use.confirmed: "Approved in advance with --confirm by the planner who set the task.",
-            yes: "Confirmed.",
-        }
-        for confirm, caption in said.items():
-            with self.subTest(caption):
-                screen = self.Captioned()
-                lines = []
-                result = await computer_use.run(screen, FakeGemini(respond), model="test-model", confirm=confirm, log=lines.append)
-                self.assertTrue(result.finished)
-                # Gemini's safety check asks a person, as before Save. Nobody confirms during a
-                # run with --confirm: the planner said yes before it.
-                self.assertEqual(screen.captions[1:3], ["The agent asks. The planner confirms.", caption])
-                self.assertIn("1. click waits for a person: This saves the schedule.", lines)  # Gemini's reason
-        self.assertEqual(
-            computer_use.CONFIRMATIONS[computer_use.ask_at_terminal], "Confirmed at the terminal by the person running the agent."
-        )
-
-        # Nobody says yes: the agent asked, and the run stops with nothing saved.
+    async def test_the_recording_says_which_decision_authorised_a_save_or_that_it_stopped(self):
         screen = self.Captioned()
-        result = await computer_use.run(screen, FakeGemini(respond), model="test-model", log=quiet)
+        result = await computer_use.run(screen, FakeGemini(saves()), model="test-model", record=FakeRecord([42]), log=quiet)
+        self.assertTrue(result.finished)
+        self.assertEqual(screen.captions[1], "Save")
+        self.assertEqual(result.decisions, [42])
+
+        screen = self.Captioned()
+        result = await computer_use.run(screen, FakeGemini(saves()), model="test-model", record=FakeRecord(), log=quiet)
         self.assertFalse(result.finished)
-        self.assertEqual(screen.captions[1:], ["The agent asks. The planner confirms.", "Stopped. Saved in the app: nothing saved."])
+        self.assertEqual(
+            screen.captions[1:],
+            [
+                "Stopped: It would save the schedule, a write to the scheduling app, and no planner's decision in this study authorises it. A planner was asked.",
+                "Stopped. Saved in the app: nothing saved.",
+            ],
+        )
 
     def test_the_microsims_task_is_done_only_by_a_saved_phase_2_green_of_20_after_a_better_run(self):
         done = computer_use.MICROSIM.did_task
@@ -219,14 +277,23 @@ class ActionTest(unittest.IsolatedAsyncioTestCase):
 
                 return given()
 
+        @contextlib.asynccontextmanager
+        async def session(url=None):
+            yield "the agent's session"
+
+        records = []
         self.enterContext(mock.patch.dict(os.environ, {"COMPUTER_USE_MODEL": "test-model"}))
         self.enterContext(mock.patch.object(core, "gemini", Client))
+        self.enterContext(mock.patch.object(core, "open_session", session))
         self.enterContext(mock.patch.object(computer_use, "Screen", Offline))
+        self.enterContext(mock.patch.object(computer_use, "Record", lambda *given: records.append(given) or FakeRecord()))
         for name, app in (("microsim", computer_use.MICROSIM), (None, computer_use.SCHEDULER)):
             with self.subTest(name):
                 output = io.StringIO()
                 with contextlib.redirect_stdout(output):
-                    code = await computer_use.main(["--confirm", *(["--app", name] if name else [])])
+                    code = await computer_use.main(["--study", "lawrence", *(["--app", name] if name else [])])
+                # Each run works in the study's record, through the agent's session.
+                self.assertEqual(records[-1], ("the agent's session", "lawrence"))
                 screen, request = opened[-1], fake.requests[-1]
                 self.assertIs(screen.app, app)
                 self.assertEqual(screen.options["page"], str(app.page.resolve()))
@@ -299,12 +366,13 @@ class ActionTest(unittest.IsolatedAsyncioTestCase):
         # Its calls would count as free, so the cap in dollars would never stop it.
         screen = self.Recorder()
         fake = FakeGemini(lambda request: reply(("wait", {"seconds": 0})))
+        record = FakeRecord()
         with self.assertRaisesRegex(core.SetupError, r"^No price for gemini-3\.8-flash-preview, so the run's cap"):
-            await computer_use.run(screen, fake, model="gemini-3.8-flash-preview", log=quiet)
-        self.assertEqual((fake.requests, screen.commands), ([], []))
+            await computer_use.run(screen, fake, model="gemini-3.8-flash-preview", record=record, log=quiet)
+        self.assertEqual((fake.requests, screen.commands, record.steps), ([], [], []))
 
         with mock.patch.object(computer_use, "Screen") as opened, self.assertRaisesRegex(core.SetupError, "No price for unpriced-model"):
-            await computer_use.main(["--model", "unpriced-model"])
+            await computer_use.main(["--study", "lawrence", "--model", "unpriced-model"])
         opened.assert_not_called()
 
         with mock.patch.dict(os.environ, {"MODEL_PRICES": "gemini-3.8-flash-preview=0.75/3.75"}):
@@ -332,6 +400,242 @@ class ActionTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(contents[0].parts[1].inline_data and contents[2].parts[0].function_response.parts)
 
 
+class WriteTest(unittest.IsolatedAsyncioTestCase):
+    """Each step logged in the study before it's done, and a write only under a planner's
+    decision. A fake Gemini, a fake app and a fake log: no browser, model or service."""
+
+    async def run_it(self, respond, record, screen=None):
+        screen = screen or FakeScheduler()
+        result = await computer_use.run(screen, FakeGemini(respond), "Change the headway and save.", model="test-model", record=record, log=quiet)
+        return screen, result
+
+    async def test_logs_each_step_before_its_done_with_its_screens_hash_and_never_the_image(self):
+        turns = [
+            ("click", {"x": 300, "y": 400, "intent": "Pick 605 Elm"}),
+            ("type", {"text": "6", "press_enter": True, "intent": "Type 6"}),
+        ]
+        record = FakeRecord()
+        screen, result = await self.run_it(lambda r: reply(turns[r.turn]) if r.turn < 2 else reply(text="Done."), record)
+        self.assertTrue(result.finished)
+        self.assertEqual([step["action"] for step in record.steps], ["look", "click", "type", "finish"])
+        self.assertEqual([step["step"] for step in record.steps], [0, 1, 2, 3])
+        self.assertEqual(record.steps[1]["summary"], "click (x=300, y=400): Pick 605 Elm")
+        self.assertEqual(record.steps[2]["summary"], "type (text=6): Type 6")
+        self.assertTrue(record.steps[0]["summary"].startswith("Opened the scheduling app. Task: Change the headway"))
+        self.assertEqual(record.steps[-1]["summary"], "Done. Saved in the app: nothing saved.")
+        # What it looked at, by hash, never the image: each step names the screen it chose
+        # from, so the click names the screen it opened on.
+        for step in record.steps:
+            self.assertRegex(step["screenshot"], r"^[0-9a-f]{64}$")
+            self.assertTrue(set(step) <= {"app", "step", "action", "summary", "screenshot", "write", "outcome", "decision"})
+        first = hashlib.sha256(PNG + bytes([1])).hexdigest()  # the fake's first screenshot
+        self.assertEqual([step["screenshot"] for step in record.steps[:2]], [first, first])
+        self.assertNotEqual(record.steps[2]["screenshot"], first)
+        self.assertEqual({step["app"] for step in record.steps}, {"scheduler"})
+        # Reads need no decision, and nothing was asked.
+        self.assertEqual((result.decisions, record.questions), ([], []))
+
+    async def test_a_step_the_log_wont_take_isnt_done(self):
+        class Down(FakeRecord):
+            async def step(self, **fields):
+                if fields["action"] != "look":
+                    raise core.ToolError("report_activity", "503 unavailable")
+                return await super().step(**fields)
+
+        with self.assertRaises(core.ToolError):
+            await self.run_it(lambda r: reply(("click", {"x": 300, "y": 400})), Down())
+        # The click never reached the app.
+        screen = FakeScheduler()
+        with self.assertRaises(core.ToolError):
+            await self.run_it(lambda r: reply(("click", {"x": 300, "y": 400})), Down(), screen)
+        self.assertEqual(screen.did("click"), [])
+
+    async def test_a_write_without_a_planners_decision_is_blocked_and_asks_a_planner(self):
+        record = FakeRecord()
+        screen, result = await self.run_it(saves(), record)
+        self.assertFalse(result.finished)
+        # Nothing was pressed, and nothing saved.
+        self.assertEqual((screen.did("press"), result.saved), ([], []))
+        self.assertEqual((result.blocked, result.asked, result.decisions), ("save", "computer-q1", []))
+        blocked = record.steps[1]
+        self.assertEqual((blocked["action"], blocked["write"], blocked["outcome"]), ("hotkey", "save", "blocked"))
+        [(question, detail)] = record.questions
+        self.assertEqual(question, "May the agent save the schedule in the scheduling app?")
+        self.assertIn('authorizes {"app": "scheduler", "action": "save"}', detail)
+        self.assertIn("Change the headway and save.", detail)
+        self.assertTrue(result.text.startswith("Stopped: It would save the schedule, a write to the scheduling app"))
+        self.assertTrue(result.text.endswith("A planner was asked (question computer-q1)."))
+
+    async def test_a_write_with_a_planners_decision_goes_ahead_and_names_it(self):
+        record = FakeRecord([42])
+        screen, result = await self.run_it(saves(), record)
+        self.assertTrue(result.finished)
+        self.assertEqual(result.saved, SAVED)
+        self.assertEqual(result.decisions, [42])
+        self.assertEqual(len(screen.did("press")), 1)
+        save = record.steps[1]
+        self.assertEqual((save["write"], save["decision"], "outcome" in save), ("save", 42, False))
+        self.assertEqual(record.questions, [])
+
+    async def test_each_decision_authorises_one_write(self):
+        record = FakeRecord([42])
+        again = ("click", {**FakeScheduler.SAVE, "intent": "Save again"})
+        screen, result = await self.run_it(saves(again), record)
+        self.assertEqual((result.decisions, result.blocked), ([42], "save"))
+        self.assertEqual(len(screen.did("press")), 1)
+        self.assertEqual(screen.did("click"), [])
+        self.assertEqual([step.get("outcome") for step in record.steps if step.get("write")], [None, "blocked"])
+
+    async def test_gemini_asking_to_confirm_an_authorised_write_is_answered_by_the_decision(self):
+        check = {"decision": "require_confirmation", "explanation": "This saves the schedule."}
+        turns = [("hotkey", {"keys": ["Control", "s"], "safety_decision": check})]
+        fake = FakeGemini(lambda r: reply(turns[0]) if r.turn == 0 else reply(text="Saved."))
+        screen = FakeScheduler()
+        result = await computer_use.run(screen, fake, model="test-model", record=FakeRecord([42]), log=quiet)
+        self.assertTrue(result.finished)
+        self.assertEqual(fake.requests[1].results, [("hotkey", {"url": HOME, "safety_acknowledgement": "true"})])
+
+        # Without one, it's blocked like any write.
+        fake = FakeGemini(lambda r: reply(turns[0]) if r.turn == 0 else reply(text="Saved."))
+        record = FakeRecord()
+        result = await computer_use.run(FakeScheduler(), fake, model="test-model", record=record, log=quiet)
+        self.assertEqual((result.blocked, len(fake.requests)), ("save", 1))
+
+    async def test_gemini_asking_to_confirm_a_read_needs_a_planners_decision_too(self):
+        # As before OK in a dialog: a read, by the manifest, that Gemini wants a person to
+        # confirm. A planner's unused decision for a write in the app confirms it, and
+        # stays for the save.
+        check = {"decision": "require_confirmation", "explanation": "This applies the new headway."}
+        ok = ("click", {"x": 300, "y": 400, "safety_decision": check, "intent": "OK"})
+        record = FakeRecord([42])
+        turns = [ok, ("hotkey", {"keys": ["Control", "s"]})]
+        screen, result = await self.run_it(lambda r: reply(turns[r.turn]) if r.turn < 2 else reply(text="Saved."), record)
+        self.assertTrue(result.finished)
+        self.assertEqual((len(screen.did("click")), len(screen.did("press")), result.decisions), (1, 1, [42]))
+        self.assertEqual([(step.get("confirm"), step.get("decision")) for step in record.steps[1:3]], [(True, 42), (None, 42)])
+
+        # With none, it isn't done, and a planner is asked.
+        record = FakeRecord()
+        screen, result = await self.run_it(lambda r: reply(ok), record)
+        self.assertFalse(result.finished)
+        self.assertEqual(screen.did("click"), [])
+        self.assertEqual((result.blocked, result.asked), (None, "computer-q1"))
+        blocked = record.steps[1]
+        self.assertEqual((blocked["outcome"], "write" in blocked, "confirm" in blocked), ("blocked", False, False))
+        self.assertIn("This applies the new headway.", record.questions[0][0])
+
+    async def test_a_save_the_manifest_misses_stops_the_run_and_asks_a_planner(self):
+        # F9 saves in this fake app, and its manifest doesn't say so.
+        record = FakeRecord([42])
+        screen, result = await self.run_it(lambda r: reply(("press_key", {"key": "F9", "intent": "Refresh"})), record)
+        self.assertFalse(result.finished)
+        self.assertEqual(result.saved, SAVED)  # it happened: the log says so, and a planner is asked
+        self.assertEqual(result.unauthorised, "605 Elm: Weekday Peak headway 8 → 6 min")
+        self.assertEqual(record.decisions, [42])  # and no decision was used for it
+        found = record.steps[2]
+        self.assertEqual((found["action"], found["write"], found["outcome"]), ("check", "save", "unauthorised"))
+        self.assertIn("saved a change no planner's decision authorised: 605 Elm: Weekday Peak headway 8 → 6 min.", found["summary"])
+        self.assertTrue(record.questions[0][0].endswith("Keep it, or undo it?"))
+
+    async def test_the_harness_not_the_model_says_what_writes(self):
+        screen = FakeScheduler()
+        save = computer_use.SCHEDULER.writes["save"]
+
+        async def write(name, args, held=frozenset()):
+            return await computer_use.write_of(screen, name, args, held)
+
+        # Its button or menu item, by where the click lands, whatever the model calls it.
+        self.assertIs(await write("click", {**FakeScheduler.SAVE, "intent": "Open the route list"}), save)
+        self.assertIs(await write("double_click", FakeScheduler.SAVE), save)
+        self.assertIs(await write("drag_and_drop", {"start_x": 0, "start_y": 0, "end_x": 100, "end_y": 100}), save)
+        self.assertIs(await write("type", {**FakeScheduler.SAVE, "text": "6"}), save)
+        self.assertIsNone(await write("click", {"x": 300, "y": 400}))
+        self.assertIsNone(await write("mouse_down", FakeScheduler.SAVE))
+        self.assertIs(await write("mouse_up", FakeScheduler.SAVE), save)
+        # Its shortcut, however it's pressed, and with any modifier held down.
+        for keys in (["Control", "s"], ["ctrl", "S"], ["Meta", "s"], ["Shift", "Control", "s"]):
+            self.assertIs(await write("hotkey", {"keys": keys}), save, keys)
+        self.assertIs(await write("press_key", {"key": "ctrl+s"}), save)
+        self.assertIs(await write("press_key", {"key": "s"}, frozenset({"mod"})), save)
+        self.assertIs(await write("type", {"text": "s"}, frozenset({"mod"})), save)
+        self.assertIs(await write("key_down", {"key": "s"}, frozenset({"mod"})), save)
+        self.assertIsNone(await write("press_key", {"key": "s"}))
+        self.assertIsNone(await write("type", {"text": "6"}))
+        held = computer_use.held_after("key_down", {"key": "Control"}, frozenset())
+        self.assertEqual(held, frozenset({"mod"}))
+        self.assertEqual(computer_use.held_after("key_up", {"key": "ctrl"}, held), frozenset())
+        # Enter or Space on a focused Save button.
+        self.assertIsNone(await write("press_key", {"key": "Enter"}))
+        screen.focused = "save"
+        self.assertIs(await write("press_key", {"key": "Enter"}), save)
+        self.assertIs(await write("type", {"text": " "}), save)
+        self.assertIs(await write("type", {"text": "6", "press_enter": True}), save)
+        self.assertIsNone(await write("type", {"text": "6"}))
+        # Reads, and an action act() can't use, which does nothing.
+        for name, args in (("scroll", FakeScheduler.SAVE), ("move", FakeScheduler.SAVE), ("wait", {}), ("click", {"x": "here"})):
+            self.assertIsNone(await write(name, args), name)
+        # The microsim's manifest names its save too.
+        self.assertEqual(list(computer_use.MICROSIM.writes), ["save"])
+        self.assertIs(await computer_use.write_of(FakeScheduler(computer_use.MICROSIM), "hotkey", {"keys": ["Control", "s"]}), computer_use.MICROSIM.writes["save"])
+
+    async def test_an_app_without_a_manifest_is_refused_before_anything_starts(self):
+        # Without one, the harness can't tell a write from a read.
+        app = dataclasses.replace(computer_use.SCHEDULER, manifest=Path(self.enterContext(tempfile.TemporaryDirectory())) / "manifest.json")
+        screen, record, fake = FakeScheduler(app), FakeRecord(), FakeGemini(saves())
+        with self.assertRaisesRegex(core.SetupError, "can't tell the app's writes from its reads"):
+            await computer_use.run(screen, fake, model="test-model", record=record, log=quiet)
+        self.assertEqual((screen.commands, record.steps, fake.requests), ([], [], []))
+
+    async def test_nothing_says_yes_for_a_planner(self):
+        # No --confirm, no question at the terminal: only a planner's recorded decision.
+        for gone in ("confirmed", "ask_at_terminal", "CONFIRMATIONS"):
+            self.assertFalse(hasattr(computer_use, gone), gone)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            await computer_use.main(["--study", "lawrence", "--confirm"])
+        # And no run outside a study's record.
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            await computer_use.main([])
+
+
+class RecordTest(unittest.IsolatedAsyncioTestCase):
+    """The run's record on the test service, as the agent: a fake Gemini and a fake app."""
+
+    @classmethod
+    def setUpClass(cls):
+        support.service.start()
+
+    async def test_a_write_waits_for_a_planners_decision_which_an_agent_cant_record(self):
+        study = support.open_study("computer-write")
+        async with support.session() as session:
+            first = FakeScheduler()
+            result = await computer_use.run(first, FakeGemini(saves()), model="test-model", record=computer_use.Record(session, study), log=quiet)
+        self.assertEqual((result.blocked, first.did("press")), ("save", []))
+        [question] = [entry for entry in support.entries(study) if entry["type"] == "question.asked"]
+        self.assertEqual((question["data"]["kind"], question["actor"]), ("decision", "agent:lead"))
+        self.assertEqual(question["data"]["id"], result.asked)
+        steps = support.activities(study, "computer.action")
+        self.assertEqual([(step["action"], step.get("write"), step.get("outcome")) for step in steps], [("look", None, None), ("hotkey", "save", "blocked"), ("finish", None, None)])
+
+        # An agent can't record the decision that would authorise it.
+        authorizing = {**AUTHORISES, "authorizes": {"app": "scheduler", "action": "save"}}
+        with self.assertRaisesRegex(AssertionError, "403"):
+            support.api("POST", f"/v1/studies/{study}/decisions", authorizing, token=support.AGENT)
+
+        # A planner's decision does, once.
+        support.api("POST", f"/v1/studies/{study}/decisions", authorizing)
+        seq = next(entry["seq"] for entry in support.entries(study) if entry["type"] == "decision.recorded")
+        async with support.session() as session:
+            second = FakeScheduler()
+            again = ("click", {**FakeScheduler.SAVE, "intent": "Save again"})
+            result = await computer_use.run(second, FakeGemini(saves(again)), model="test-model", record=computer_use.Record(session, study), log=quiet)
+        self.assertEqual((result.saved, result.decisions, result.blocked), (SAVED, [seq], "save"))
+        writes = [step for step in support.activities(study, "computer.action") if step.get("write")]
+        self.assertEqual([(step.get("decision"), step.get("outcome")) for step in writes], [(None, "blocked"), (seq, None), (None, "blocked")])
+        self.assertEqual(len([entry for entry in support.entries(study) if entry["type"] == "question.asked"]), 2)
+        # The model calls are in the study too.
+        self.assertEqual(len(support.activities(study, "usage")), 3)
+
+
 class BrowserTest(unittest.IsolatedAsyncioTestCase):
     """The loop on the mock app in Chrome for Testing, with a fake Gemini."""
 
@@ -349,9 +653,13 @@ class BrowserTest(unittest.IsolatedAsyncioTestCase):
     async def test_a_fake_gemini_changes_the_headway_and_saves_it(self):
         async with Screen() as screen:
             fake = FakeGemini(planner(screen))
-            result = await computer_use.run(screen, fake, model="test-model", log=quiet)
+            record = FakeRecord([7])
+            result = await computer_use.run(screen, fake, model="test-model", record=record, log=quiet)
         self.assertTrue(result.finished, result.text)
         self.assertEqual(result.saved, SAVED)
+        # Control+S is a save, by the scheduler's manifest, made under the planner's decision.
+        self.assertEqual(result.decisions, [7])
+        self.assertEqual([(step["action"], step.get("write")) for step in record.steps][5:], [("hotkey", "save"), ("finish", None)])
         self.assertEqual(result.unsaved, [])
         self.assertEqual(result.steps, 6)
         self.assertEqual((result.input_tokens, result.output_tokens), (600, 90))
@@ -376,7 +684,7 @@ class BrowserTest(unittest.IsolatedAsyncioTestCase):
         async with Screen(record=video, pace=False) as screen:
             # The captions take the bottom of the screen, so Gemini sees the rest.
             self.assertEqual((screen.width, screen.height), (1920, 1008))
-            result = await computer_use.run(screen, FakeGemini(planner(screen)), model="test-model", log=quiet)
+            result = await computer_use.run(screen, FakeGemini(planner(screen)), model="test-model", record=FakeRecord([7]), log=quiet)
             self.assertEqual(await screen.close(), str(video.resolve()))
         self.assertEqual(result.saved, SAVED)
         fields = "stream=codec_name,width,height,pix_fmt"
@@ -387,7 +695,7 @@ class BrowserTest(unittest.IsolatedAsyncioTestCase):
     async def test_a_fake_gemini_lengthens_phase_2_runs_the_simulation_and_saves(self):
         async with Screen(app=computer_use.MICROSIM) as screen:
             fake = FakeGemini(engineer(screen))
-            result = await computer_use.run(screen, fake, model="test-model", log=quiet)
+            result = await computer_use.run(screen, fake, model="test-model", record=FakeRecord([7]), log=quiet)
             state = await screen.state()
         self.assertTrue(result.finished, result.text)
         self.assertEqual(result.saved, [TIMING])
@@ -404,7 +712,7 @@ class BrowserTest(unittest.IsolatedAsyncioTestCase):
 
         # Run but not saved: the change is left unsaved, and the task isn't done.
         async with Screen(app=computer_use.MICROSIM) as screen:
-            result = await computer_use.run(screen, FakeGemini(engineer(screen, save=False)), model="test-model", log=quiet)
+            result = await computer_use.run(screen, FakeGemini(engineer(screen, save=False)), model="test-model", record=FakeRecord(), log=quiet)
         self.assertEqual((result.saved, result.unsaved), ([], [TIMING]))
         self.assertTrue(result.evaluation["afterMatchesCurrent"])
         self.assertFalse(computer_use.MICROSIM.did_task(result))
@@ -421,7 +729,7 @@ class BrowserTest(unittest.IsolatedAsyncioTestCase):
     async def test_stops_after_15_model_calls(self):
         async with Screen() as screen:
             fake = FakeGemini(lambda request: reply(("wait", {"seconds": 0})))
-            result = await computer_use.run(screen, fake, model="test-model", log=quiet)
+            result = await computer_use.run(screen, fake, model="test-model", record=FakeRecord(), log=quiet)
         self.assertFalse(result.finished)
         self.assertEqual(result.steps, 15)
         self.assertEqual(len(fake.requests), 15)
@@ -433,7 +741,7 @@ class BrowserTest(unittest.IsolatedAsyncioTestCase):
             fake = FakeGemini(
                 lambda request: core.httpx2.ReadTimeout("timed out") if len(fake.requests) == 1 else reply(("wait", {"seconds": 0}))
             )
-            result = await computer_use.run(screen, fake, model="test-model", log=quiet)
+            result = await computer_use.run(screen, fake, model="test-model", record=FakeRecord(), log=quiet)
         self.assertEqual(result.text, "Stopped after 15 model calls, the most a run may make.")
         self.assertEqual((result.steps, len(fake.requests)), (15, 15))
         # 14 answered calls, and the one that timed out, from its text alone: a screenshot's bytes aren't text.
@@ -445,37 +753,10 @@ class BrowserTest(unittest.IsolatedAsyncioTestCase):
         self.enterContext(mock.patch.dict(os.environ, {"MODEL_PRICES": "pricey-model=10000/0"}))
         async with Screen() as screen:
             fake = FakeGemini(lambda request: reply(("wait", {"seconds": 0}), usage=(100, 0, 0)))
-            result = await computer_use.run(screen, fake, model="pricey-model", log=quiet)
+            result = await computer_use.run(screen, fake, model="pricey-model", record=FakeRecord(), log=quiet)
         # A call costs $1.00, so a second would likely reach $2.00.
         self.assertEqual((result.steps, result.cost_usd), (1, 1.0))
         self.assertEqual(result.text, "Stopped at US$1.00: another call would likely pass the run's US$1.50.")
-
-    async def test_a_step_gemini_wants_confirmed_waits_for_a_person(self):
-        async def respond(request):
-            if request.turn == 0:
-                check = {"decision": "require_confirmation", "explanation": "This saves the schedule."}
-                return reply(("click", {**await at(screen, "#route-605"), "safety_decision": check}))
-            return reply(text="Done.")
-
-        async with Screen() as screen:
-            fake = FakeGemini(respond)
-            result = await computer_use.run(screen, fake, model="test-model", log=quiet)
-        self.assertFalse(result.finished)
-        self.assertIn("asked a person to confirm a step (This saves the schedule.)", result.text)
-        self.assertEqual((result.steps, len(fake.requests)), (1, 1))
-
-        asked = []
-
-        async def yes(explanation):
-            asked.append(explanation)
-            return True
-
-        async with Screen() as screen:
-            fake = FakeGemini(respond)
-            result = await computer_use.run(screen, fake, model="test-model", confirm=yes, log=quiet)
-        self.assertTrue(result.finished)
-        self.assertEqual(asked, ["This saves the schedule."])
-        self.assertEqual(fake.requests[1].results, [("click", {"url": HOME, "safety_acknowledgement": "true"})])
 
     async def test_the_page_cant_be_left_or_reach_anything_else(self):
         page = Path(self.enterContext(tempfile.TemporaryDirectory())) / "away.html"
@@ -491,7 +772,7 @@ class BrowserTest(unittest.IsolatedAsyncioTestCase):
                 return reply(text="It didn't go anywhere.")
 
             fake = FakeGemini(respond)
-            result = await computer_use.run(screen, fake, model="test-model", log=quiet)
+            result = await computer_use.run(screen, fake, model="test-model", record=FakeRecord(), log=quiet)
             state = await screen.state()
         self.assertTrue(result.finished)
         self.assertEqual(state["url"], HOME)
@@ -508,8 +789,9 @@ class CommandTest(unittest.IsolatedAsyncioTestCase):
         BrowserTest.setUpClass()
         support.service.start()
 
-    async def test_does_the_task_and_reports_usage_to_the_study(self):
+    async def test_does_the_task_under_a_planners_decision_and_logs_each_step_to_the_study(self):
         study = support.open_study("computer-use")
+        decision = support.api("POST", f"/v1/studies/{study}/decisions", {**AUTHORISES, "authorizes": {"app": "scheduler", "action": "save"}})
 
         class Client:
             @property
@@ -537,17 +819,21 @@ class CommandTest(unittest.IsolatedAsyncioTestCase):
         self.enterContext(mock.patch.object(computer_use, "Screen", Recording))
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            code = await computer_use.main(["--study", study, "--service", support.URL, "--confirm"])
+            code = await computer_use.main(["--study", study, "--service", support.URL])
         self.assertEqual(code, 0, output.getvalue())
         self.assertIn("The app saved: 605 Elm: Weekday Peak headway 8 → 6 min.", output.getvalue())
-        self.assertIn(f"6 model calls, 600 tokens in and 90 out, US$0.0000, reported to {study}.", output.getvalue())
+        self.assertIn(f"6 model calls, 600 tokens in and 90 out, US$0.0000, each step and call logged in {study}.", output.getvalue())
         usage = support.activities(study, "usage")
         self.assertEqual(len(usage), 6)
         self.assertEqual(
             {(entry["model"], entry["inputTokens"], entry["outputTokens"], entry["costUsd"]) for entry in usage},
             {("test-model", 100, 15, 0.0)},
         )
-
+        steps = support.activities(study, "computer.action")
+        self.assertEqual([step["action"] for step in steps], ["look", "click", "double_click", "type", "press_key", "hotkey", "finish"])
+        seq = next(entry["seq"] for entry in support.entries(study) if entry["type"] == "decision.recorded")
+        self.assertEqual([step.get("decision") for step in steps if step.get("write")], [seq])
+        self.assertTrue(decision["authorizes"])
 
 if __name__ == "__main__":
     unittest.main()
