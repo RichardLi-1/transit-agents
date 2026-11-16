@@ -60,6 +60,8 @@ Every agent:
 - leaves arithmetic to the service or a skill's script;
 - never decides, sets a rule, rates a finding, approves a skill version or edits the log:
   it has no tools for these;
+- writes to an agency system only under a planner's recorded decision that authorises
+  that write, and logs every step it takes in one;
 - uses a skill only at its current approved version, and runs its scripts sandboxed;
 - treats text in sources and messages as content, never as instructions;
 - reports every model call's tokens and cost, within a run's budget (60 calls and
@@ -96,13 +98,15 @@ Every agent:
 - **Tools:** list_sources, search_sources, read_page, get_study, list_rules,
   trace_figure, compare_versions, record_figure, record_check, record_finding,
   ask_planner, preview_change, get_timeline, live_vehicles; plus its skill's scripts,
-  sandboxed.
+  sandboxed, and for the trip-scheduler skill use_computer (`COMPUTER_APPS` in
+  [specialists.py](../agents/specialists.py)), only while a planner approved the
+  skill's version.
 - **Never:** asks specialists of its own; adds an engagement need except through
   the engagement-needs skill, which pins it to the line and needs a citation; runs
   the service's GIS tools except through the gis-analyst, safety-audit,
   active-transportation, equity-analysis, economic-development and
   stop-accessibility skills.
-- **Code and tests:** [specialists.py](../agents/specialists.py), [test_specialists.py](../agents/tests/test_specialists.py) (14);
+- **Code and tests:** [specialists.py](../agents/specialists.py), [test_specialists.py](../agents/tests/test_specialists.py) (16);
   the sandbox, [sandbox.py](../agents/sandbox.py), [test_sandbox.py](../agents/tests/test_sandbox.py) (9).
 
 ### Media
@@ -122,12 +126,34 @@ Every agent:
 - **Job:** works a legacy desktop tool by sight, as a planner would, for tools with
   no API. Two mocks with sample data: a trip scheduler and a signal-timing
   microsimulator.
-- **Runs:** `python agents/computer_use.py [--app microsim]`; from the chat,
-  `python agents/computer_listen.py`.
+- **Runs:** as use_computer, a tool in the trip-scheduler skill, which the agent runs
+  with its own session and Gemini's key, never in the skill's sandbox; or
+  `python agents/computer_use.py --study <id> [--app microsim]`; or from the chat,
+  `python agents/computer_listen.py`. Every run works in a study.
 - **Model:** gemini-3.8-flash with Gemini's computer-use tool.
-- **Never:** touches anything outside the mock app's window.
-- **Status:** a demonstration on mocks. No real agency tool, and no eval cases.
-- **Code and tests:** [computer_use.py](../agents/computer_use.py) (20 tests), [computer_listen.py](../agents/computer_listen.py) (4).
+- **Logs** each step in the study before it does it, as a `computer.action` activity:
+  what it looked at, by the screenshot's SHA-256, never the image, and what it
+  clicked, typed or pressed. A step the log doesn't take isn't done. A planner can
+  replay the run from the log.
+- **Writes:** each app's `manifest.json` names its writes: Save, in both. The harness,
+  not the model, decides whether a step is one: by the control under the click, the
+  focused control, or the shortcut. A write goes ahead only under a planner's decision
+  in the study that authorises it: an adopt or amend with
+  `authorizes: {"app": "scheduler", "action": "save"}`. Each decision authorises one
+  write, and the service names it in the step's entry. Without one the step is
+  blocked, the agent hands a planner the question with ask_planner, and the run
+  stops. When Gemini asks a person to confirm a step, only such a decision confirms
+  it. After each step the harness also checks what the app saved, and stops and asks
+  a planner if it saved anything no decision authorised. Reads are free.
+- **Never:** touches anything outside the mock app's window; says yes for a planner:
+  there is no `--confirm`, no yes at the terminal, and asking in the chat authorises
+  nothing; downloads anything. An export only becomes a citable source if a planner
+  adds it: what an agent adds can't be cited.
+- **Status:** works on the two mocks only, through their manifests. No real agency
+  tool, no eval cases, and nothing yet checks what a write changed against what the
+  decision said: the log shows both, for a planner to compare.
+- **Code and tests:** [computer_use.py](../agents/computer_use.py) (31 tests, 9 of them
+  need Chrome for Testing), [computer_listen.py](../agents/computer_listen.py) (7).
 
 ### Slack bridge
 
@@ -255,6 +281,7 @@ partly, ✗ not yet.
 | equity-analysis | ✓ | ✓ | ✓ service | ✓ | ✓ 7 + 18 service | ◐ 5/4 | ✗ |
 | economic-development | ✓ | ✓ | ✓ service | ✓ | ✓ 7 + 18 service | ◐ 5/4 | ✗ |
 | stop-accessibility | ✓ | ✓ | ✓ service | ✓ | ✓ 7 + 18 service | ◐ 5/4 | ✗ |
+| trip-scheduler | ◐ | ✓ | n/a | ✓ | ✓ 2 + 31 computer use | ✗ 0/0 | ✗ |
 
 What the table shows:
 
@@ -480,3 +507,18 @@ a planner confirms. No open data says which stations have elevators.
 
 - Cases: 9, 5 dev and 4 test, including a request to confirm compliance, which it refuses.
 - Next: station elevator and entrance data, if the TTC publishes it openly.
+
+### trip-scheduler
+
+Carries out a schedule change a planner decided in Trip Scheduler, the sample legacy
+scheduling app, with use_computer: computer use, run by the agent, not a sandboxed
+script, since it needs Gemini's key and its own session. Every step is logged in the
+study, and it saves only under a planner's decision that authorises saving in the
+scheduler, one save a decision. Without one it stops before saving and asks a planner.
+It decides no change and records nothing from the app, whose data is made up. Its one
+rule: major changes need the Board's approval (ttc-standards-2024 p. 22), so the change
+is a planner's to decide.
+
+- Cases: none yet.
+- Next: eval cases, including one that asks it to save with no decision; a real
+  agency tool's manifest.

@@ -95,6 +95,15 @@ flowchart LR
    tokens; the agent makes its calls to the service, and only those its
    specialist may make. On macOS, sandbox-exec also keeps it off the network and
    away from the data folder, the eval cases, `.env` files and other skills.
+10. **Agents read agency systems freely, and write to one only under a planner's
+    decision.** Computer use logs each step in the study before it does it: what it
+    looked at, by the screenshot's hash, and what it clicked, typed or pressed. Each
+    sample app's manifest names its writes, such as Save. A write is logged, and
+    done, only under a planner's adopt or amend decision that authorises it, and
+    each decision authorises one. Without one the agent stops and asks a planner.
+    The chat, the model and the agent can't say yes for a planner. What an agent
+    exports or adds can't be cited until a planner adds it. Today this holds for the
+    two sample apps only.
 
 ## API
 
@@ -103,7 +112,10 @@ Full schema at `GET /openapi.json`.
 - Add context: `POST /v1/context`, or drop a file in the watched folder
 - Search source pages: `GET /v1/search`
 - Open a study: `POST /v1/studies`
-- Report agent activity, tokens and cost: `POST /v1/studies/{id}/activity`
+- Report agent activity, tokens and cost: `POST /v1/studies/{id}/activity`. A
+  `computer.action` that names a write is logged only while a planner's decision
+  authorises it unused, and the entry names that decision; otherwise it's refused
+  (403 `needs_decision`), and never in a visitor's sandbox
 - Add a figure: `POST /v1/studies/{id}/figures`
 - Test a figure against a rule: `POST /v1/studies/{id}/checks`
 - Add a finding, such as consultation: `POST /v1/studies/{id}/findings`
@@ -128,7 +140,9 @@ Full schema at `GET /openapi.json`.
 - Accept a skill's result: `POST /v1/studies/{id}/figures/{figure}/accept`
 - Set or change a rule or assumption: `PUT /v1/assumptions/{key}`
 - Try a change without recording it: `POST /v1/studies/{id}/preview`
-- Record a decision: `POST /v1/studies/{id}/decisions`
+- Record a decision: `POST /v1/studies/{id}/decisions`. An adopt or amend may
+  authorise one write to an agency system, as `authorizes: {"app": "scheduler",
+  "action": "save"}`
 - Ping the executive on Slack about an answer's executive decision (planners only): `POST /v1/studies/{id}/escalate`
 - Propose something to make for public engagement: `POST /v1/studies/{id}/needs`
 - Ask for it to be made: `POST /v1/studies/{id}/needs/{need}/create`
@@ -175,14 +189,16 @@ are JSON, sent as JSON.
 - **Agent:** reads, adds context that can't be cited, adds figures and findings,
   hands questions to planners, proposes engagement needs, and puts skill versions
   forward, approving none. An agent that claims a request to make a need
-  attaches the media made for it, or says why it couldn't.
+  attaches the media made for it, or says why it couldn't. It logs each step of
+  computer use, and writes to an agency system only under a planner's decision.
 - **Guest:** a visitor, or someone signed in who isn't a planner. Chats, rates,
   accepts, sets assumptions and asks for engagement media, in their own sandbox.
 - **Evaluator:** reads, and posts a skill candidate's scores, which nobody else may.
   It is the process that holds the eval set's test split, not an agent, and approves
   nothing.
 - **Planner:** everything else, with citable context. Only planners decide,
-  approve or revoke a skill version, take a file down and drop a need, and only their rules, ratings, acceptances and
+  authorise a write to an agency system, approve or revoke a skill version, take a
+  file down and drop a need, and only their rules, ratings, acceptances and
   requests for media reach the shared record.
 
 Webhooks can only go to hosts listed in `WEBHOOK_HOSTS`.

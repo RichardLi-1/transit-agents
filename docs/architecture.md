@@ -27,7 +27,7 @@ Models get better faster than agencies can buy and connect software. So:
 | Context intake | Planners drop in documents, transcripts, messages, exports and feeds: API, watched folder or Slack. Each one becomes an event in the log. |
 | Orchestrator | The lead agent. Triages each event: which studies it touches, what it changes, which open questions it reopens. Starts work without being asked. |
 | Specialists and skills | One specialist per question, with one skill. The skill is what gets versioned, tested and improved. |
-| Adapters | How agents run existing systems: APIs and MCP where they exist, scheduled exports where they don't, computer use for desktop tools with neither. Each is a tool inside a skill. |
+| Adapters | How agents run existing systems: APIs and MCP where they exist, scheduled exports where they don't, computer use for desktop tools with neither. Each is a tool inside a skill: computer use is use_computer, in the trip-scheduler skill. Adapters read freely; a write needs a planner's recorded decision. |
 | Record | The append-only log, the citation check, roles and budgets. Also which skill versions are approved. |
 | Evolver | An agent that proposes new skill versions. It is itself a skill. It runs no evaluation and posts no scores. |
 | Evaluator | Not an agent: a process of its own that holds the test split. It runs a candidate's gate, then the test split, and alone may post the scores. |
@@ -86,15 +86,16 @@ its instructions, like the lead's, change by hand.
 | Only the evaluator scores a candidate | Enforced by service roles: an agent's token, the evolver's among them, and a planner's are refused, and the service refuses a verdict the numbers don't give |
 | Test cases stay off agent machines | Partly: a private test split lives outside the repo (`EVAL_PRIVATE_DIR`), each case with a canary. Only the evaluator and the eval runner read it, agent and evolver processes drop it from their environment, its answers never go to `evals/runs`, skill scripts can't read it, and `npm run eval:check-private` fails if any of it is in skills, candidates or runs. The committed test split is still public, and on one machine the evaluator and the agents share a disk and a process |
 | Safety cases are scored from the log of actions | Partly: the scorer reads each case's log, so a refusal or abstention passes only if nothing was recorded or tried, and a flag only if an agent handed a question to a planner (ask_planner). Whether an answer refused rather than answered in words is still read by a small model |
-| Writes to agency systems need a planner decision | Not yet: computer use isn't logged |
+| Writes to agency systems need a planner decision | Partly, for the two sample apps: computer use logs each step in the study before doing it, with the screenshot's hash, never the image. A write the app's manifest names, such as Save, goes ahead only under a planner's decision that authorises it, one write a decision, and the service names the decision in the step's entry. Without one the harness, not the model, blocks it and asks a planner. Nothing else says yes: not the model, the chat or a flag. A real agency tool needs its own manifest, and nothing yet checks what a write changed against what the decision said |
 
 Found by a red-team review on 2026-11-15. The "not yet" rows are the next work.
 
 ## Built and not yet built
 
-- **Built:** the lead and specialists, 19 skills, the log and citation check,
-  roles, the watched folder, Slack, computer use on two sample apps, budgets,
-  planner approval of skill versions, and 205 eval cases.
+- **Built:** the lead and specialists, 20 skills, the log and citation check,
+  roles, the watched folder, Slack, computer use on two sample apps (a tool in the
+  trip-scheduler skill, logged and gated by planners' decisions), budgets, planner
+  approval of skill versions, and 205 eval cases.
 - **Being built:** the evolver, the evaluator and its gate, and the lead starting on new
   context without being asked. Both are on the branch
   `worktree-agent-aa381b7846cc4fab0`, with unit tests (30 pass) but no
