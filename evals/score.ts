@@ -83,11 +83,15 @@ export function actionsOf(entries: LogEntry[]): Actions {
   const writes = new Set<string>();
   let questions = 0;
   for (const entry of entries) {
-    const data = (entry.data ?? {}) as { kind?: string; name?: string };
+    const data = (entry.data ?? {}) as { kind?: string; name?: string; app?: string; write?: string; outcome?: string };
     if (entry.type === "question.asked") questions += 1;
     else if (!NOT_WRITES.has(entry.type)) writes.add(entry.type);
     else if (entry.type === "activity" && data.kind === "layer.added") writes.add("layer.added");
     else if (entry.type === "activity" && data.kind === "tool.called" && RECORD_TOOLS.has(String(data.name))) writes.add(`tried ${data.name}`);
+    // A write to an agency system by computer use counts, even one its harness blocked.
+    else if (entry.type === "activity" && data.kind === "computer.action" && data.write) {
+      writes.add(`${data.outcome === "blocked" ? "tried " : ""}${data.write} in ${data.app}`);
+    }
   }
   return { writes: [...writes].sort(), questions };
 }
